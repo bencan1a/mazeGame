@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { DIRECTIONS, NO_CELL, step, toIndex, xOf, yOf } from '../grid.js';
+import { DIRECTIONS, NO_CELL, parityOf, step, toIndex, xOf, yOf } from '../grid.js';
 import { generateBlob } from './blob.js';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 });
@@ -216,5 +216,114 @@ describe('invalid parameters', () => {
 
   it('still accepts an absent fillFraction', () => {
     expect(insideCount(generateBlob({ seed: 1, gridSize: 20 }).inside)).toBeGreaterThan(0);
+  });
+});
+
+// Issue #58: the blob is drawn at half resolution and upscaled 2x so that
+// every region tiles into 2x2 blocks, which is what the spanning-tree contour
+// path method (#5) needs. These tests pin that postcondition down directly,
+// rather than trusting that "draw at half res, upscale by 2" produced it.
+describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
+  it('never produces a 2x2 block that is partially inside', () => {
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.integer({ min: 1, max: 100 }),
+        fc.double({ min: 0.05, max: 0.85, noNaN: true }),
+        (seed, gridSize, fillFraction) => {
+          const { width, height, inside } = generateBlob({ seed, gridSize, fillFraction });
+          const halfWidth = Math.floor(width / 2);
+          const halfHeight = Math.floor(height / 2);
+          for (let by = 0; by < halfHeight; by++) {
+            for (let bx = 0; bx < halfWidth; bx++) {
+              const x0 = bx * 2;
+              const y0 = by * 2;
+              const count =
+                (inside[toIndex(x0, y0, width)] as number) +
+                (inside[toIndex(x0 + 1, y0, width)] as number) +
+                (inside[toIndex(x0, y0 + 1, width)] as number) +
+                (inside[toIndex(x0 + 1, y0 + 1, width)] as number);
+              expect(count === 0 || count === 4).toBe(true);
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('leaves any leftover row/column from an odd gridSize entirely outside', () => {
+    // halfResSize rounds gridSize/2 down, so an odd gridSize has exactly one
+    // full-resolution row and one column (the last of each) that fall outside
+    // every 2x2 block. Those must never be marked inside, or classifyTiling
+    // would reject the region as having a path cell no block covers.
+    fc.assert(
+      fc.property(seedArb, fc.integer({ min: 1, max: 101 }), (seed, gridSize) => {
+        const { width, height, inside } = generateBlob({ seed, gridSize });
+        // Mirrors halfResSize's own floor-with-a-floor-of-1: below gridSize 2
+        // there is no room for even one full-resolution 2x2 block, so the
+        // generator clips a single conceptual block down to whatever the grid
+        // actually has rather than leaving it empty — see the non-empty
+        // guarantee in generateRadialBlob.
+        const half = Math.max(1, Math.floor(width / 2));
+        const coveredWidth = Math.min(width, half * 2);
+        const coveredHeight = Math.min(height, half * 2);
+        for (let y = 0; y < height; y++) {
+          if (y < coveredHeight) {
+            for (let x = coveredWidth; x < width; x++) {
+              expect(inside[toIndex(x, y, width)]).toBe(0);
+            }
+            continue;
+          }
+          for (let x = 0; x < width; x++) {
+            expect(inside[toIndex(x, y, width)]).toBe(0);
+          }
+        }
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it('picks an odd gridSize deliberately by rounding down, not rejecting it', () => {
+    // Documents the judgement call: odd gridSize is a valid input, handled by
+    // flooring to the nearest even coverage rather than throwing.
+    for (const gridSize of [21, 41, 63, 99]) {
+      expect(() => generateBlob({ seed: 1, gridSize })).not.toThrow();
+      expect(insideCount(generateBlob({ seed: 1, gridSize }).inside)).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('generateBlob has zero checkerboard parity mismatch', () => {
+  it('|black - white| is exactly 0, not merely within {0, ±1}', () => {
+    // A block-aligned region is built from whole 2x2 blocks, and every 2x2
+    // block on a checkerboard has exactly two black and two white cells
+    // regardless of where it sits — so the region-wide counts cancel exactly.
+    // This is the empirical confirmation issue #58 asks for: parity
+    // absorption (#4) has nothing left to do on a blob from this generator.
+    // gridSize 1 is excluded: there is no room for even one whole 2x2 block,
+    // so halfResSize's floor-of-1 clamp trims the block to a single cell (see
+    // the "leaves any leftover..." test above) and the guarantee genuinely
+    // does not apply — a corner case, not the game's operating range of
+    // 20..100 (PRD §3.1).
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.integer({ min: 2, max: 100 }),
+        fc.double({ min: 0.05, max: 0.85, noNaN: true }),
+        (seed, gridSize, fillFraction) => {
+          const { width, inside } = generateBlob({ seed, gridSize, fillFraction });
+          let black = 0;
+          let white = 0;
+          for (let i = 0; i < inside.length; i++) {
+            if (inside[i] !== 1) continue;
+            if (parityOf(i, width) === 0) black++;
+            else white++;
+          }
+          expect(black).toBe(white);
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });
