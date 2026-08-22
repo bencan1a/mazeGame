@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { DIRECTIONS, NO_CELL, step } from '../grid.js';
+import { DIRECTIONS, NO_CELL, step, toIndex, xOf, yOf } from '../grid.js';
 import { generateBlob } from './blob.js';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 });
@@ -101,7 +101,7 @@ describe('generateBlob is organically shaped', () => {
         let maxY = -1;
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
-            if (inside[y * width + x] !== 1) continue;
+            if (inside[toIndex(x, y, width)] !== 1) continue;
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -125,8 +125,8 @@ describe('generateBlob is organically shaped', () => {
         let n = 0;
         for (let i = 0; i < inside.length; i++) {
           if (inside[i] !== 1) continue;
-          sx += i % width;
-          sy += Math.floor(i / width);
+          sx += xOf(i, width);
+          sy += yOf(i, width);
           n++;
         }
         const cx = sx / n;
@@ -143,8 +143,8 @@ describe('generateBlob is organically shaped', () => {
             return nb === NO_CELL || inside[nb] !== 1;
           });
           if (!isBoundary) continue;
-          const x = i % width;
-          const y = Math.floor(i / width);
+          const x = xOf(i, width);
+          const y = yOf(i, width);
           radii.push(Math.hypot(x - cx, y - cy));
         }
 
