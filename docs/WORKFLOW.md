@@ -48,6 +48,16 @@ Milestones map to M0–M5 in the plan.
    cleanly, and not compile together. That is how `main` broke in #62 — one PR
    made a field required while another added a literal that named every field.
 
+   Branch protection requires the branch to be up to date, so this is enforced
+   rather than remembered, and a push during a merge invalidates the check and
+   greys the button out — which is the window that lost `a6435f1` off #48.
+   Two things run automatically on top of it, from
+   `.github/workflows/base-moved.yml`: every open PR the merge could break is
+   re-verified against the new `main` and gets a pass/fail status saying so, and
+   the merged branch's tip is checked to be an ancestor of `main`. What that
+   costs, and why it does not re-check every open PR, is in
+   [CI-COST.md](./CI-COST.md).
+
 ## File ownership
 
 Concurrency works because streams do not share files. Stay in your lane.
@@ -75,9 +85,19 @@ Shared files are the one place where parallel work can genuinely break. So:
    affects.
 2. Wait for the human to accept it. This is the one place where blocking on a
    human is correct.
-3. Land the type change and the fixture updates in a **single small PR**, on its
+3. **Adding a required field to a shared type? Grep the tree for literal
+   constructions of that type and fix every one in the same PR.** A field that
+   spreads from a defaults object costs nothing; the moment one caller names
+   every field instead, the same change stops compiling. That is not
+   hypothetical — #52's own issue said so in writing, nobody grepped, and #53
+   plus #57 broke `main` in the same batch of merges. `grep -rn 'GenParams'`
+   over `src`, `test` and `scripts`, and read each hit: a spread is fine, a
+   literal is a fix you owe. Prefer making the field optional with a default, or
+   have callers spread `DEFAULT_GEN_PARAMS`, so the next change does not have to
+   repeat this.
+4. Land the type change and the fixture updates in a **single small PR**, on its
    own, with no feature work attached.
-4. Say so in the issues of every stream affected.
+5. Say so in the issues of every stream affected.
 
 A contract PR that also contains feature work will be sent back, because it
 cannot be reviewed for the thing that actually matters.
