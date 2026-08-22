@@ -161,7 +161,15 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 - Directions: `0=N 1=E 2=S 3=W`.
 - Generator work needs **property-based** invariant tests (`fast-check`), not
   only examples. The invariants are listed in `docs/CONTRACTS.md`.
-- Comments explain _why_. The what is in the code.
+- **Write fewer comments.** A comment earns its place only if it says something
+  genuinely non-obvious — a constraint from elsewhere, a rejected alternative, a
+  bound that is not visible locally. If a competent reader would work it out
+  from the code in a few seconds, delete it. "Explains why" is not enough of a
+  filter: most wrong comments are nominally why.
+- **A comment that misdescribes the code is a defect, ranked with a logic
+  error, not a nit.** Nothing executes prose, so a confident wrong comment
+  survives review that wrong code would not, and then misleads whoever trusts
+  it. Volume is what makes wrongness likely — hence the rule above.
 
 ## Working here
 

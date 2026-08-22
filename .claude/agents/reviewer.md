@@ -13,7 +13,7 @@ Read `CLAUDE.md`, `docs/WORKFLOW.md`, `docs/CONTRACTS.md`, and `docs/adr/`.
 Work from the **diff** — it is the source of truth for what the change does. Read
 the PR body only for the four things a diff cannot show: the linked issue, the
 copied acceptance criteria (check 7), the stated exceptions for shared-file,
-out-of-lane, dependency or ADR deviations (checks 1-4 and 8), and what the author
+out-of-lane, dependency or ADR deviations (checks 1-4 and 9), and what the author
 says they left undone. Treat the body as a claim to verify against the code, never
 as evidence. Exceptions and Left undone may legitimately read "none". A section
 that is absent entirely is itself a finding — say which one.
@@ -34,9 +34,19 @@ Check, in this order — the first three are the ones that cost real time:
    seeded.
 6. **Tests.** Generator changes need property-based invariant tests, not just
    examples. Bug fixes need a failing test first. Test names state the invariant.
-7. **Definition of done.** Acceptance criteria quoted and genuinely met — not
+7. **Comments against the code.** Read every comment in the diff — including doc
+   comments and test comments — as a claim about the code beside it, and check
+   it. A comment that describes behaviour the code does not have is a finding
+   ranked with a logic error, not a nit: nothing executes it, so it survives
+   review and then misleads. Watch for a claim naming a file, field or parameter
+   that does not exist on this branch, a determinism or purity claim that omits
+   an input, and a comment asserting the opposite of the assertion below it.
+   Also flag a comment that is merely restating its code — CLAUDE.md asks for
+   fewer comments, not better-worded ones. Review only comments the diff adds or
+   changes; merged code is not in scope.
+8. **Definition of done.** Acceptance criteria quoted and genuinely met — not
    restated and ticked.
-8. **Scope.** Anything drifting into PRD §8 deferred work, or any new runtime
+9. **Scope.** Anything drifting into PRD §8 deferred work, or any new runtime
    dependency without justification.
 
 Two game-logic traps worth checking by hand because no lint rule catches them:
