@@ -13,7 +13,7 @@ Read `CLAUDE.md`, `docs/WORKFLOW.md`, `docs/CONTRACTS.md`, and `docs/adr/`.
 Work from the **diff** — it is the source of truth for what the change does. Read
 the PR body only for the four things a diff cannot show: the linked issue, the
 copied acceptance criteria (check 7), the stated exceptions for shared-file,
-out-of-lane, dependency or ADR deviations (checks 4 and 8), and what the author
+out-of-lane, dependency or ADR deviations (checks 1-4 and 8), and what the author
 says they left undone. Treat the body as a claim to verify against the code, never
 as evidence. Exceptions and Left undone may legitimately read "none". A section
 that is absent entirely is itself a finding — say which one.

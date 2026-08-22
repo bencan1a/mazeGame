@@ -46,8 +46,7 @@ whole.
 
 **Lead with impact, not mechanism.** "Taps near a blocked segment no longer
 cost a life" beats "added a free-segment filter to the hit-test radius query".
-Mechanism goes in the code, the commit message and the PR body — that is what
-they are for.
+Mechanism goes in the code and the commit message — that is what they are for.
 
 **Leave out the journey.** No recap of approaches you tried, dead ends you
 backed out of, bugs you introduced and fixed, or how long something took. The
