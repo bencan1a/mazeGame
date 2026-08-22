@@ -4,7 +4,10 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'dev-dist', 'node_modules'] },
+  // .claude/worktrees holds live checkouts for parallel stream agents. Linting
+  // them from the main checkout reports another agent's in-progress code as this
+  // one's failure, and the files vanish mid-run when an agent finishes.
+  { ignores: ['dist', 'coverage', 'dev-dist', 'node_modules', '.claude/worktrees'] },
   js.configs.recommended,
   {
     // Type-aware linting only where a tsconfig actually covers the file.
