@@ -212,3 +212,17 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
     );
   });
 });
+
+describe('firstFullBlock', () => {
+  it('points at the first full block, so callers need not rescan for it', () => {
+    // The offset that succeeds is not always (0,0), and the spanning tree and
+    // the cycle cut both root here — the whole point of carrying it is that
+    // those two cannot drift from this one.
+    const result = classifyTiling(makeMask(['....', '.##.', '.##.', '....'].join('\n')));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.firstFullBlock).toBe(result.blockFull.indexOf(1));
+    expect(result.blockFull[result.firstFullBlock]).toBe(1);
+  });
+});

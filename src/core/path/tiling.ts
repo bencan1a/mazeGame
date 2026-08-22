@@ -43,6 +43,15 @@ export interface TilingOk {
    */
   readonly offsetX: 0 | 1;
   readonly offsetY: 0 | 1;
+  /**
+   * Index into `blockFull` of the first full block, in row-major order.
+   *
+   * Carried rather than re-derived: the spanning tree roots itself here and
+   * the contour cuts its cycle here, and both used to find it with their own
+   * `indexOf(1)`. Three scans that had to agree by hand on what "no full
+   * block" means is one more chance to disagree than the answer is worth.
+   */
+  readonly firstFullBlock: number;
 }
 
 export interface TilingFailed {
@@ -172,7 +181,8 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
   // The path is one walk, so its blocks must be a single 4-connected piece —
   // a spanning tree cannot span two components with one tree.
   const total = countOnes(blockFull);
-  const reached = floodFillCount(blockFull, halfWidth, halfHeight);
+  const firstFullBlock = blockFull.indexOf(1);
+  const reached = floodFillCount(blockFull, halfWidth, halfHeight, firstFullBlock);
   if (reached !== total) {
     return {
       ok: false,
@@ -194,7 +204,7 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     };
   }
 
-  return { ok: true, halfWidth, halfHeight, blockFull, offsetX, offsetY };
+  return { ok: true, halfWidth, halfHeight, blockFull, offsetX, offsetY, firstFullBlock };
 }
 
 function countOnes(arr: Uint8Array): number {
@@ -203,8 +213,12 @@ function countOnes(arr: Uint8Array): number {
   return n;
 }
 
-function floodFillCount(blockFull: Uint8Array, halfWidth: number, halfHeight: number): number {
-  const start = blockFull.indexOf(1);
+function floodFillCount(
+  blockFull: Uint8Array,
+  halfWidth: number,
+  halfHeight: number,
+  start: number,
+): number {
   if (start === -1) return 0;
 
   const seen = new Uint8Array(blockFull.length);

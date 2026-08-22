@@ -20,7 +20,13 @@ describe('buildSpanningTree', () => {
     const halfWidth = 5;
     const halfHeight = 4;
     const blockFull = fullRectangle(halfWidth, halfHeight);
-    const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(1));
+    const tree = buildSpanningTree(
+      blockFull,
+      halfWidth,
+      halfHeight,
+      createRng(1),
+      blockFull.indexOf(1),
+    );
     // Each edge is recorded twice (once from each endpoint), so /2 gives the edge count.
     expect(countOpenEdges(tree.open) / 2).toBe(halfWidth * halfHeight - 1);
   });
@@ -29,7 +35,13 @@ describe('buildSpanningTree', () => {
     const halfWidth = 6;
     const halfHeight = 5;
     const blockFull = fullRectangle(halfWidth, halfHeight);
-    const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(42));
+    const tree = buildSpanningTree(
+      blockFull,
+      halfWidth,
+      halfHeight,
+      createRng(42),
+      blockFull.indexOf(1),
+    );
     for (let block = 0; block < halfWidth * halfHeight; block++) {
       for (const dir of DIRECTIONS) {
         if (tree.open[block * 4 + dir] !== 1) continue;
@@ -44,7 +56,13 @@ describe('buildSpanningTree', () => {
     const halfWidth = 7;
     const halfHeight = 6;
     const blockFull = fullRectangle(halfWidth, halfHeight);
-    const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(7));
+    const tree = buildSpanningTree(
+      blockFull,
+      halfWidth,
+      halfHeight,
+      createRng(7),
+      blockFull.indexOf(1),
+    );
 
     const seen = new Uint8Array(blockFull.length);
     seen[0] = 1;
@@ -72,7 +90,13 @@ describe('buildSpanningTree', () => {
     for (let bx = 0; bx < halfWidth; bx++) blockFull[bx] = 1; // top row
     for (let by = 0; by < halfHeight; by++) blockFull[by * halfWidth] = 1; // left column
 
-    const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(3));
+    const tree = buildSpanningTree(
+      blockFull,
+      halfWidth,
+      halfHeight,
+      createRng(3),
+      blockFull.indexOf(1),
+    );
     for (let block = 0; block < blockFull.length; block++) {
       if (blockFull[block] !== 1) {
         expect(tree.open[block * 4 + 0]).toBe(0);
@@ -96,8 +120,20 @@ describe('buildSpanningTree', () => {
         const halfWidth = 8;
         const halfHeight = 8;
         const blockFull = fullRectangle(halfWidth, halfHeight);
-        const a = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(seed));
-        const b = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(seed));
+        const a = buildSpanningTree(
+          blockFull,
+          halfWidth,
+          halfHeight,
+          createRng(seed),
+          blockFull.indexOf(1),
+        );
+        const b = buildSpanningTree(
+          blockFull,
+          halfWidth,
+          halfHeight,
+          createRng(seed),
+          blockFull.indexOf(1),
+        );
         expect(a.open).toEqual(b.open);
       }),
       { numRuns: 20 },
@@ -108,7 +144,13 @@ describe('buildSpanningTree', () => {
     const halfWidth = 3;
     const halfHeight = 3;
     const blockFull = new Uint8Array(halfWidth * halfHeight);
-    const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, createRng(1));
+    const tree = buildSpanningTree(
+      blockFull,
+      halfWidth,
+      halfHeight,
+      createRng(1),
+      blockFull.indexOf(1),
+    );
     expect(countOpenEdges(tree.open)).toBe(0);
   });
 });

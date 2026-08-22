@@ -23,9 +23,10 @@ export function buildSpanningTree(
   halfWidth: number,
   halfHeight: number,
   rng: Rng,
+  /** Row-major index of the block to root at; `TilingOk.firstFullBlock`. -1 when there is none. */
+  start: number,
 ): SpanningTree {
   const open = new Uint8Array(blockFull.length * 4);
-  const start = blockFull.indexOf(1);
   if (start === -1) return { halfWidth, halfHeight, open };
 
   const visited = new Uint8Array(blockFull.length);

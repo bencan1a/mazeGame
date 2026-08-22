@@ -71,7 +71,7 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
   if (!tiling.ok) return tiling;
 
   const { halfWidth, halfHeight, blockFull, offsetX, offsetY } = tiling;
-  const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, rng);
+  const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, rng, tiling.firstFullBlock);
 
   const width = mask.width;
   const next = new Uint32Array(width * mask.height);
@@ -106,7 +106,7 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
 
   // Cut the cycle at the first full block's NW corner. Any cell would do —
   // the contour is a cycle, so every cut yields a valid Hamiltonian path.
-  const startBlock = blockFull.indexOf(1);
+  const startBlock = tiling.firstFullBlock;
   // classifyTiling's ok:true guarantees at least one full, connected block
   // (mask.pathCellCount === 0 and an empty blockFull are both rejected there),
   // so this should be unreachable. Guarded anyway: a negative index here would
