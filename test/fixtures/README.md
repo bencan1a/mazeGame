@@ -4,7 +4,7 @@ Synthetic masks, paths, and boards. **This is the mechanism that lets the
 streams run in parallel** — every stage is developed against a synthetic version
 of its own input instead of waiting for the stage upstream of it.
 
-Builders to land here (see the `fixtures` issue in `docs/backlog.md`):
+Builders to land here (issue #1):
 
 | Builder           | Produces                                                                        |
 | ----------------- | ------------------------------------------------------------------------------- |

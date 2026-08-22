@@ -14,3 +14,7 @@ npm-debug.log*
 /sweeps/
 .claude/settings.local.json
 *.tsbuildinfo
+
+# Generated from scripts/backlog.json; GitHub Issues are the source of truth.
+# Regenerate locally with: node scripts/seed-github.mjs --render
+docs/backlog.md

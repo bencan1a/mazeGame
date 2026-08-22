@@ -12,8 +12,8 @@ Proof of concept. Full spec: [`docs/PRD.md`](docs/PRD.md).
 
 ## Status
 
-Scaffolding. The generator, renderer, and game loop are open issues — see
-[`docs/backlog.md`](docs/backlog.md).
+Scaffolding. The generator, renderer, and game loop are tracked as
+[open issues](https://github.com/bencan1a/mazeGame/issues) (#1–#32).
 
 **Live build:** <https://bencan1a.github.io/mazeGame/> — deploys on every push
 to `main`. To put a branch on a phone, run the _Deploy to GitHub Pages_ workflow
@@ -48,17 +48,17 @@ generator is tuned by measurement, not intuition — see
 
 ## Docs
 
-|                                      |                                                                   |
-| ------------------------------------ | ----------------------------------------------------------------- |
-| [PRD](docs/PRD.md)                   | The specification                                                 |
-| [Plan](docs/PLAN.md)                 | Phases, milestones, parallel work streams                         |
-| [Architecture](docs/ARCHITECTURE.md) | Module map and the rules the build enforces                       |
-| [Contracts](docs/CONTRACTS.md)       | Interfaces every stream codes against                             |
-| [Workflow](docs/WORKFLOW.md)         | How one human and several agents share this repo                  |
-| [Metrics](docs/METRICS.md)           | What the tuning harness measures and how to read it               |
-| [Testing](docs/TESTING.md)           | What CI settles, what needs a real phone, and how to get it there |
-| [Backlog](docs/backlog.md)           | The work, seeded into GitHub Issues                               |
-| [ADRs](docs/adr/)                    | Decisions and why the alternatives lost                           |
+|                                        |                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [PRD](docs/PRD.md)                     | The specification                                                                          |
+| [Plan](docs/PLAN.md)                   | Phases, milestones, parallel work streams                                                  |
+| [Architecture](docs/ARCHITECTURE.md)   | Module map and the rules the build enforces                                                |
+| [Contracts](docs/CONTRACTS.md)         | Interfaces every stream codes against                                                      |
+| [Workflow](docs/WORKFLOW.md)           | How one human and several agents share this repo                                           |
+| [Metrics](docs/METRICS.md)             | What the tuning harness measures and how to read it                                        |
+| [Testing](docs/TESTING.md)             | What CI settles, what needs a real phone, and how to get it there                          |
+| [Backlog source](scripts/backlog.json) | Seed data for the issues; run `node scripts/seed-github.mjs --render` for a readable index |
+| [ADRs](docs/adr/)                      | Decisions and why the alternatives lost                                                    |
 
 Agents: start with [`CLAUDE.md`](CLAUDE.md).
 

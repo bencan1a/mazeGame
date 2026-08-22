@@ -117,8 +117,9 @@ file — changes to them follow the contract-change rule.
 
 ## 4. Sequenced backlog
 
-Full issue list with acceptance criteria: [backlog.md](./backlog.md).
-Seed it into GitHub with `node scripts/seed-github.mjs`.
+Full issue list with acceptance criteria:
+[the GitHub issues](https://github.com/bencan1a/mazeGame/issues) (#1–#32),
+generated from [`scripts/backlog.json`](../scripts/backlog.json).
 
 ### Wave 0 — unblock everyone (do first, ideally by the human or one agent)
 

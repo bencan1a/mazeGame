@@ -1,6 +1,7 @@
 # ADR-0005: GitHub Issues as the task source of truth
 
-**Status:** Accepted
+**Status:** Accepted; the role of `docs/backlog.md` is amended by
+[ADR-0007](./0007-generated-backlog-not-committed.md)
 
 ## Context
 

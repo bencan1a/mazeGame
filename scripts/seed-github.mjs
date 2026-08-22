@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Seeds GitHub with the labels, milestones, and issues in scripts/backlog.json,
- * and renders the readable index at docs/backlog.md.
+ * and renders a readable local index at docs/backlog.md (gitignored — the
+ * issues are the source of truth, so a committed copy would only drift).
  *
  * Idempotent and reconciling. Issues are matched by title and never rewritten,
  * but labels have their colour and description brought into line, and issues

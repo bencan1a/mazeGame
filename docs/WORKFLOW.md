@@ -7,9 +7,11 @@ does not compose.
 ## Source of truth
 
 **GitHub Issues.** One issue = one unit of work = one branch = one PR.
-Seeded: **#1–#32**. [`docs/backlog.md`](./backlog.md) is the readable index and
-the seed for the issue list; now that the issues exist, the issues win.
-Reconcile with `node scripts/seed-github.mjs --dry-run`.
+Seeded: **#1–#32**. [`scripts/backlog.json`](../scripts/backlog.json) is the
+seed data those issues were created from; now that they exist, **the issues
+win**. Reconcile with `node scripts/seed-github.mjs --dry-run`, or render a
+readable local index with `--render` (it writes `docs/backlog.md`, which is
+gitignored precisely so it cannot drift into looking authoritative).
 
 Labels:
 
