@@ -48,15 +48,17 @@ Milestones map to M0–M5 in the plan.
    cleanly, and not compile together. That is how `main` broke in #62 — one PR
    made a field required while another added a literal that named every field.
 
-   Branch protection requires the branch to be up to date, so this is enforced
-   rather than remembered, and a push during a merge invalidates the check and
-   greys the button out — which is the window that lost `a6435f1` off #48.
-   Two things run automatically on top of it, from
-   `.github/workflows/base-moved.yml`: every open PR the merge could break is
-   re-verified against the new `main` and gets a pass/fail status saying so, and
-   the merged branch's tip is checked to be an ancestor of `main`. What that
-   costs, and why it does not re-check every open PR, is in
-   [CI-COST.md](./CI-COST.md).
+   Branch protection enforces this rather than leaving it to be remembered: the
+   branch must be up to date and its checks green, and a push during a merge
+   invalidates the check and greys the button out — which is the window that
+   lost `a6435f1` off #48. Nothing re-runs CI on your PR when `main` moves; that
+   is deliberate, and [ADR-0008](./adr/0008-pr-currency-is-branch-protection-not-ci.md)
+   has the numbers. With several PRs open, every merge makes the rest out of
+   date and it is on you to merge `main` in again.
+
+   After each merge, `.github/workflows/merge-landed.yml` checks that the merged
+   branch's tip is an ancestor of `main`, so a lost mid-merge push is caught
+   while the branch still exists to recover from.
 
 ## File ownership
 
