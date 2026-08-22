@@ -15,7 +15,8 @@ the PR body only for the four things a diff cannot show: the linked issue, the
 copied acceptance criteria (check 7), the stated exceptions for shared-file,
 out-of-lane, dependency or ADR deviations (checks 4 and 8), and what the author
 says they left undone. Treat the body as a claim to verify against the code, never
-as evidence. If a section is missing, that is itself a finding — say which one.
+as evidence. Exceptions and Left undone may legitimately read "none". A section
+that is absent entirely is itself a finding — say which one.
 
 Check, in this order — the first three are the ones that cost real time:
 

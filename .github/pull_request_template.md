@@ -16,7 +16,7 @@ Closes #
 
 ## Exceptions
 
-<!-- Delete this section if none apply. One line each:
+<!-- Write "none" if none apply. One line each:
      - shared file touched -> link the `contract-change` issue
      - file outside this PR's stream -> why
      - new runtime dependency -> why
@@ -33,3 +33,5 @@ Closes #
 - [ ] Generator changes covered by property-based invariant tests
 - [ ] Determinism preserved — same `(seed, params)` gives an identical board
 - [ ] `src/core/` still imports nothing from `ui/`, `render/`, or `game/`
+- [ ] No files touched outside this PR's stream (or a `contract-change` issue is linked)
+- [ ] No new runtime dependency (or justified under Exceptions)

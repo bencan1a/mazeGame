@@ -38,6 +38,12 @@ Write for that reader.
 Aim for under 80 words. If it doesn't fit, the reply is carrying detail that
 belongs in the PR description, an issue, or a doc — put it there and link it.
 
+This shape governs conversational replies. It does not override an output
+contract an agent definition sets for a structured deliverable — a `reviewer`
+findings list, a `sweep` metrics table — which is as long as it needs to be.
+Apply the writing rules below to each entry in one, not the length rule to the
+whole.
+
 **Lead with impact, not mechanism.** "Taps near a blocked segment no longer
 cost a life" beats "added a free-segment filter to the hit-test radius query".
 Mechanism goes in the code, the commit message and the PR body — that is what
