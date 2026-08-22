@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../../test/fixtures/board.js';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import { makePath } from '../../../test/fixtures/path.js';
-import { NORTH, NO_CELL, step } from '../grid.js';
+import { NO_CELL, directionBetween, step } from '../grid.js';
 import type { Direction } from '../types.js';
 import type { BlockingGraphInput } from './blocking.js';
 import { buildBlockingGraph } from './blocking.js';
@@ -289,11 +289,7 @@ describe('construction time at 100x100', () => {
 });
 
 function directionOf(from: number, to: number, width: number): Direction {
-  const dx = (to % width) - (from % width);
-  if (dx === 1) return 1;
-  if (dx === -1) return 3;
-  const dy = Math.floor(to / width) - Math.floor(from / width);
-  if (dy === 1) return 2;
-  if (dy === -1) return NORTH;
-  throw new Error(`cells ${from} and ${to} are not 4-neighbours`);
+  const dir = directionBetween(from, to, width);
+  if (dir === -1) throw new Error(`cells ${from} and ${to} are not 4-neighbours`);
+  return dir;
 }
