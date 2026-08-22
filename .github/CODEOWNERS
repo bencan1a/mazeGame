@@ -1,0 +1,11 @@
+# Paths where a human approval is required regardless of Claude's review.
+#
+# Claude reviews and approves ordinary PRs, but it must not be able to approve
+# changes to the automation that governs it. Anything that could weaken the
+# review gate itself is owned by a human.
+#
+# Requires "Require review from Code Owners" to be enabled on the branch rule.
+
+/.github/workflows/   @bencan1a
+/.github/CODEOWNERS   @bencan1a
+/.github/rulesets/    @bencan1a
