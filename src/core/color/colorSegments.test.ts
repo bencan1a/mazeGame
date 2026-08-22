@@ -219,3 +219,16 @@ describe('malformed input is rejected, not coloured badly', () => {
     expect(() => colorSegments(bad, 2)).toThrow(/expected 3/);
   });
 });
+
+describe('duplicate adjacency entries', () => {
+  it('rejects a neighbour listed twice, which would corrupt the ordering', () => {
+    // A duplicate double-decrements degree during peeling, so the ordering
+    // stops being a true degeneracy ordering and the <= 6 bound no longer
+    // follows from it.
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 2, 3]),
+      adjTarget: Uint32Array.from([2, 2, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/segment 1 lists segment 2 more than once/);
+  });
+});

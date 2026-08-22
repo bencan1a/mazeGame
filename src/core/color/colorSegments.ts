@@ -115,12 +115,14 @@ export function colorSegments(
  * easier to verify than a bucket-queue peeling structure would be.
  */
 function smallestLastOrder(adjacency: AdjacencyGraph, segmentCount: number): Uint32Array {
-  const neighborsOf: number[][] = Array.from({ length: segmentCount }, (_, i) => {
-    const start = adjacency.adjStart[i] as number;
-    const end = adjacency.adjStart[i + 1] as number;
-    return Array.from(adjacency.adjTarget.slice(start, end));
-  });
-  const degree: number[] = neighborsOf.map((list) => list.length);
+  // Read the CSR in place. Slicing it into per-segment arrays would allocate
+  // one array per segment to hold what adjStart/adjTarget already express
+  // (ADR-0003), and the offsets are all this loop ever needs.
+  const { adjStart, adjTarget } = adjacency;
+  const degree = new Uint32Array(segmentCount);
+  for (let v = 0; v < segmentCount; v++) {
+    degree[v] = (adjStart[v + 1] as number) - (adjStart[v] as number);
+  }
   const removed = new Uint8Array(segmentCount);
   const order = new Uint32Array(segmentCount);
 
@@ -132,8 +134,8 @@ function smallestLastOrder(adjacency: AdjacencyGraph, segmentCount: number): Uin
     }
     order[filled] = best + 1;
     removed[best] = 1;
-    for (const neighbourId of neighborsOf[best] as number[]) {
-      const neighbourIndex = neighbourId - 1;
+    for (let e = adjStart[best] as number; e < (adjStart[best + 1] as number); e++) {
+      const neighbourIndex = (adjTarget[e] as number) - 1;
       if (removed[neighbourIndex] === 0) {
         degree[neighbourIndex] = (degree[neighbourIndex] as number) - 1;
       }
@@ -182,7 +184,15 @@ function assertWellFormed(adjacency: AdjacencyGraph, segmentCount: number): void
       if (neighbour === id) {
         throw new ColoringError(`segment ${id} is adjacent to itself`);
       }
-      edges.add(id * (segmentCount + 1) + neighbour);
+      const edge = id * (segmentCount + 1) + neighbour;
+      // A duplicate double-decrements `degree` in smallestLastOrder, which
+      // breaks the degeneracy ordering the <= 6 bound rests on. types.ts and
+      // the doc comment above both call duplicate-free part of well-formed,
+      // so check it rather than trusting the producer.
+      if (edges.has(edge)) {
+        throw new ColoringError(`segment ${id} lists segment ${neighbour} more than once`);
+      }
+      edges.add(edge);
     }
   }
 
