@@ -31,6 +31,9 @@ import type { AdjacencyGraph } from './types.js';
 /** Number of palette hues the render layer promises (PRD §3.3: 4-6). */
 export const DEFAULT_PALETTE_SIZE = 6;
 
+/** Colours are returned in a Uint8Array, so the largest index that fits is 255. */
+export const MAX_PALETTE_SIZE = 256;
+
 /** Thrown when the palette genuinely cannot cover the adjacency graph. */
 export class ColoringError extends Error {
   constructor(
@@ -46,22 +49,29 @@ export class ColoringError extends Error {
  * Assigns each segment a palette index in `[0, paletteSize)` such that no two
  * adjacent segments (per `adjacency`) share one.
  *
- * `adjacency` is expected to be well formed: CSR offsets of length
- * `segmentCount + 1`, symmetric, no self-loops. `buildAdjacencyGraph` produces
- * exactly that; this is validated defensively rather than assumed, because a
- * malformed board should fail loudly here instead of producing a colouring
- * that silently violates the readability property it exists to guarantee.
+ * `adjacency` must be well formed: CSR offsets of length `segmentCount + 1`,
+ * starting at 0, non-decreasing, ending at `adjTarget.length`; every target a
+ * valid 1-based id; no self-loops; symmetric. `buildAdjacencyGraph` produces
+ * exactly that. It is checked rather than assumed, because a malformed graph
+ * would otherwise produce a colouring that silently violates the readability
+ * property this function exists to guarantee - and the caller would have no
+ * way to tell a good colouring from a meaningless one.
  */
 export function colorSegments(
   adjacency: AdjacencyGraph,
   segmentCount: number,
   paletteSize: number = DEFAULT_PALETTE_SIZE,
 ): Uint8Array {
-  if (adjacency.adjStart.length !== segmentCount + 1) {
+  // A colour index has to fit the Uint8Array this returns. Without this guard a
+  // paletteSize above 256 lets the greedy search pick 256+, which wraps modulo
+  // 256 on assignment and can hand two touching segments the same hue - a
+  // silent failure of the exact property this function exists to guarantee.
+  if (!Number.isInteger(paletteSize) || paletteSize < 1 || paletteSize > MAX_PALETTE_SIZE) {
     throw new ColoringError(
-      `adjacency.adjStart has ${adjacency.adjStart.length} entries, expected ${segmentCount + 1}`,
+      `paletteSize must be an integer in 1..${MAX_PALETTE_SIZE}, got ${paletteSize}`,
     );
   }
+  assertWellFormed(adjacency, segmentCount);
   if (segmentCount === 0) return new Uint8Array(0);
 
   const order = smallestLastOrder(adjacency, segmentCount);
@@ -131,4 +141,58 @@ function smallestLastOrder(adjacency: AdjacencyGraph, segmentCount: number): Uin
   }
 
   return order;
+}
+
+/**
+ * The checks the doc comment above promises. Linear in the number of edges, run
+ * once per board, so the cost is not worth trading for the failure mode.
+ */
+function assertWellFormed(adjacency: AdjacencyGraph, segmentCount: number): void {
+  const { adjStart, adjTarget } = adjacency;
+  if (adjStart.length !== segmentCount + 1) {
+    throw new ColoringError(
+      `adjacency.adjStart has ${adjStart.length} entries, expected ${segmentCount + 1}`,
+    );
+  }
+  if (segmentCount === 0) return;
+  if (adjStart[0] !== 0) {
+    throw new ColoringError(`adjacency.adjStart[0] is ${adjStart[0] as number}, expected 0`);
+  }
+  if (adjStart[segmentCount] !== adjTarget.length) {
+    throw new ColoringError(
+      `adjacency.adjStart[${segmentCount}] is ${adjStart[segmentCount] as number}, ` +
+        `but adjTarget has ${adjTarget.length} entries`,
+    );
+  }
+
+  const edges = new Set<number>();
+  for (let id = 1; id <= segmentCount; id++) {
+    const start = adjStart[id - 1] as number;
+    const end = adjStart[id] as number;
+    if (end < start) {
+      throw new ColoringError(`adjacency.adjStart decreases at segment ${id}: ${start} -> ${end}`);
+    }
+    for (let e = start; e < end; e++) {
+      const neighbour = adjTarget[e] as number;
+      if (neighbour < 1 || neighbour > segmentCount) {
+        throw new ColoringError(
+          `segment ${id} is adjacent to ${neighbour}, which is not a segment id (1..${segmentCount})`,
+        );
+      }
+      if (neighbour === id) {
+        throw new ColoringError(`segment ${id} is adjacent to itself`);
+      }
+      edges.add(id * (segmentCount + 1) + neighbour);
+    }
+  }
+
+  for (const edge of edges) {
+    const id = Math.floor(edge / (segmentCount + 1));
+    const neighbour = edge % (segmentCount + 1);
+    if (!edges.has(neighbour * (segmentCount + 1) + id)) {
+      throw new ColoringError(
+        `adjacency is not symmetric: ${id} lists ${neighbour}, but ${neighbour} does not list ${id}`,
+      );
+    }
+  }
 }

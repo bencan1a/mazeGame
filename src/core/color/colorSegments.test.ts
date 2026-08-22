@@ -129,3 +129,93 @@ describe('colorSegments', () => {
     expect(() => colorSegments(adjacency, 5)).toThrow(ColoringError);
   });
 });
+
+describe('malformed input is rejected, not coloured badly', () => {
+  /** Two segments that touch, as a well-formed graph to corrupt one field at a time. */
+  function pair(): AdjacencyGraph {
+    return {
+      adjStart: Uint32Array.from([0, 1, 2]),
+      adjTarget: Uint32Array.from([2, 1]),
+    };
+  }
+
+  it('rejects a palette too large for the Uint8Array it returns', () => {
+    // A colour of 256+ wraps to 0 on assignment, which can hand two touching
+    // segments the same hue — the one thing this function guarantees.
+    expect(() => colorSegments(pair(), 2, 300)).toThrow(
+      /paletteSize must be an integer in 1\.\.256/,
+    );
+  });
+
+  it.each([0, -1, 1.5, NaN])('rejects paletteSize %p', (paletteSize) => {
+    expect(() => colorSegments(pair(), 2, paletteSize)).toThrow(ColoringError);
+  });
+
+  it('accepts the largest palette that still fits', () => {
+    // Which of the two gets index 0 is up to the ordering; that they differ,
+    // and that both fit a Uint8Array, is the guarantee.
+    const colors = Array.from(colorSegments(pair(), 2, 256));
+    expect(colors[0]).not.toBe(colors[1]);
+    expect(Math.max(...colors)).toBeLessThan(256);
+  });
+
+  it('rejects CSR offsets that do not start at zero', () => {
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([1, 1, 2]),
+      adjTarget: Uint32Array.from([2, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/adjStart\[0\] is 1, expected 0/);
+  });
+
+  it('rejects CSR offsets that decrease', () => {
+    // The end offset still matches adjTarget.length, so this reaches the
+    // per-segment check rather than tripping the cheaper end-of-array one.
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 2, 1, 2]),
+      adjTarget: Uint32Array.from([2, 3]),
+    };
+    expect(() => colorSegments(bad, 3)).toThrow(/decreases at segment 2/);
+  });
+
+  it('rejects CSR offsets that do not end at the target length', () => {
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 1, 1]),
+      adjTarget: Uint32Array.from([2, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/adjTarget has 2 entries/);
+  });
+
+  it('rejects a neighbour that is not a segment id', () => {
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 1, 2]),
+      adjTarget: Uint32Array.from([9, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/adjacent to 9, which is not a segment id/);
+  });
+
+  it('rejects a self-loop', () => {
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 1, 2]),
+      adjTarget: Uint32Array.from([1, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/segment 1 is adjacent to itself/);
+  });
+
+  it('rejects an asymmetric graph, which would hide a real adjacency', () => {
+    // 1 lists 2, but 2 does not list 1 — greedy would then be free to give
+    // them the same hue while they visibly touch on the board.
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 1, 1]),
+      adjTarget: Uint32Array.from([2]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/not symmetric/);
+  });
+
+  it('still rejects the wrong offset length', () => {
+    const bad: AdjacencyGraph = {
+      adjStart: Uint32Array.from([0, 1]),
+      adjTarget: Uint32Array.from([2, 1]),
+    };
+    expect(() => colorSegments(bad, 2)).toThrow(/expected 3/);
+  });
+});
