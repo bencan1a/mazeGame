@@ -81,6 +81,13 @@ export function generateBlob(params: BlobParams): Blob {
   if (!Number.isInteger(gridSize) || gridSize < 1) {
     throw new Error(`gridSize must be a positive integer, got ${gridSize}`);
   }
+  // NaN would survive clamp() and poison the radius and centre, so every
+  // dist <= radius test is false and even the non-empty fallback below writes
+  // to inside[NaN] — a silent no-op on a Uint8Array. The result is an all-zero
+  // mask, which is exactly the invariant this function promises not to break.
+  if (params.fillFraction !== undefined && !Number.isFinite(params.fillFraction)) {
+    throw new Error(`fillFraction must be a finite number, got ${params.fillFraction}`);
+  }
   const width = gridSize;
   const height = gridSize;
   const rng = createRng(params.seed);

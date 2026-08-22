@@ -200,3 +200,21 @@ describe('generateBlob area is a tunable fraction of the grid', () => {
     }
   });
 });
+
+describe('invalid parameters', () => {
+  it('rejects a non-finite fillFraction rather than returning an empty mask', () => {
+    // NaN survives clamp() and poisons the radius and centre; every cell test
+    // then fails and the non-empty fallback writes to inside[NaN], which a
+    // Uint8Array silently ignores. Empty output would break the one invariant
+    // this module states outright.
+    for (const fillFraction of [NaN, Infinity, -Infinity]) {
+      expect(() => generateBlob({ seed: 1, gridSize: 20, fillFraction })).toThrow(
+        /fillFraction must be a finite number/,
+      );
+    }
+  });
+
+  it('still accepts an absent fillFraction', () => {
+    expect(insideCount(generateBlob({ seed: 1, gridSize: 20 }).inside)).toBeGreaterThan(0);
+  });
+});
