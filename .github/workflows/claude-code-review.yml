@@ -46,7 +46,14 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # Effort is pinned rather than left to the skill's default. With no
+          # level given the skill reuses the last one used, and a fresh CI
+          # container has none, so it falls back to a default tuned for "fewer,
+          # high-confidence findings". That default reviewed a 746-line
+          # algorithmic PR in two minutes and missed a correctness bug (#54).
+          # Several agents work here in parallel and a human merges, so a quiet
+          # miss costs more than a false positive.
+          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }} high'
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
