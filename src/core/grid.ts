@@ -55,10 +55,20 @@ export const NO_CELL = -1;
 /**
  * Neighbour of `index` in `dir`, or NO_CELL if that step leaves the grid.
  * Guards the row wrap that plain index arithmetic would silently allow.
+ *
+ * A direction outside 0..3 also answers NO_CELL. `Direction` is `0 | 1 | 2 | 3`,
+ * but it survives into `Board.segDir`, a Uint8Array, where the type is gone and
+ * a -1 arrives as 255. Without the guard the arithmetic below yields NaN, every
+ * one of the four bounds comparisons is false for NaN, and the function returns
+ * NaN — which is not NO_CELL, so a ray walk shaped like
+ * `while (cell !== NO_CELL)` never terminates.
  */
 export function step(index: CellIndex, dir: Direction, width: number, height: number): CellIndex {
-  const x = (index % width) + (DX[dir] as number);
-  const y = Math.floor(index / width) + (DY[dir] as number);
+  const dx = DX[dir];
+  const dy = DY[dir];
+  if (dx === undefined || dy === undefined) return NO_CELL;
+  const x = (index % width) + dx;
+  const y = Math.floor(index / width) + dy;
   if (x < 0 || y < 0 || x >= width || y >= height) return NO_CELL;
   return y * width + x;
 }
@@ -75,7 +85,11 @@ export function parityOf(index: CellIndex, width: number): 0 | 1 {
   return (((index % width) + Math.floor(index / width)) & 1) as 0 | 1;
 }
 
-/** Number of steps from `index` to the grid edge travelling in `dir`, exclusive of `index`. */
+/**
+ * Number of steps from `index` to the grid edge travelling in `dir`, exclusive
+ * of `index`. NO_CELL for a direction outside 0..3 — see `step()` for how one
+ * gets here; without the default this returned `undefined` typed as `number`.
+ */
 export function stepsToEdge(
   index: CellIndex,
   dir: Direction,
@@ -93,5 +107,7 @@ export function stepsToEdge(
       return height - 1 - y;
     case WEST:
       return x;
+    default:
+      return NO_CELL;
   }
 }
