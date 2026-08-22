@@ -190,7 +190,7 @@ describe('makeBoard spec errors', () => {
   it('asks for the walk when a segment has a chord', () => {
     // b touches itself: (1,1) is beside (1,2), but they are not consecutive.
     expect(() => makeBoard(ACYCLIC_BOARD_ART)).toThrow(
-      /segment "b" is ambiguous at cell 5.*walks: \{ b: 'ESW' \}/s,
+      /segment "b" is ambiguous at cell 5.*walks: \{ b: '\.\.\.' \}/s,
     );
   });
 
@@ -269,5 +269,65 @@ describe('board params', () => {
 
     expect(board.params.gridSize).toBe(5);
     expect(board.params.seed).toBe(42);
+  });
+});
+
+describe('malformed boards are reported, not survived', () => {
+  /** Bypass makeBoard's own checks to build the CSR a buggy generator might emit. */
+  function withEdges(board: Board, perSegment: readonly (readonly number[])[]): Board {
+    const edgeStart = new Uint32Array(board.segmentCount + 1);
+    const flat = perSegment.flat();
+    let at = 0;
+    for (let id = 1; id <= board.segmentCount; id++) {
+      edgeStart[id - 1] = at;
+      at += (perSegment[id - 1] as readonly number[]).length;
+    }
+    edgeStart[board.segmentCount] = at;
+    return { ...board, edgeStart, edgeTarget: Uint32Array.from(flat) };
+  }
+
+  it('catches a blocker listed twice, which the ray can never produce', () => {
+    // The contract de-duplicates, so [3, 3] is not another spelling of [3].
+    const board = withEdges(ACYCLIC_BOARD, [[3, 3], [1], []]);
+
+    expect(boardStructureViolations(board)).toContainEqual(
+      expect.stringContaining('segment 1 lists a blocker twice'),
+    );
+  });
+
+  it('catches an edge to a segment that does not exist', () => {
+    const board = withEdges(ACYCLIC_BOARD, [[9], [1], []]);
+
+    expect(boardStructureViolations(board)).toContainEqual(
+      expect.stringContaining('segment 1 blocks on 9, which is not a segment id (1..3)'),
+    );
+  });
+
+  it('reports an unclearable board rather than throwing on its bad edge', () => {
+    const board = withEdges(ACYCLIC_BOARD, [[9], [1], []]);
+
+    expect(greedyClearOrder(board)).toBeNull();
+  });
+
+  it('catches a direction outside 0..3 instead of walking the ray forever', () => {
+    // segDir is a Uint8Array, so a -1 written into it arrives here as 255, and
+    // step() answers NaN for it — which is never NO_CELL, so the walk never ends.
+    const segDir = Uint8Array.from(ACYCLIC_BOARD.segDir);
+    segDir[0] = 255;
+
+    expect(boardStructureViolations({ ...ACYCLIC_BOARD, segDir })).toContainEqual(
+      expect.stringContaining('segment 1 has direction 255, expected 0..3'),
+    );
+  });
+
+  it('refuses to build an edge pointing off the end of the segment list', () => {
+    expect(() =>
+      makeBoard({ art: ACYCLIC_BOARD_ART, walks: ACYCLIC_BOARD_WALKS, edges: [[1, 9]] }),
+    ).toThrow(/edge target 9 is not a segment id/);
+  });
+
+  it('sizes the suggested walk to the segment it is complaining about', () => {
+    // b has 5 cells, so a copy-pasteable hint has to be 4 steps, not a fixed 3.
+    expect(() => makeBoard(ACYCLIC_BOARD_ART)).toThrow(/4 tail-to-head steps in N\/E\/S\/W/);
   });
 });

@@ -219,7 +219,7 @@ function orderTailToHead(
         throw new Error(
           `segment "${key}" is ambiguous at cell ${cell}: more than one way on. The head has ` +
             `to be an endpoint, and a segment with a chord needs its walk spelled out — ` +
-            `e.g. walks: { ${key}: 'ESW' }.`,
+            `pass walks: { ${key}: '...' } as its ${members.size - 1} tail-to-head steps in N/E/S/W.`,
         );
       }
       next = candidate;
@@ -313,6 +313,7 @@ function groupEdges(
   const perSegment: number[][] = Array.from({ length: segmentCount }, () => []);
   for (const [from, to] of edges) {
     if (from < 1 || from > segmentCount) throw new Error(`edge source ${from} is not a segment id`);
+    if (to < 1 || to > segmentCount) throw new Error(`edge target ${to} is not a segment id`);
     (perSegment[from - 1] as number[]).push(to);
   }
   return toCsr(perSegment, segmentCount);

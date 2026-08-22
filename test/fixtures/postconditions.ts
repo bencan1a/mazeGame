@@ -199,8 +199,24 @@ export function boardStructureViolations(board: Board): string[] {
       }
     }
 
-    const derived = rayBlockers(board, id);
     const declared = blockersOf(board, id);
+    const badTarget = declared.find((target) => target < 1 || target > n);
+    if (badTarget !== undefined) {
+      out.push(`segment ${id} blocks on ${badTarget}, which is not a segment id (1..${n})`);
+      continue;
+    }
+    if (new Set(declared).size !== declared.length) {
+      // The contract de-duplicates: a long segment crossing the ray twice is one
+      // edge, so a repeat would double-count in any traversal of the digraph.
+      out.push(`segment ${id} lists a blocker twice: [${declared.join(', ')}]`);
+      continue;
+    }
+    if (!isDirection(board.segDir[id - 1] as number)) {
+      out.push(`segment ${id} has direction ${board.segDir[id - 1] as number}, expected 0..3`);
+      continue;
+    }
+
+    const derived = rayBlockers(board, id);
     if (!sameSet(derived, declared)) {
       out.push(
         `segment ${id} blockers are [${declared.join(', ')}], the ray hits [${derived.join(', ')}]`,
@@ -262,7 +278,12 @@ export function greedyClearOrder(board: Board): number[] | null {
   for (let id = 1; id <= n; id++) {
     const targets = blockersOf(board, id);
     remaining[id - 1] = targets.length;
-    for (const target of targets) (blockedBy[target] as number[]).push(id);
+    for (const target of targets) {
+      // An edge to a segment that does not exist can never be satisfied, so the
+      // board is not clearable. Say so rather than throwing: this file reports.
+      if (target < 1 || target > n) return null;
+      (blockedBy[target] as number[]).push(id);
+    }
   }
 
   const order: number[] = [];
@@ -289,6 +310,12 @@ export function isAcyclic(board: Board): boolean {
 /** The distinct other segments on segment `id`'s exit ray, in the order the ray meets them. */
 export function rayBlockers(board: Board, id: number): number[] {
   const dir = board.segDir[id - 1] as Direction;
+  // step() answers NaN for a direction outside 0..3, and NaN !== NO_CELL, so the
+  // walk below would never terminate. segDir is a Uint8Array, so a board can
+  // carry 255 (what -1 becomes) without any type error to catch it first.
+  if (!isDirection(dir)) {
+    throw new Error(`segment ${id} has direction ${dir as number}, which is not one of 0..3`);
+  }
   const found: number[] = [];
   const seen = new Set<number>();
   let cell = step(board.segHead[id - 1] as number, dir, board.width, board.height);
@@ -316,8 +343,14 @@ export function blockersOf(board: Board, id: number): number[] {
 
 function sameSet(a: readonly number[], b: readonly number[]): boolean {
   if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((value) => set.has(value)) && set.size === a.length;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  if (setA.size !== a.length || setB.size !== b.length) return false;
+  return [...setB].every((value) => setA.has(value));
+}
+
+function isDirection(dir: number): dir is Direction {
+  return dir === 0 || dir === 1 || dir === 2 || dir === 3;
 }
 
 function floodFill(
