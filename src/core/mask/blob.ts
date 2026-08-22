@@ -11,11 +11,12 @@
  *
  * Shape: a radial silhouette around a (slightly jittered) centre, whose
  * boundary radius at each angle is a base radius perturbed by a handful of
- * independent random sinusoidal harmonics. A handful of harmonics with
- * independent random frequency, phase and amplitude reliably produces lobes
- * and concavities, so the result is neither a disc (constant radius) nor a
- * rectangle (axis-aligned boundary) for any seed — see blob.test.ts for the
- * property tests that pin this down.
+ * sinusoidal harmonics. Their frequencies are fixed (2, 3, 4, ... one per
+ * harmonic); the seed chooses how many there are and randomises each one's
+ * phase and amplitude. That is enough to produce lobes and concavities, so the
+ * result is neither a disc (constant radius) nor a rectangle (axis-aligned
+ * boundary) for any seed — see blob.test.ts for the property tests that pin
+ * this down.
  */
 
 import { toIndex } from '../grid.js';
@@ -73,8 +74,8 @@ interface Harmonic {
 }
 
 /**
- * Deterministic given `(seed, gridSize)` — same inputs, identical grid. All
- * randomness is drawn from `createRng(seed)`, never `Math.random`.
+ * Deterministic given `(seed, gridSize, fillFraction)` — same inputs, identical
+ * grid. All randomness is drawn from `createRng(seed)`, never `Math.random`.
  */
 export function generateBlob(params: BlobParams): Blob {
   const { gridSize } = params;
@@ -92,16 +93,22 @@ export function generateBlob(params: BlobParams): Blob {
   const height = gridSize;
   const rng = createRng(params.seed);
 
-  // Harmonics are drawn before fillFraction ever touches a number below, so
-  // that the blob's "personality" (how lobed it is, where the lobes sit)
-  // depends only on the seed, and fillFraction purely rescales it. That
-  // keeps area monotone in fillFraction for a fixed seed, which is what
-  // makes "tunable fraction" a testable property rather than a vibe.
+  // Harmonics are drawn before fillFraction is read, so the blob's
+  // "personality" — how many lobes, where they sit, how deep — depends only on
+  // the seed. fillFraction then scales the shape. Not purely, though: the
+  // centre jitter below is a fraction of baseRadius, so raising fillFraction
+  // also moves the centre slightly. Area is monotone in fillFraction across
+  // the tested range rather than by construction, and blob.test.ts asserts it
+  // rather than assuming it.
   const harmonicCount = MIN_HARMONICS + rng.int(MAX_HARMONICS - MIN_HARMONICS + 1);
   const harmonics: Harmonic[] = [];
   for (let k = 0; k < harmonicCount; k++) {
     harmonics.push({
-      frequency: k + 2, // 2..harmonicCount+1 lobes contributed per harmonic
+      // Fixed, not random: one harmonic per lobe count from 2 upward, so the
+      // set of frequencies is the same every seed and only their phases and
+      // amplitudes vary. Random frequencies would let two harmonics land close
+      // together and beat, flattening the boundary instead of lobing it.
+      frequency: k + 2,
       // Divide by sqrt(count) so that harmonics summing in phase (rare, but
       // possible at some angle) still bound the worst-case bulge, the same
       // way independent-variance sums bound an RMS rather than a raw sum.
