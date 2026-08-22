@@ -13,6 +13,7 @@
  *   node scripts/seed-github.mjs --render          # write docs/backlog.md only
  *   node scripts/seed-github.mjs --dry-run         # show what would be created
  *   node scripts/seed-github.mjs --repo owner/name # create for real
+ *   node scripts/seed-github.mjs --rewrite-bodies  # also repair generated bodies
  *
  * Auth: GH_TOKEN or GITHUB_TOKEN, with `repo` scope.
  */
@@ -33,6 +34,7 @@ const valueOf = (flag, fallback) => {
 };
 
 const dryRun = has('--dry-run');
+const rewriteBodies = has('--rewrite-bodies');
 const repo = valueOf('--repo', process.env.GITHUB_REPOSITORY ?? 'bencan1a/mazeGame');
 const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
 
@@ -40,6 +42,7 @@ export function issueBody(issue) {
   const criteria = issue.criteria.map((c) => `- [ ] ${c}`).join('\n');
   const stream = issue.labels.find((l) => l.startsWith('stream:')) ?? '';
   const wave = issue.labels.find((l) => l.startsWith('wave:')) ?? '';
+  const streamName = stream.replace('stream:', '') || '<stream>';
   return [
     `**${issue.milestone}** · \`${stream}\` · \`${wave}\``,
     '',
@@ -52,7 +55,10 @@ export function issueBody(issue) {
     '---',
     '',
     'Read `docs/WORKFLOW.md` before starting. Claim by assigning yourself.',
-    `Branch: \`agent/<stream>/<issue-number>-${issue.key}\``,
+    // Braces, not angle brackets: a <placeholder> is stripped as an HTML tag
+    // when an issue is written through the GitHub MCP tools, which silently
+    // turned this line into `agent//-key` the first time round.
+    `Branch: \`agent/${streamName}/{issue-number}-${issue.key}\``,
   ].join('\n');
 }
 
@@ -184,8 +190,21 @@ async function seed() {
   for (const issue of backlog.issues) {
     const current = existingIssues.get(issue.title);
     if (current) {
-      // Never rewrite an issue — someone may be working in it. Only attach a
-      // milestone it is missing, which is what issues seeded through MCP lack.
+      // Never rewrite an issue by default — someone may be working in it.
+      // --rewrite-bodies is the opt-in for repairing a bad generated body, and
+      // it still refuses to touch an issue somebody has claimed.
+      if (rewriteBodies) {
+        const wantedBody = issueBody(issue);
+        if (current.assignees?.length) {
+          console.log(`issue      ! #${current.number} assigned — body left alone`);
+        } else if (current.body !== wantedBody) {
+          await api(`/repos/${repo}/issues/${current.number}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ body: wantedBody }),
+          });
+          console.log(`issue      ~ #${current.number} ${issue.title} (body)`);
+        }
+      }
       const wanted = milestoneNumber.get(issue.milestone);
       if (wanted !== undefined && current.milestone?.number !== wanted) {
         await api(`/repos/${repo}/issues/${current.number}`, {
