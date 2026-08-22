@@ -1,0 +1,40 @@
+name: Task
+description: A unit of work — one issue, one branch, one PR
+labels: []
+body:
+  - type: dropdown
+    id: stream
+    attributes:
+      label: Stream
+      description: Which lane owns this? See docs/WORKFLOW.md for file ownership.
+      options:
+        - S1 mask
+        - S2 path
+        - S3 topology
+        - S4 harness
+        - S5 render
+        - S6 app
+        - S7 infra
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What this is for, and which PRD section or risk it serves.
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements. The PR will quote these back.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Traps and prior art
+      description: Known failure modes, relevant ADRs, links to related issues.

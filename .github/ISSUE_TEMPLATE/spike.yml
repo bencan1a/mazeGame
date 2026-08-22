@@ -1,0 +1,29 @@
+name: Spike
+description: A time-boxed investigation whose deliverable is a written answer
+labels: ['spike']
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: The question
+      description: One sentence. What do we not know?
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: Time box
+      placeholder: e.g. one working session
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What evidence would settle it
+      description: Numbers, not opinions. A clean negative result is a success.
+    validations:
+      required: true
+  - type: textarea
+    id: fallback
+    attributes:
+      label: What we do if the answer is "no"
