@@ -40,6 +40,15 @@ export interface GenParams {
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
   readonly minStraightRun: number;
+  /**
+   * Fraction of the grid the raw silhouette aims to occupy, before repair
+   * trims it. 0.05..0.85.
+   *
+   * Approximate by design: the blob's boundary is perturbed into an organic
+   * shape, so the achieved area only tracks this loosely. It is a tuning dial
+   * for how much of the screen the puzzle fills, not an area guarantee.
+   */
+  readonly fillFraction: number;
 }
 
 /** Gameplay knobs that do not affect board generation. */
@@ -55,6 +64,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   pieceLengthVariance: 5,
   bendProbability: 0.35,
   minStraightRun: 2,
+  fillFraction: 0.45,
 };
 
 export const DEFAULT_PLAY_PARAMS: PlayParams = {
