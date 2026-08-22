@@ -10,10 +10,10 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
-# A review takes minutes and writes inline comments to the PR. Without this,
-# a push during that window leaves the superseded run alive to finish and
+# A review takes minutes and writes inline comments to the PR, so a push
+# during that window would otherwise leave the superseded run alive to
 # comment on a commit that is no longer the head. github.ref is the PR ref
-# here, so runs on different PRs still proceed in parallel.
+# for pull_request events, so reviews on different PRs still run in parallel.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
