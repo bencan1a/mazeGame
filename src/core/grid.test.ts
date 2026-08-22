@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   DIRECTIONS,
+  NO_CELL,
   DIRECTION_NAMES,
   EAST,
   NORTH,
@@ -17,6 +18,7 @@ import {
   xOf,
   yOf,
 } from './grid.js';
+import type { Direction } from './types.js';
 
 const W = 7;
 const H = 5;
@@ -120,6 +122,44 @@ describe('stepsToEdge', () => {
         }
         expect(stepsToEdge(i, d, W, H)).toBe(walked);
       }
+    }
+  });
+});
+
+describe('directions that survive past the type system', () => {
+  // Direction is 0|1|2|3, but it reaches Board.segDir as a Uint8Array, where the
+  // type is gone: a -1 written there arrives as 255. These are the values that
+  // actually turn up, not hypothetical ones.
+  const OUT_OF_RANGE = [-1, 4, 255, 1.5, NaN];
+
+  it('leaves the grid for any direction that is not 0..3', () => {
+    for (const dir of OUT_OF_RANGE) {
+      expect(step(12, dir as Direction, W, H)).toBe(NO_CELL);
+    }
+  });
+
+  it('never answers NaN, which no NO_CELL comparison would catch', () => {
+    for (const dir of OUT_OF_RANGE) {
+      expect(Number.isNaN(step(12, dir as Direction, W, H))).toBe(false);
+    }
+  });
+
+  it('terminates a ray walk instead of spinning on it', () => {
+    // The blocking digraph walks a ray to the board edge. Before this guard,
+    // step() returned NaN, NaN !== NO_CELL held at every iteration, and the
+    // loop never ended.
+    let cell = step(12, 255 as Direction, W, H);
+    let guard = 0;
+    while (cell !== NO_CELL && guard < 1000) {
+      cell = step(cell, 255 as Direction, W, H);
+      guard++;
+    }
+    expect(guard).toBe(0);
+  });
+
+  it('reports no distance to the edge for a direction that is not 0..3', () => {
+    for (const dir of OUT_OF_RANGE) {
+      expect(stepsToEdge(12, dir as Direction, W, H)).toBe(NO_CELL);
     }
   });
 });

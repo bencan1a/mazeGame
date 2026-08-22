@@ -310,9 +310,10 @@ export function isAcyclic(board: Board): boolean {
 /** The distinct other segments on segment `id`'s exit ray, in the order the ray meets them. */
 export function rayBlockers(board: Board, id: number): number[] {
   const dir = board.segDir[id - 1] as Direction;
-  // step() answers NaN for a direction outside 0..3, and NaN !== NO_CELL, so the
-  // walk below would never terminate. segDir is a Uint8Array, so a board can
-  // carry 255 (what -1 becomes) without any type error to catch it first.
+  // segDir is a Uint8Array, so a board can carry 255 (what -1 becomes) with no
+  // type error to catch it. step() now answers NO_CELL for that (#38), so the
+  // walk would simply find nothing — and "no blockers" reads as "this segment
+  // is free", which is a worse answer than an error.
   if (!isDirection(dir)) {
     throw new Error(`segment ${id} has direction ${dir as number}, which is not one of 0..3`);
   }
