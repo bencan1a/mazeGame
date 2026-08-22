@@ -4,3 +4,6 @@ package-lock.json
 
 # Generated
 docs/backlog.md
+
+# Live checkouts for parallel stream agents; see eslint.config.js
+.claude/worktrees/
