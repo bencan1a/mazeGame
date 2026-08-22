@@ -11,10 +11,10 @@ function neighboursOf(adjStart: Uint32Array, adjTarget: Uint32Array, id: number)
 
 describe('buildAdjacencyGraph', () => {
   it('connects every pair of segments that share a cell boundary, on ACYCLIC_BOARD', () => {
-    // aaaa
-    // bbBA   a and b touch along a long shared border; a and c touch where a's
-    // bbcc   bottom row meets c's top row; b and c touch along their shared edge.
-    // Cccc   Every pair touches somewhere, so this is a triangle (a-b, a-c, b-c).
+    // aaaa   a and b touch along a long shared border. a and c touch at
+    // bbBA   exactly one place: a's tail at (3,1) sits directly above c's
+    // bbcc   (3,2) — a's top row never reaches c at all. b and c touch where
+    // Cccc   b's (1,2) meets c's (2,2). So the graph is a triangle.
     const { adjStart, adjTarget } = buildAdjacencyGraph(
       ACYCLIC_BOARD.occupancy,
       ACYCLIC_BOARD.width,
@@ -96,5 +96,23 @@ describe('buildAdjacencyGraph', () => {
       expect(adjStart[0]).toBe(0);
       expect(adjStart[board.segmentCount]).toBe(adjTarget.length);
     }
+  });
+});
+
+describe('corrupt occupancy', () => {
+  it('rejects a segment id past segmentCount instead of throwing a TypeError', () => {
+    // Reached from a cell that touches another segment. Unchecked this read
+    // an undefined Set and threw "Cannot read properties of undefined".
+    const occupancy = Uint16Array.from([1, 9, 0, 0]);
+    expect(() => buildAdjacencyGraph(occupancy, 2, 2, 1)).toThrow(
+      /cell 1 holds segment id 9, which is not a segment id \(1\.\.1\)/,
+    );
+  });
+
+  it('rejects an isolated out-of-range id, which was silently dropped', () => {
+    // Touching nothing, this produced no error and no entry - so segColor
+    // came back shorter than the board's segment count.
+    const occupancy = Uint16Array.from([0, 0, 0, 9]);
+    expect(() => buildAdjacencyGraph(occupancy, 2, 2, 1)).toThrow(/not a segment id/);
   });
 });
