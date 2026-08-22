@@ -145,15 +145,26 @@ describe('buildContourPath', () => {
     expect(pathViolations(result.path, mask)).toEqual([]);
   });
 
-  it('completes a 100x100 region in well under 100ms', () => {
+  it('stays linear at 100x100 rather than quietly becoming quadratic', () => {
+    // A complexity tripwire, not a benchmark. Observed ~18ms on a sandbox
+    // runner, but wall-clock on a shared CI machine varies with load, so the
+    // bound is an order of magnitude above that: it catches an algorithm that
+    // regressed to quadratic and nothing else. Real timing belongs in the
+    // harness (#16, #18), where it can be run repeatedly and compared to a
+    // committed baseline. docs/TESTING.md: a number from a Linux runner is
+    // not evidence about a phone either way.
     const mask = makeMask({ width: 100, height: 100 });
+
+    // Warm up first, so JIT compilation is not counted against the bound.
+    buildContourPath(mask, createRng(1));
+
     const started = performance.now();
     const result = buildContourPath(mask, createRng(1));
     const elapsedMs = performance.now() - started;
+
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(pathViolations(result.path, mask)).toEqual([]);
-    console.log(`contour 100x100: ${elapsedMs.toFixed(2)}ms`);
-    expect(elapsedMs).toBeLessThan(100);
+    expect(elapsedMs).toBeLessThan(1000);
   });
 });
