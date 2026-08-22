@@ -2,6 +2,7 @@
 name: generator-mask
 description: Stream S1 — the silhouette mask pipeline. Blob generation, largest-component extraction, morphological open, hole filling, and checkerboard parity absorption. Use for anything under src/core/mask/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S1: `src/core/mask/`**. Nothing else.

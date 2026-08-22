@@ -7,9 +7,9 @@ does not compose.
 ## Source of truth
 
 **GitHub Issues.** One issue = one unit of work = one branch = one PR.
-[`docs/backlog.md`](./backlog.md) is the readable index and the seed for the
-issue list; once issues exist, the issues win. Regenerate or reconcile with
-`node scripts/seed-github.mjs --dry-run`.
+Seeded: **#1–#32**. [`docs/backlog.md`](./backlog.md) is the readable index and
+the seed for the issue list; now that the issues exist, the issues win.
+Reconcile with `node scripts/seed-github.mjs --dry-run`.
 
 Labels:
 
@@ -89,6 +89,33 @@ mechanically wherever possible:
 - **No scope creep into PRD §8 deferred work.** Levels, scoring, sound, image
   import, and a silhouette library are all out. Open an issue instead.
 - **Do not merge your own PR.** Do not approve PRs.
+
+## Agents and models
+
+Agent definitions live in `.claude/agents/`. The six stream agents run on
+**Sonnet**; the `reviewer` agent runs on **Opus**.
+
+The split is deliberate. Stream work here is well-specified — a contract to code
+against, postconditions written down, property tests that say when it is right —
+which is the shape Sonnet handles well and cheaply. Review is the opposite: an
+open-ended search for the thing nobody thought to specify, where the failure mode
+is a quiet miss rather than a visible error. That is worth the stronger model,
+and it is one agent rather than six.
+
+**Five issues are worth escalating if a Sonnet run stalls.** They are
+algorithmically dense rather than merely fiddly, and the failure is usually
+subtle-and-plausible rather than obviously broken:
+
+| Issue                        | Why                                                                        |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| #4 parity absorption         | Choosing which cells to drop while preserving 4-connectivity               |
+| #5 spanning-tree contour     | Half-resolution tree, full-resolution contour trace, 2×2 tiling constraint |
+| #6 backbite                  | Tail reversal that must preserve the Hamiltonian property on every move    |
+| #10 orientation local search | Tarjan SCC plus a search whose correctness condition is global             |
+| #11 reverse construction     | Correct by construction only if the insertion argument actually holds      |
+
+Escalate by overriding the model on that invocation, not by editing the agent
+definition — the default should stay Sonnet.
 
 ## Testing expectations
 

@@ -2,6 +2,7 @@
 name: renderer
 description: Stream S5 — the two-layer canvas renderer, arrowheads, pan/zoom, and the snake-out exit animation. Use for anything under src/render/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S5: `src/render/`**. Nothing else.

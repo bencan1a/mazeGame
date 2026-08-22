@@ -3,8 +3,12 @@
  * Seeds GitHub with the labels, milestones, and issues in scripts/backlog.json,
  * and renders the readable index at docs/backlog.md.
  *
- * Idempotent: existing labels, milestones, and issues (matched by name/title)
- * are left alone, so re-running after editing the backlog only adds what is new.
+ * Idempotent and reconciling. Issues are matched by title and never rewritten,
+ * but labels have their colour and description brought into line, and issues
+ * missing their milestone get it attached. That matters because issues seeded
+ * through the GitHub MCP tools (which cannot create labels or milestones) come
+ * out with auto-generated label colours and no milestone — running this once
+ * locally, with a real token, finishes the job.
  *
  *   node scripts/seed-github.mjs --render          # write docs/backlog.md only
  *   node scripts/seed-github.mjs --dry-run         # show what would be created
@@ -14,7 +18,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,9 +36,13 @@ const dryRun = has('--dry-run');
 const repo = valueOf('--repo', process.env.GITHUB_REPOSITORY ?? 'bencan1a/mazeGame');
 const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
 
-function issueBody(issue) {
+export function issueBody(issue) {
   const criteria = issue.criteria.map((c) => `- [ ] ${c}`).join('\n');
+  const stream = issue.labels.find((l) => l.startsWith('stream:')) ?? '';
+  const wave = issue.labels.find((l) => l.startsWith('wave:')) ?? '';
   return [
+    `**${issue.milestone}** · \`${stream}\` · \`${wave}\``,
+    '',
     issue.context,
     '',
     '## Acceptance criteria',
@@ -61,8 +69,9 @@ function render() {
     '',
     '<!-- Generated from scripts/backlog.json by scripts/seed-github.mjs --render. Edit the JSON, not this file. -->',
     '',
-    'Readable index of the work. **GitHub Issues are the source of truth** once seeded',
-    '(ADR-0005) — this file is the seed and a map, not a status board.',
+    'Readable index of the work. **GitHub Issues are the source of truth**',
+    '(ADR-0005) — this file is the seed and a map, not a status board. Issues',
+    'are seeded; go to the issue for current status, assignee, and discussion.',
     '',
     'Seed or reconcile:',
     '',
@@ -132,13 +141,25 @@ async function seed() {
     return;
   }
 
-  const existingLabels = new Set(
-    (await api(`/repos/${repo}/labels?per_page=100`)).map((l) => l.name),
+  const existingLabels = new Map(
+    (await api(`/repos/${repo}/labels?per_page=100`)).map((l) => [l.name, l]),
   );
   for (const label of backlog.labels) {
-    if (existingLabels.has(label.name)) continue;
-    await api(`/repos/${repo}/labels`, { method: 'POST', body: JSON.stringify(label) });
-    console.log(`label      + ${label.name}`);
+    const current = existingLabels.get(label.name);
+    if (!current) {
+      await api(`/repos/${repo}/labels`, { method: 'POST', body: JSON.stringify(label) });
+      console.log(`label      + ${label.name}`);
+      continue;
+    }
+    // Labels auto-created by an issue write get a random colour and no
+    // description. Bring them into line rather than leaving the board unreadable.
+    if (current.color !== label.color || (current.description ?? '') !== label.description) {
+      await api(`/repos/${repo}/labels/${encodeURIComponent(label.name)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ color: label.color, description: label.description }),
+      });
+      console.log(`label      ~ ${label.name} (colour/description)`);
+    }
   }
 
   const milestones = await api(`/repos/${repo}/milestones?state=all&per_page=100`);
@@ -153,16 +174,28 @@ async function seed() {
     console.log(`milestone  + ${milestone.title}`);
   }
 
-  const existingIssues = new Set();
+  const existingIssues = new Map();
   for (let page = 1; ; page++) {
     const batch = await api(`/repos/${repo}/issues?state=all&per_page=100&page=${page}`);
-    for (const issue of batch) existingIssues.add(issue.title);
+    for (const issue of batch) existingIssues.set(issue.title, issue);
     if (batch.length < 100) break;
   }
 
   for (const issue of backlog.issues) {
-    if (existingIssues.has(issue.title)) {
-      console.log(`issue      = ${issue.title} (exists)`);
+    const current = existingIssues.get(issue.title);
+    if (current) {
+      // Never rewrite an issue — someone may be working in it. Only attach a
+      // milestone it is missing, which is what issues seeded through MCP lack.
+      const wanted = milestoneNumber.get(issue.milestone);
+      if (wanted !== undefined && current.milestone?.number !== wanted) {
+        await api(`/repos/${repo}/issues/${current.number}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ milestone: wanted }),
+        });
+        console.log(`issue      ~ #${current.number} ${issue.title} (milestone)`);
+      } else {
+        console.log(`issue      = ${issue.title} (exists)`);
+      }
       continue;
     }
     const body = {
@@ -177,5 +210,9 @@ async function seed() {
   }
 }
 
-render();
-if (!has('--render')) await seed();
+// Only act when run directly — the module is imported by tooling that wants
+// issueBody() without triggering a network call.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  render();
+  if (!has('--render')) await seed();
+}

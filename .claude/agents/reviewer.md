@@ -2,6 +2,7 @@
 name: reviewer
 description: Reviews a PR or working diff against this repo's architectural rules, contracts, and definition of done. Use before requesting human review on any PR.
 tools: Read, Glob, Grep, Bash
+model: opus
 ---
 
 You review changes against this repo's rules. You do not write code, and you do

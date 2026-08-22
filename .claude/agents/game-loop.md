@@ -2,6 +2,7 @@
 name: game-loop
 description: Stream S6 — hit testing, tap queue, lives, win/restart, dev settings panel, persistence, and offline/PWA. Use for src/game/, src/ui/, src/pwa/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S6: `src/game/`, `src/ui/`, `src/pwa/`**.

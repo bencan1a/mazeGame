@@ -2,8 +2,9 @@
 
 <!-- Generated from scripts/backlog.json by scripts/seed-github.mjs --render. Edit the JSON, not this file. -->
 
-Readable index of the work. **GitHub Issues are the source of truth** once seeded
-(ADR-0005) — this file is the seed and a map, not a status board.
+Readable index of the work. **GitHub Issues are the source of truth**
+(ADR-0005) — this file is the seed and a map, not a status board. Issues
+are seeded; go to the issue for current status, assignee, and discussion.
 
 Seed or reconcile:
 
@@ -12,7 +13,7 @@ node scripts/seed-github.mjs --dry-run   # preview
 node scripts/seed-github.mjs             # create what is missing
 ```
 
-32 issues, 6 milestones, 21 labels.
+32 issues, 6 milestones, 27 labels.
 
 ## Milestones
 
@@ -29,7 +30,7 @@ node scripts/seed-github.mjs             # create what is missing
 
 ### Test fixture builders: makeMask, makePath, makeBoard
 
-`stream:harness` · M1 — A board exists · `contract-change`
+`stream:harness` · M1 — A board exists · `contract-change` `M1`
 
 Fixtures are how the streams run in parallel: every stage is developed against a synthetic version of its own input rather than waiting for the stage upstream of it. This is the first task after contracts and it unblocks everyone.
 
@@ -44,7 +45,7 @@ Fixtures are how the streams run in parallel: every stage is developed against a
 
 ### Procedural blob generator
 
-`stream:mask` · M1 — A board exists
+`stream:mask` · M1 — A board exists · `M1`
 
 Produce a binary silhouette to feed the repair pipeline. Crude is fine to start — S2 needs some mask to path-fill. PRD §3.1 says procedural blobs for the PoC; the mask-repair pipeline is built but fed synthetic input.
 
@@ -60,7 +61,7 @@ Produce a binary silhouette to feed the repair pipeline. Crude is fine to start 
 
 ### Mask repair: largest component, morphological open, hole fill
 
-`stream:mask` · M1 — A board exists
+`stream:mask` · M1 — A board exists · `M1`
 
 PRD §4.2 step 1. The morphological open (erode then dilate) is the load-bearing step: it amputates 1-cell-wide spurs and severs hairline necks, both of which make a Hamiltonian path impossible. Connectivity must be re-checked afterwards because opening can disconnect the region.
 
@@ -75,7 +76,7 @@ PRD §4.2 step 1. The morphological open (erode then dilate) is the load-bearing
 
 ### Checkerboard parity absorption
 
-`stream:mask` · M1 — A board exists
+`stream:mask` · M1 — A board exists · `M1`
 
 A Hamiltonian path needs |black| - |white| in {0, +/-1}. PRD §4.2 step 1.6 is explicit that the mismatch is absorbed by marking 1-3 cells unvisited rather than by editing the silhouette — visually invisible, and it removes the feasibility problem entirely.
 
@@ -90,7 +91,7 @@ A Hamiltonian path needs |black| - |white| in {0, +/-1}. PRD §4.2 step 1.6 is e
 
 ### Path fill: spanning-tree contour
 
-`stream:path` · M1 — A board exists
+`stream:path` · M1 — A board exists · `M1`
 
 PRD §4.2 step 2, primary method. A random spanning tree on a half-resolution grid, with the tree's outline traced at full resolution. The contour walk IS a Hamiltonian cycle, guaranteed, in linear time. Requires the region to tile into 2x2 blocks — detect and report when it does not, so the backbite fallback can take over.
 
@@ -104,7 +105,7 @@ PRD §4.2 step 2, primary method. A random spanning tree on a half-resolution gr
 
 ### Path fill: backbite fallback and randomizer
 
-`stream:path` · M1 — A board exists
+`stream:path` · M1 — A board exists · `M1`
 
 PRD §4.2 step 2, fallback. Mansfield's backbite: take an endpoint, pick a random neighbour, reverse the tail. Mixes toward near-uniform random paths and handles irregular regions the contour method cannot tile.
 
@@ -118,7 +119,7 @@ PRD §4.2 step 2, fallback. Mansfield's backbite: take an endpoint, pick a rando
 
 ### Segmentation: cut the path into pieces
 
-`stream:topology` · M1 — A board exists
+`stream:topology` · M1 — A board exists · `M1`
 
 PRD §4.2 step 3. Cut per meanPieceLength and pieceLengthVariance, with minStraightRun constraining where cuts may land.
 
@@ -132,7 +133,7 @@ PRD §4.2 step 3. Cut per meanPieceLength and pieceLengthVariance, with minStrai
 
 ### Blocking digraph construction (CSR)
 
-`stream:topology` · M1 — A board exists
+`stream:topology` · M1 — A board exists · `M1`
 
 PRD §4.4. Walk the ray from each head in segDir to the board edge, reading occupancy. Every distinct OTHER segment id on the ray is a blocker; the edge means the blocker must be removed first. A segment's own body never blocks it.
 
@@ -146,7 +147,7 @@ PRD §4.4. Walk the ray from each head in segDir to the board edge, reading occu
 
 ### Orientation: acyclic head assignment via SCC local search
 
-`stream:topology` · M1 — A board exists · `risk:R2`
+`stream:topology` · M1 — A board exists · `risk:R2` `M1`
 
 PRD §4.2 step 4. Each segment has exactly two legal heads. Choose an assignment making the blocking digraph acyclic. This is NOT 2-SAT — acyclicity is not a binary clause — so: build graph, Tarjan SCC, flip a segment inside a non-trivial SCC, recheck, repeat. Time-box it; R2 says fall back to reverse construction.
 
@@ -160,7 +161,7 @@ PRD §4.2 step 4. Each segment has exactly two legal heads. Choose an assignment
 
 ### Orientation fallback: reverse construction
 
-`stream:topology` · M1 — A board exists · `risk:R2`
+`stream:topology` · M1 — A board exists · `risk:R2` `M1`
 
 PRD §4.2 step 4 escape hatch, and R2's mitigation. Start with an empty board and slide segments in from the edge one at a time; the reversed insertion order is a guaranteed-valid removal order, so acyclicity is free by construction. Build it in Wave 1 rather than deferring — discovering you need it in Wave 3 is expensive.
 
@@ -173,7 +174,7 @@ PRD §4.2 step 4 escape hatch, and R2's mitigation. Start with an empty board an
 
 ### Segment coloring: greedy over the adjacency graph
 
-`stream:topology` · M1 — A board exists
+`stream:topology` · M1 — A board exists · `M1`
 
 PRD §3.3 and §4.2 step 6. Adjacent segments must be visually distinguishable or the player cannot tell where one segment ends and the next begins. This is a readability mechanic, not decoration — so the test asserts the property, not merely that colors were assigned.
 
@@ -187,7 +188,7 @@ PRD §3.3 and §4.2 step 6. Adjacent segments must be visually distinguishable o
 
 ### Board validation: acyclicity, coverage, reachability, determinism
 
-`stream:harness` · M1 — A board exists
+`stream:harness` · M1 — A board exists · `M1`
 
 PRD §4.2 step 5 — assert and fail loudly in dev. This is the gate on PoC goal 1: never ship an unsolvable board.
 
@@ -202,7 +203,7 @@ PRD §4.2 step 5 — assert and fail loudly in dev. This is the gate on PoC goal
 
 ### generateBoard(params): wire the pipeline end to end
 
-`stream:harness` · M1 — A board exists · `contract-change`
+`stream:harness` · M1 — A board exists · `contract-change` `M1`
 
 The single public entry point, pure in (seed, params) per ADR-0004. Callable identically from the dev panel, a headless script, and the game loop.
 
@@ -216,7 +217,7 @@ The single public entry point, pure in (seed, params) per ADR-0004. Callable ide
 
 ### SPIKE: canvas blit and buffer-memory floor at 100x100
 
-`stream:render` · M2 — Range confirmed · `spike` `risk:R3` `risk:R5` `device`
+`stream:render` · M2 — Range confirmed · `spike` `risk:R3` `risk:R5` `device` `M2`
 
 The whole renderer design rests on one assumption: a large offscreen buffer can be blitted per frame with drawImage fast enough for 60fps pan/zoom, and iOS Safari will tolerate its memory. That assumption is testable TODAY with a bare benchmark page — no generator, no renderer, no React — so test it before five other tasks are built on top of it. R3 is a performance risk rather than a playability one (ADR-0006), and this is the cheap half of the answer.
 
@@ -234,7 +235,7 @@ The whole renderer design rests on one assumption: a large offscreen buffer can 
 
 ### SPIKE: make bendProbability actually controllable
 
-`stream:path` · M2 — Range confirmed · `spike` `risk:R1`
+`stream:path` · M2 — Range confirmed · `spike` `risk:R1` `M2`
 
 R1, and the PRD calls it a headline tuning knob. The contour method determines path shape; bendiness is not a free parameter of it. Candidate approaches: bias spanning-tree growth (weighted Prim favouring straight continuation), or backbite with annealing on a bendiness objective. Resolve early — the answer changes what the dev panel can honestly offer.
 
@@ -247,7 +248,7 @@ R1, and the PRD calls it a headline tuning knob. The contour method determines p
 
 ### Board metrics: DAG depth, free-set size, bend rate, coverage
 
-`stream:harness` · M2 — Range confirmed
+`stream:harness` · M2 — Range confirmed · `M2`
 
 PRD §5. Both headline numbers fall out of the topological sort validation already computes — compute them there rather than walking the graph twice. See docs/METRICS.md.
 
@@ -261,7 +262,7 @@ PRD §5. Both headline numbers fall out of the topological sort validation alrea
 
 ### Headless sweep harness CLI
 
-`stream:harness` · M2 — Range confirmed
+`stream:harness` · M2 — Range confirmed · `M2`
 
 PRD §5 and §6 step 5. Parameters in, metrics out, no rendering. Harness before renderer is deliberate: it is cheap, and it confirms the parameter space actually has range before anyone invests in presentation.
 
@@ -275,7 +276,7 @@ PRD §5 and §6 step 5. Parameters in, metrics out, no rendering. Harness before
 
 ### Sweep report: does the parameter space have usable range?
 
-`stream:harness` · M2 — Range confirmed
+`stream:harness` · M2 — Range confirmed · `M2`
 
 The gate on M2. Two questions: does varying the parameters actually move dagDepth and free-set size, and does generation stay under 1s at 100x100. Note what this does NOT settle: R3 is a performance risk, not a playability one (ADR-0006) — grid size is a parameter the player turns down — and frame rate and buffer memory need a device, not a headless sweep. A clean sweep at 100x100 means the board can be BUILT in time, nothing more.
 
@@ -291,7 +292,7 @@ The gate on M2. Two questions: does varying the parameters actually move dagDept
 
 ### CI generation-time regression check
 
-`stream:harness` · M2 — Range confirmed
+`stream:harness` · M2 — Range confirmed · `M2`
 
 Run the headless harness in CI and fail on a large generation-time regression. GitHub runners are shared and noisy, so this is a relative check with a wide threshold — it catches 'this PR made generation 4x slower' and says nothing about the absolute 1s target, which is read off a device (docs/TESTING.md D3).
 
@@ -307,7 +308,7 @@ Run the headless harness in CI and fail on a large generation-time regression. G
 
 ### Two-layer canvas renderer: static offscreen layer
 
-`stream:render` · M3 — Playable
+`stream:render` · M3 — Playable · `M3`
 
 PRD §4.5. All idle segments drawn once to an offscreen canvas at full resolution, redrawn only when a segment leaves. React never touches this canvas (ADR-0002).
 
@@ -321,7 +322,7 @@ PRD §4.5. All idle segments drawn once to an offscreen canvas at full resolutio
 
 ### Automated browser tests: offline, persistence, hit testing, game loop
 
-`stream:infra` · M3 — Playable
+`stream:infra` · M3 — Playable · `M3`
 
 Headless Chromium via Playwright on a Linux runner, covering the behaviour that IS automatable: service worker registration and a genuinely offline second load, manifest/scope/start_url under the deployed base path, persistence across reload, synthetic taps resolving to the expected segment, and the game loop's bounce/lives/win transitions. See docs/TESTING.md for what this deliberately does not cover — a frame rate from a Linux runner is not evidence about a phone, and no CI gate should imply it is.
 
@@ -338,7 +339,7 @@ Headless Chromium via Playwright on a Linux runner, covering the behaviour that 
 
 ### Arrowheads and legibility floor
 
-`stream:render` · M3 — Playable · `risk:R4` `device`
+`stream:render` · M3 — Playable · `risk:R4` `device` `M3`
 
 PRD §3.3 and R4. Arrowheads need roughly 8-10 CSS px to read as a direction, which caps unzoomed boards at about 40 cells across on a phone. Measure it on a device rather than estimating.
 
@@ -352,7 +353,7 @@ PRD §3.3 and R4. Arrowheads need roughly 8-10 CSS px to read as a direction, wh
 
 ### Pan and zoom
 
-`stream:render` · M3 — Playable · `risk:R5` `device`
+`stream:render` · M3 — Playable · `risk:R5` `device` `M3`
 
 PRD §3.2 — required at 100x100. Implemented as a single drawImage from the offscreen buffer with source and destination rects. Thousands of segments are never re-rendered per frame.
 
@@ -366,7 +367,7 @@ PRD §3.2 — required at 100x100. Implemented as a single drawImage from the of
 
 ### Snake-out exit animation
 
-`stream:render` · M3 — Playable
+`stream:render` · M3 — Playable · `M3`
 
 PRD §3.3 and §4.5. Concatenate the segment's polyline with its exit ray into one path and animate the dash offset with dash length equal to the segment length. The piece visibly slithers out head-first for the cost of one polyline per frame.
 
@@ -380,7 +381,7 @@ PRD §3.3 and §4.5. Concatenate the segment's polyline with its exit ray into o
 
 ### Hit testing and free-segment tap radius
 
-`stream:app` · M3 — Playable
+`stream:app` · M3 — Playable · `M3`
 
 PRD §3.2 plus its explicit note. Hit test is pixel -> cell -> occupancy -> segment id, O(1). The radius search MUST only snap to free segments: snapping to a blocked one would cost a life the player never chose to risk. No free segment in radius is a no-op miss, not a bounce.
 
@@ -394,7 +395,7 @@ PRD §3.2 plus its explicit note. Hit test is pixel -> cell -> occupancy -> segm
 
 ### Game loop: tap queue, bounce, lives, win, restart
 
-`stream:app` · M3 — Playable
+`stream:app` · M3 — Playable · `M3`
 
 PRD §3.2. Taps queue during animation and resolve in order. A blocked tap bounces and costs a life. Zero lives restarts the SAME seed — a failed board stays a puzzle you can learn, not a reroll.
 
@@ -409,7 +410,7 @@ PRD §3.2. Taps queue during animation and resolve in order. A blocked tap bounc
 
 ### Device performance pass at 100x100 (G3 gate)
 
-`stream:render` · M3 — Playable · `risk:R3` `risk:R5` `device`
+`stream:render` · M3 — Playable · `risk:R3` `risk:R5` `device` `M3`
 
 PoC goal 3, and the gate on M3: generation under 1s, 60fps pan/zoom, and buffer memory inside a cap iOS Safari tolerates. This sits at the end of Wave 3 rather than in Wave 4 because it is the one PoC goal whose failure can force an architecture change rather than a parameter change — late is expensive. Grid size being adjustable does NOT make this soft: it is a stated goal, and retreating to a smaller maximum is a recorded decision, not a default.
 
@@ -427,7 +428,7 @@ PoC goal 3, and the gate on M3: generation under 1s, 60fps pan/zoom, and buffer 
 
 ### Dev tuning panel
 
-`stream:app` · M4 — Tunable & offline
+`stream:app` · M4 — Tunable & offline · `M4`
 
 PRD §3.4. Live-editable parameters with immediate regenerate, plus a metrics readout. This is the instrument the whole tuning phase runs on, so it calls the same generateBoard the game does (ADR-0004).
 
@@ -441,7 +442,7 @@ PRD §3.4. Live-editable parameters with immediate regenerate, plus a metrics re
 
 ### State persistence: seed, params, removed segments, lives
 
-`stream:app` · M4 — Tunable & offline
+`stream:app` · M4 — Tunable & offline · `M4`
 
 PRD §3.5. Current board and lives must survive a reload and an app kill. Because a board is a pure function of (seed, params), persistence is those two plus the removed-segment list — not a serialized board.
 
@@ -455,7 +456,7 @@ PRD §3.5. Current board and lives must survive a reload and an app kill. Becaus
 
 ### Offline: service worker, install path, airplane-mode acceptance test
 
-`stream:app` · M4 — Tunable & offline · `device`
+`stream:app` · M4 — Tunable & offline · `device` `M4`
 
 PRD §3.5 — first-class requirement, not a nice-to-have. No network calls during play, ever. No runtime fonts, images, or audio. iOS evicts IndexedDB after ~7 days for non-installed sites, which is why the install path matters for saved state.
 
@@ -470,7 +471,7 @@ PRD §3.5 — first-class requirement, not a nice-to-have. No network calls duri
 
 ### Playtest rounds across the parameter space
 
-`stream:app` · M5 — Verdict · `device`
+`stream:app` · M5 — Verdict · `device` `M5`
 
 PoC goal 2, and the only one that cannot be automated. The harness cannot tell you whether the game is fun; only playing does. Structured sessions across the regions the sweep identified.
 
@@ -484,7 +485,7 @@ PoC goal 2, and the only one that cannot be automated. The harness cannot tell y
 
 ### PoC verdict and recommended defaults
 
-`stream:app` · M5 — Verdict
+`stream:app` · M5 — Verdict · `M5`
 
 Closes the PoC. Answers the three questions in PRD §2 with evidence, and says what a v1 would need.
 

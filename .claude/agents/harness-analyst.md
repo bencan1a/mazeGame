@@ -2,6 +2,7 @@
 name: harness-analyst
 description: Stream S4 — test fixtures, board validation, metrics, and the headless parameter sweep harness. Use for test/fixtures/, src/core/validate/, src/core/metrics.ts, src/harness/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S4: `test/fixtures/`, `src/core/validate/`, `src/core/metrics.ts`,

@@ -2,6 +2,7 @@
 name: generator-topology
 description: Stream S3 — segmentation, blocking digraph, orientation/acyclicity, and greedy coloring. Use for anything under src/core/segment/, src/core/orient/, or src/core/color/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S3: `src/core/segment/`, `src/core/orient/`, `src/core/color/`**.

@@ -2,6 +2,7 @@
 name: generator-path
 description: Stream S2 — Hamiltonian path fill over the mask. Spanning-tree contour, backbite fallback, and the bendProbability controllability spike (R1). Use for anything under src/core/path/.
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: sonnet
 ---
 
 You own **stream S2: `src/core/path/`**. Nothing else.
