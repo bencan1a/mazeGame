@@ -20,9 +20,32 @@ tests, coverage, build, budget) and `claude-review`. The reviewer deliberately
 does not re-report anything `verify` already catches, so a review round is about
 correctness rather than lint.
 
+### There is deliberately only one review workflow
+
+`/install-github-app` generates a `claude-code-review.yml` that runs the
+`code-review` plugin. It was merged in #34 and then removed here, for two
+reasons: its job id is also `claude-review`, so two workflows would emit the
+same check name and the required-status-check rule could not tell them apart;
+and the plugin only comments — it never votes, so it cannot satisfy the approval
+rule this setup exists to satisfy.
+
+**If you re-run `/install-github-app`, it will come back.** Delete it again, or
+the merge gate breaks.
+
+The tradeoff is real: the plugin runs a fleet of specialised agents with a
+verification pass, which finds more than `claude-review.yml`'s single-pass
+prompt. Getting both means running the plugin for findings and a second
+invocation to read them and vote — roughly double the tokens per PR. Worth
+revisiting once there is enough generator code for review quality to bite.
+
 ## Setup
 
-Three things have to be done in GitHub; none can be committed to the repo.
+Two of the three GitHub-side steps are done. None of them can be committed to
+the repo, so they are recorded here.
+
+- [x] **Auth secret** — `CLAUDE_CODE_OAUTH_TOKEN` is set
+- [x] **Claude GitHub App** — installed on this repository
+- [ ] **Branch ruleset** — apply after this PR merges (step 3 below)
 
 ### 1. Add the auth secret
 
