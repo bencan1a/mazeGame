@@ -25,6 +25,13 @@ across on a phone. Measure it on a real device and write the number down; below
 the threshold, zoom is mandatory and the UI should say so rather than render
 mush.
 
+**Performance is the binding risk on this stream** (R3, ADR-0006). Grid size is
+a parameter, so nobody is worried about whether a 100×100 board is fun — they
+are worried about whether it renders at 60fps inside a survivable memory budget,
+and that can only be answered on a device. Run the bare canvas benchmark
+(3000×3000 offscreen buffer, a few hundred synthetic polylines, blitted per
+frame) **before** building the real renderer on top of the assumption.
+
 **Cap the offscreen buffer** (R5). A 100×100 board at 3× zoom is roughly
 3000×3000 ≈ 36MB — fine on a modern phone, but Safari will not negotiate.
 Degrade to re-render past the cap rather than crashing.

@@ -16,8 +16,11 @@ Run a headless parameter sweep and interpret it. Arguments: $ARGUMENTS
    - `bendProbability` trades against ray length, so "more bends = harder" is
      not reliably true. Steer by the numbers.
 4. Flag any board that failed validation, with its seed.
-5. Answer explicitly: does the parameter space have usable range, and does the
-   clear-time floor (`segmentCount` × animation duration) make the largest grid
-   sizes impractical (R3)?
-6. Do not claim anything about whether the game is _fun_. The harness cannot
-   measure that; only playtesting can.
+5. Answer explicitly: does the parameter space have usable difficulty range,
+   and does `generationMs` stay under 1s at the largest grid size swept?
+6. Report `segmentCount` × animation duration as a clear-time estimate. It is a
+   fact about a board at that size, not a verdict — grid size is a parameter the
+   player turns down (ADR-0006).
+7. Do not claim anything about whether the game is _fun_, or about frame rate
+   and memory. The harness measures neither; playtesting and a device settle
+   them.

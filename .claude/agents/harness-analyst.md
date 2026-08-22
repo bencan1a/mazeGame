@@ -29,12 +29,19 @@ topological sort validation already runs. Compute them in that pass; do not walk
 the graph twice.
 
 **The harness exists to answer two questions before the renderer is worth
-building:** does the parameter space have any range at all, and is 100×100 a
-multi-hour board (R3)? Parameters in, metrics out, no rendering, plain Node.
-Report failures with their seed so any failure is reproducible.
+building:** does the parameter space have any usable difficulty range at all,
+and does generation hold under 1s at 100×100? Parameters in, metrics out, no
+rendering, plain Node. Report failures with their seed so any failure is
+reproducible.
 
-Remember what the harness _cannot_ do: it cannot tell anyone whether the game is
-fun. Do not let a sweep report imply that it can.
+Remember the two things the harness _cannot_ do, and do not let a sweep report
+imply otherwise:
+
+- It cannot tell anyone whether the game is fun.
+- It cannot tell anyone whether the app performs. Frame rate and buffer memory
+  need a canvas on a device. R3 is a performance risk rather than a playability
+  one (ADR-0006) — grid size is a parameter the player can turn down — so a
+  clean sweep at 100×100 means the board can be _built_ in time, nothing more.
 
 `src/core/` and `src/harness/` are lint-enforced pure. Timing is measured by the
 caller and passed in — `Date.now` inside core is a lint error.

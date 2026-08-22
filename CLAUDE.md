@@ -93,6 +93,9 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 - **The tap radius must only ever snap to a _free_ segment.** Snapping to a
   blocked one costs a life the player never chose to risk. No free segment in
   radius is a no-op miss, not a bounce.
-- **100×100 may simply not be fun** (R3) — thousands of segments times any
-  animation is a multi-hour board. The metrics harness answers this before the
-  renderer is worth investing in.
+- **100×100 is a performance risk, not a playability one** (R3, amended by
+  [ADR-0006](docs/adr/0006-grid-size-is-a-parameter.md)). Grid size is a
+  parameter the player can turn down, so a long board at a large size is a
+  setting, not a defect. What is at risk is generation under 1s, 60fps pan and
+  zoom, and buffer memory on iOS. The headless harness settles generation time
+  only — frame rate and memory need a device.

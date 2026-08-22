@@ -12,18 +12,18 @@ node scripts/seed-github.mjs --dry-run   # preview
 node scripts/seed-github.mjs             # create what is missing
 ```
 
-29 issues, 6 milestones, 20 labels.
+30 issues, 6 milestones, 20 labels.
 
 ## Milestones
 
-| Milestone | Meaning |
-|---|---|
-| M0 — Repo ready | Scaffolding, contracts, CI, task board, agent workflow. |
-| M1 — A board exists | generateBoard returns a validated, acyclic, deterministic board headlessly. |
-| M2 — Range confirmed | Metrics harness sweeps the parameter space; grid-size ceiling decided. |
-| M3 — Playable | Board renders, taps work, lives count, a board can be won on a phone. |
-| M4 — Tunable & offline | Dev panel regenerates live; airplane-mode acceptance test passes on device. |
-| M5 — Verdict | Playtest rounds complete, defaults chosen, PoC recommendation written. |
+| Milestone              | Meaning                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| M0 — Repo ready        | Scaffolding, contracts, CI, task board, agent workflow.                                     |
+| M1 — A board exists    | generateBoard returns a validated, acyclic, deterministic board headlessly.                 |
+| M2 — Range confirmed   | Metrics harness sweeps the parameter space; difficulty range and generation time confirmed. |
+| M3 — Playable          | Board renders, taps work, lives count, a board can be won on a phone — at 60fps.            |
+| M4 — Tunable & offline | Dev panel regenerates live; airplane-mode acceptance test passes on device.                 |
+| M5 — Verdict           | Playtest rounds complete, defaults chosen, PoC recommendation written.                      |
 
 ## Wave 0
 
@@ -214,6 +214,21 @@ The single public entry point, pure in (seed, params) per ADR-0004. Callable ide
 - [ ] No React, DOM, clock, or Math.random anywhere in the call tree (lint enforces)
 - [ ] Integration test: 1000 seeds at 20x20, 40x40, and 100x100 all validate
 
+### SPIKE: canvas blit and buffer-memory floor at 100x100
+
+`stream:render` · M2 — Range confirmed · `spike` `risk:R3` `risk:R5`
+
+The whole renderer design rests on one assumption: a large offscreen buffer can be blitted per frame with drawImage fast enough for 60fps pan/zoom, and iOS Safari will tolerate its memory. That assumption is testable TODAY with a bare benchmark page — no generator, no renderer, no React — so test it before five other tasks are built on top of it. R3 is a performance risk rather than a playability one (ADR-0006), and this is the cheap half of the answer.
+
+**Acceptance criteria**
+
+- [ ] Standalone benchmark page: allocate a ~3000x3000 offscreen canvas, draw a few hundred synthetic polylines into it
+- [ ] Blit it per frame under simulated pan and zoom; report frame rate
+- [ ] Run on a real iOS device and a real Android device; record model, OS version, and numbers in the issue
+- [ ] Peak memory recorded; the point at which Safari degrades or drops the buffer found by increasing size until it does
+- [ ] A written verdict: does the two-layer + drawImage architecture hold at 100x100, and what is the safe buffer cap
+- [ ] If it does not hold, propose the alternative (tiled buffers, lower-resolution static layer, re-render on zoom) before the renderer is built
+
 ## Wave 2
 
 ### SPIKE: make bendProbability actually controllable
@@ -257,19 +272,21 @@ PRD §5 and §6 step 5. Parameters in, metrics out, no rendering. Harness before
 - [ ] A 200-board sweep at 40x40 completes in seconds
 - [ ] Failures are reported per-board with the seed, so any failure is reproducible
 
-### Sweep report: does the parameter space have range?
+### Sweep report: does the parameter space have usable range?
 
-`stream:harness` · M2 — Range confirmed · `risk:R3`
+`stream:harness` · M2 — Range confirmed
 
-The gate on M2, and the cheap answer to R3 before the renderer exists. Two questions: does varying the parameters actually move dagDepth and free-set size, and is 100x100 a multi-hour board? Be willing to conclude the real ceiling is ~50x50.
+The gate on M2. Two questions: does varying the parameters actually move dagDepth and free-set size, and does generation stay under 1s at 100x100. Note what this does NOT settle: R3 is a performance risk, not a playability one (ADR-0006) — grid size is a parameter the player turns down — and frame rate and buffer memory need a device, not a headless sweep. A clean sweep at 100x100 means the board can be BUILT in time, nothing more.
 
 **Acceptance criteria**
 
 - [ ] Sweep across gridSize, meanPieceLength, pieceLengthVariance, bendProbability
 - [ ] Written report in docs/sweeps/ with the data and the plots or tables
 - [ ] Explicit answer: which parameter regions produce which difficulty profile
-- [ ] Explicit answer on the grid-size ceiling, with segmentCount x animationDuration as the clear-time floor
+- [ ] Explicit answer: does generationMs stay under 1s at 100x100
+- [ ] segmentCount x animation duration reported as a clear-time estimate per grid size — a fact, not a verdict
 - [ ] Recommended default parameters for first playtest
+- [ ] No claim made about frame rate, memory, or fun — those are not measurable here
 
 ## Wave 3
 
@@ -358,6 +375,21 @@ PRD §3.2. Taps queue during animation and resolve in order. A blocked tap bounc
 - [ ] Removal state lives in the game layer as a removed-set; Board is never mutated
 - [ ] State machine is unit-tested headlessly against a fixture board, with no canvas
 
+### Device performance pass at 100x100 (G3 gate)
+
+`stream:render` · M3 — Playable · `risk:R3` `risk:R5`
+
+PoC goal 3, and the gate on M3: generation under 1s, 60fps pan/zoom, and buffer memory inside a cap iOS Safari tolerates. This sits at the end of Wave 3 rather than in Wave 4 because it is the one PoC goal whose failure can force an architecture change rather than a parameter change — late is expensive. Grid size being adjustable does NOT make this soft: it is a stated goal, and retreating to a smaller maximum is a recorded decision, not a default.
+
+**Acceptance criteria**
+
+- [ ] Generation time at 100x100 measured on a real phone, recorded in the issue
+- [ ] Pan/zoom frame rate measured on a real phone at 100x100
+- [ ] Peak memory measured; buffer cap validated by forcing it
+- [ ] Degradation past the cap verified to be graceful, not a crash
+- [ ] Measured against the canvas-perf-spike predictions — if they disagree, say why
+- [ ] If a target is missed: a written architecture recommendation, and an explicit recorded decision if the maximum grid size drops
+
 ## Wave 4
 
 ### Dev tuning panel
@@ -402,23 +434,9 @@ PRD §3.5 — first-class requirement, not a nice-to-have. No network calls duri
 - [ ] ACCEPTANCE TEST run on a real device: load once, airplane mode, force-quit, relaunch — board resumes mid-game with lives intact, and a fresh board can be generated
 - [ ] Result of that test recorded in the issue
 
-### Device performance pass at 100x100
-
-`stream:render` · M4 — Tunable & offline · `risk:R3` `risk:R5`
-
-PoC goal 3: generation under 1s and 60fps pan/zoom on a phone. Also the place R5 gets settled — a 3000x3000 offscreen buffer is roughly 36MB, fine on a modern phone but capped rather than left to crash Safari.
-
-**Acceptance criteria**
-
-- [ ] Generation time at 100x100 measured on a real phone, recorded in the issue
-- [ ] Pan/zoom frame rate measured on a real phone at 100x100
-- [ ] Peak memory measured; buffer cap validated by forcing it
-- [ ] Degradation past the cap verified to be graceful, not a crash
-- [ ] If a target is missed, a written recommendation on the real ceiling
-
 ### Playtest rounds across the parameter space
 
-`stream:app` · M5 — Verdict · `risk:R3`
+`stream:app` · M5 — Verdict
 
 PoC goal 2, and the only one that cannot be automated. The harness cannot tell you whether the game is fun; only playing does. Structured sessions across the regions the sweep identified.
 
@@ -441,6 +459,6 @@ Closes the PoC. Answers the three questions in PRD §2 with evidence, and says w
 - [ ] docs/VERDICT.md written
 - [ ] Answers goal 1 (correctness) with sweep numbers
 - [ ] Answers goal 2 (fun) with playtest evidence, including the negative findings
-- [ ] Answers goal 3 (performance) with device measurements and the real grid ceiling
+- [ ] Answers goal 3 (performance) with device measurements, and states the grid sizes that hold 60fps
 - [ ] Recommended default parameters
 - [ ] Says which deferred items (PRD §8) playtesting promoted — notably the ray-trace hint

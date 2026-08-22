@@ -14,13 +14,15 @@ fixtures** for its own input, so no stream waits on the stream upstream of it.
 
 The PoC answers three questions, in priority order (PRD §2):
 
-| #   | Question                                   | Evidence that settles it                                                                                               |
-| --- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| G1  | Is generation correct and always solvable? | 10,000-board headless sweep, zero validation failures, zero cycles, coverage ≥ 99%                                     |
-| G2  | Is the game fun?                           | Playtest log across the parameter space, with a written verdict per region                                             |
-| G3  | Does it hold at 100×100 on a phone?        | Generation < 1s and 60fps pan/zoom measured on real hardware — or a documented decision that the ceiling is lower (R3) |
+| #   | Question                                   | Evidence that settles it                                                                              |
+| --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| G1  | Is generation correct and always solvable? | 10,000-board headless sweep, zero validation failures, zero cycles, coverage ≥ 99%                    |
+| G2  | Is the game fun?                           | Playtest log across the parameter space, with a written verdict per region                            |
+| G3  | Does it hold at 100×100 on a phone?        | Generation < 1s, 60fps pan/zoom, and buffer memory inside the cap, all measured on real hardware (R3) |
 
-G1 is objective and gated by CI. G3 is objective and gated by a benchmark.
+G1 is objective and gated by CI. G3 is objective and gated by a benchmark **on
+a device** — the headless harness can measure generation time, but nothing about
+frame rate or buffer memory, which is where G3 actually fails.
 **G2 is the only one that can fail quietly**, so the plan front-loads getting to
 a playable board and treats "playtest and write down what happened" as real,
 scheduled work rather than a thing that happens at the end.
@@ -31,20 +33,50 @@ Everything in PRD §8, plus: no scoring, no levels, no accounts, no sound, no
 silhouette library, no image import. An agent that finds itself building any of
 these has drifted — stop and open an issue instead.
 
+### Deviation from the PRD: R3 is a performance risk, not a playability one
+
+PRD §7 states R3 as "100×100 may simply not be fun — thousands of segments ×
+even a fast animation is a multi-hour board", and mitigates it by having the
+metrics harness expose the problem before the renderer exists.
+
+**This plan does not treat that as a risk.** Grid size is a parameter, exposed
+in the dev panel and adjustable per board. A 100×100 board being a long sitting
+is a property of that setting, not a defect — the player picks a smaller board,
+exactly as they would pick a smaller sudoku. There is no decision to make and
+therefore nothing to de-risk.
+
+What is genuinely at risk at 100×100 is **performance**: generation under 1s,
+60fps pan and zoom, and an offscreen buffer that does not exhaust Safari. That
+is G3, and it is unforgiving in a way playability is not — missing it can force
+an architecture change rather than a parameter change.
+
+Two consequences run through the rest of this plan:
+
+- The headless harness settles only the **generation-time** part of G3. Frame
+  rate and memory need a canvas on a real device, so "harness before renderer"
+  no longer covers R3 the way the PRD assumed it would.
+- The device performance work therefore moves **earlier** — a bare canvas
+  benchmark in Wave 3's first slot (runnable during Wave 1, since it needs
+  neither generator nor renderer), and the full device pass at the end of
+  Wave 3 rather than in Wave 4.
+
+Recorded as [ADR-0006](./adr/0006-grid-size-is-a-parameter.md). The PRD is left
+as written; this plan is where the departure lives.
+
 ---
 
 ## 2. Phases and milestones
 
 Phases overlap. The milestone is the gate, not the phase boundary.
 
-| Milestone                  | Meaning                                                                              | Gates                                                             |
-| -------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| **M0 — Repo ready**        | Scaffolding, contracts, CI, task board, agent workflow                               | ✅ this commit                                                    |
-| **M1 — A board exists**    | `generateBoard(params)` returns a validated, acyclic, deterministic board headlessly | Validation suite green at 20×20…100×100, 1000 seeds               |
-| **M2 — Range confirmed**   | Metrics harness sweeps the parameter space and reports DAG depth / free-set size     | A written sweep report + a go/no-go on the grid-size ceiling (R3) |
-| **M3 — Playable**          | Board renders, taps work, lives count, a board can be won on a phone                 | Hands-on play on a real device                                    |
-| **M4 — Tunable & offline** | Dev panel regenerates live; airplane-mode acceptance test passes                     | PRD §3.5 acceptance test, on device                               |
-| **M5 — Verdict**           | Playtest rounds complete; parameter defaults chosen; PoC recommendation written      | `docs/playtest/` log + `docs/VERDICT.md`                          |
+| Milestone                  | Meaning                                                                              | Gates                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| **M0 — Repo ready**        | Scaffolding, contracts, CI, task board, agent workflow                               | ✅ this commit                                                     |
+| **M1 — A board exists**    | `generateBoard(params)` returns a validated, acyclic, deterministic board headlessly | Validation suite green at 20×20…100×100, 1000 seeds                |
+| **M2 — Range confirmed**   | Metrics harness sweeps the parameter space and reports DAG depth / free-set size     | A written sweep report + generation time at 100×100                |
+| **M3 — Playable**          | Board renders, taps work, lives count, a board can be won on a phone                 | Hands-on play, plus the G3 performance pass, both on real hardware |
+| **M4 — Tunable & offline** | Dev panel regenerates live; airplane-mode acceptance test passes                     | PRD §3.5 acceptance test, on device                                |
+| **M5 — Verdict**           | Playtest rounds complete; parameter defaults chosen; PoC recommendation written      | `docs/playtest/` log + `docs/VERDICT.md`                           |
 
 **M1 and M2 are the critical path.** M3 work (renderer, input) is independent of
 them and should run in parallel from day one against fixture boards, precisely
@@ -124,7 +156,9 @@ Seed it into GitHub with `node scripts/seed-github.mjs`.
 9. **Headless sweep CLI** (S4) — `npm run harness -- --sweep`, parameters in,
    CSV/JSON out. No rendering, no React.
 10. **Sweep report** (human + S4) — run the space, write down which regions
-    produce which difficulty, and answer R3: is 100×100 a multi-hour board?
+    produce which difficulty, and report generation time at 100×100. The sweep
+    settles the _generation_ half of G3 and nothing else; frame rate and memory
+    are Task 12a.
 11. **R1 spike** (S2) — `bendProbability` is not natively controllable by the
     contour method. Try weighted Prim favouring straight continuation; if the
     achieved bend rate does not track the requested one, try backbite with
@@ -133,35 +167,47 @@ Seed it into GitHub with `node scripts/seed-github.mjs`.
 
 ### Wave 3 — making it playable (M3), runs alongside Waves 1–2
 
-12. **Two-layer canvas renderer** (S5) — static offscreen layer for idle
+12. **Canvas performance spike** (S5) — **do this first, and early.** A bare
+    benchmark page: allocate a 3000×3000 offscreen canvas, draw a few hundred
+    synthetic polylines into it, and blit it per frame under a simulated
+    pan/zoom. No generator, no renderer, no React — so it can run in Wave 1
+    alongside the mask work. It answers whether the two-layer + `drawImage`
+    architecture holds on real iOS hardware at all, which is the assumption
+    every other Wave 3 task is built on top of. Settles R5 and the frame-rate
+    half of R3 while both are still cheap to act on.
+13. **Two-layer canvas renderer** (S5) — static offscreen layer for idle
     segments, animation layer for the one segment leaving. Pan/zoom is a single
     `drawImage` with source/dest rects, never a re-render.
-13. **Arrowheads and legibility** (S5) — ~8–10 CSS px minimum; below that, zoom
+14. **Arrowheads and legibility** (S5) — ~8–10 CSS px minimum; below that, zoom
     is mandatory (R4). Measure it, don't estimate it.
-14. **Pan/zoom input** (S5/S6) — pinch and drag, with the buffer-size cap and
+15. **Pan/zoom input** (S5/S6) — pinch and drag, with the buffer-size cap and
     graceful degradation from R5.
-15. **Snake-out animation** (S5) — polyline + exit ray concatenated, animated
+16. **Snake-out animation** (S5) — polyline + exit ray concatenated, animated
     via dash offset.
-16. **Hit testing + tap radius** (S6) — pixel → cell → `occupancy` → segment.
+17. **Hit testing + tap radius** (S6) — pixel → cell → `occupancy` → segment.
     The radius search **must only snap to free segments**; snapping to a blocked
     one costs a life the player never chose to risk. No free segment in radius
     is a no-op miss, not a bounce.
-17. **Game loop** (S6) — tap queue during animation, bounce, lives, win, restart
+18. **Game loop** (S6) — tap queue during animation, bounce, lives, win, restart
     on the same seed.
+19. **Device performance pass** (S5) — 100×100 generation time, pan/zoom frame
+    rate, and peak memory on real hardware, with the buffer cap validated by
+    forcing it. This is the G3 gate and it belongs here, not at the end: it is
+    the one PoC goal that can require an architectural change rather than a
+    tuning change, so late is expensive.
 
 ### Wave 4 — tuning and shipping the PoC (M4, M5)
 
-18. **Dev settings panel** (S6) — live params, immediate regenerate, metrics
+20. **Dev settings panel** (S6) — live params, immediate regenerate, metrics
     readout.
-19. **Offline / PWA** (S6) — service worker, install path, state persistence of
+21. **Offline / PWA** (S6) — service worker, install path, state persistence of
     `(seed, params, removed segments, lives)`, and the airplane-mode acceptance
     test from PRD §3.5 run on a real device.
-20. **Device performance pass** (S5) — 100×100 generation time and pan/zoom
-    frame rate on real hardware. Memory cap on the offscreen buffer (R5).
-21. **Playtest rounds** (human) — structured sessions across the parameter
+22. **Playtest rounds** (human) — structured sessions across the parameter
     regions the sweep identified. Log in `docs/playtest/`.
-22. **Verdict** (human) — `docs/VERDICT.md`: chosen defaults, real grid ceiling,
-    whether pan-and-judge is tense or just annoying, and what a v1 would need.
+23. **Verdict** (human) — `docs/VERDICT.md`: chosen defaults, the grid sizes that
+    hold performance, whether pan-and-judge is tense or just annoying, and what
+    a v1 would need.
 
 ---
 
@@ -169,13 +215,13 @@ Seed it into GitHub with `node scripts/seed-github.mjs`.
 
 The PRD's risks map onto scheduled work rather than sitting in a table:
 
-| Risk                                  | Where it is handled                                | Trigger for the fallback                                                              |
-| ------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| R1 `bendProbability` not controllable | Task 11, a Wave 2 spike                            | Achieved bend rate does not track requested across ≥ 3 settings                       |
-| R2 Orientation search won't converge  | Reverse construction built in Wave 1, not deferred | Local search exceeds its time box on any board in the standard sweep                  |
-| R3 100×100 isn't fun                  | Task 10 sweep report, before the renderer exists   | DAG depth or clear time implies a multi-hour board — then drop the ceiling and say so |
-| R4 Legibility floor                   | Task 13, measured on device                        | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional        |
-| R5 iOS buffer memory                  | Task 14 buffer cap, Task 20 device pass            | Buffer would exceed the cap → degrade to re-render on zoom                            |
+| Risk                                  | Where it is handled                                | Trigger for the fallback                                                            |
+| ------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| R1 `bendProbability` not controllable | Task 11, a Wave 2 spike                            | Achieved bend rate does not track requested across ≥ 3 settings                     |
+| R2 Orientation search won't converge  | Reverse construction built in Wave 1, not deferred | Local search exceeds its time box on any board in the standard sweep                |
+| R3 100×100 doesn't hold performance   | Task 12 spike early, Task 19 device pass           | Generation over 1s, frame rate under 60fps, or memory over the cap on real hardware |
+| R4 Legibility floor                   | Task 14, measured on device                        | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional      |
+| R5 iOS buffer memory                  | Task 12 spike, Task 15 buffer cap, Task 19 pass    | Buffer would exceed the cap → degrade to re-render on zoom                          |
 
 Two additional risks this plan adds:
 
@@ -227,9 +273,12 @@ Worth writing down now, so it is recognisable later:
 - **If the contour path method cannot be made bendy** (R1), `bendProbability`
   stops being a tuning knob and the difficulty space is narrower than the PRD
   assumes. That changes the tuning phase, not the architecture.
-- **If 100×100 is unplayable** (R3), the memory and pan/zoom work in Wave 3
-  drops in importance and the PoC ships at ~50×50. Cheaper, so finding out
-  early is worth the sweep.
+- **If 100×100 will not hold 60fps or fits inside no sane memory budget** (R3),
+  that is an architecture finding, not a game-design one, and it lands on the
+  renderer. Grid size is a parameter the player and the dev panel can turn down,
+  so nobody has to conclude the game is unplayable — but "just use 50×50" is a
+  retreat from a stated PoC goal, and it should be recorded as one rather than
+  absorbed silently.
 - **If pan-and-judge is frustrating rather than tense** (PRD §8), the ray-trace
   hint moves from deferred to core, and that is a game-design finding the
   metrics harness cannot produce. Only playtesting can, which is why M5 exists.

@@ -56,10 +56,18 @@ renderer is worth investing in:
 1. **Does the parameter space have range at all?** If every setting produces the
    same `dagDepth` and free-set profile, there is no difficulty curve to tune
    and the design needs rethinking.
-2. **Is 100×100 a multi-hour board?** (R3.) Segment count times animation
-   duration is a floor on clear time. Be willing to conclude that the real
-   ceiling is ~50×50.
+2. **Does generation hold at 100×100?** `generationMs` under 1s is PoC goal 3's
+   first clause, and it is the only part of that goal the harness can settle.
 
-What the harness **cannot** tell you is whether the game is fun. Only playing
-does that, which is why the renderer and game loop are core PoC scope rather
-than follow-on work.
+Two things the harness explicitly **cannot** tell you:
+
+- **Whether the game is fun.** Only playing does that, which is why the renderer
+  and game loop are core PoC scope rather than follow-on work.
+- **Whether the app performs.** Frame rate and buffer memory need a canvas on a
+  real device. R3 is a performance risk, not a playability one
+  ([ADR-0006](./adr/0006-grid-size-is-a-parameter.md)) — grid size is a
+  parameter the player can turn down — so do not read a clean sweep as evidence
+  that 100×100 works. It only means the board can be _built_ in time.
+
+`segmentCount` × animation duration is still worth reporting as a clear-time
+estimate. It is a fact about a board at a given size, not a verdict on it.
