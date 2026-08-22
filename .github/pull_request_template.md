@@ -35,3 +35,4 @@ Closes #
 - [ ] `src/core/` still imports nothing from `ui/`, `render/`, or `game/`
 - [ ] No files touched outside this PR's stream (or a `contract-change` issue is linked)
 - [ ] No new runtime dependency (or justified under Exceptions)
+- [ ] Branch contains the current `main`, with checks re-run against it
