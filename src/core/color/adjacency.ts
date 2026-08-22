@@ -9,7 +9,7 @@
  * one"). Coloring only ever needs the former; do not confuse the two CSR
  * pairs even though both look like `{start, target}`.
  */
-import { EAST, NO_CELL, SOUTH, step } from '../grid.js';
+import { EAST, NO_CELL, SOUTH, step, toIndex } from '../grid.js';
 import type { AdjacencyGraph } from './types.js';
 
 /**
@@ -28,11 +28,26 @@ export function buildAdjacencyGraph(
   // the segment's own eventual colour), and two segments that share many
   // cell boundaries are still one edge, exactly like a blocking ray that
   // crosses a segment twice — a Set dedupes both for free.
+  // Validate every cell before building anything. Checking inside the scan is
+  // too late: a valid cell reaches an out-of-range *neighbour* before the scan
+  // arrives at that neighbour's own cell. Unchecked, a corrupt id fails two
+  // different ways depending on where it sits - touching another segment
+  // throws a raw TypeError from an undefined Set, and touching nothing is
+  // silently dropped, returning a segColor shorter than the segment count.
+  for (let i = 0; i < occupancy.length; i++) {
+    const id = occupancy[i] as number;
+    if (id > segmentCount) {
+      throw new Error(
+        `cell ${i} holds segment id ${id}, which is not a segment id (1..${segmentCount})`,
+      );
+    }
+  }
+
   const neighbours: Set<number>[] = Array.from({ length: segmentCount + 1 }, () => new Set());
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const i = y * width + x;
+      const i = toIndex(x, y, width);
       const id = occupancy[i] as number;
       if (id === 0) continue;
       // Checking only East and South (not all four directions) visits every
