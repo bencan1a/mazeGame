@@ -6,13 +6,19 @@ nothing blocking.
 
 ## Moving parts
 
-| Piece | Where | What it does |
-| --- | --- | --- |
-| Review workflow | `.github/workflows/claude-review.yml` | Reviews each PR, posts inline findings, submits APPROVE or REQUEST_CHANGES |
-| Mention workflow | `.github/workflows/claude.yml` | Responds to `@claude` in PR and issue comments |
-| Review standards | `CLAUDE.md` | What counts as blocking vs. a nit |
-| Human-only paths | `.github/CODEOWNERS` | Paths Claude cannot approve changes to |
-| Branch rules | `.github/rulesets/main-branch-protection.json` | The ruleset to apply to `main` |
+| Piece             | Where                                          | What it does                                                               |
+| ----------------- | ---------------------------------------------- | -------------------------------------------------------------------------- |
+| Review workflow   | `.github/workflows/claude-review.yml`          | Reviews each PR, posts inline findings, submits APPROVE or REQUEST_CHANGES |
+| Mention workflow  | `.github/workflows/claude.yml`                 | Responds to `@claude` in PR and issue comments                             |
+| Review criteria   | `REVIEW.md`                                    | What blocks vs. what is a nit                                              |
+| Pre-flight review | `.claude/agents/reviewer.md`                   | The same checklist, run locally before the PR goes up                      |
+| Human-only paths  | `.github/CODEOWNERS`                           | Paths the reviewer cannot approve changes to                               |
+| Branch rules      | `.github/rulesets/main-branch-protection.json` | The ruleset to apply to `main`                                             |
+
+Two checks gate a merge: `verify` (from `ci.yml` — format, lint, typecheck,
+tests, coverage, build, budget) and `claude-review`. The reviewer deliberately
+does not re-report anything `verify` already catches, so a review round is about
+correctness rather than lint.
 
 ## Setup
 
@@ -61,7 +67,7 @@ ruleset**, targeting the default branch:
   - Required approvals: **1**
   - Dismiss stale approvals when new commits are pushed: **on**
   - Require review from Code Owners: **on**
-- Require status checks to pass → add **claude-review**
+- Require status checks to pass → add **verify** and **claude-review**
   - Require branches to be up to date before merging: **on**
 
 Leave **Bypass list** empty. An admin bypass reopens the hole the ruleset exists
@@ -85,18 +91,18 @@ submits as `claude[bot]`.
 custom GitHub App you own and pass it explicitly:
 
 ```yaml
-      - name: Generate reviewer token
-        id: reviewer-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.REVIEWER_APP_ID }}
-          private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+- name: Generate reviewer token
+  id: reviewer-token
+  uses: actions/create-github-app-token@v2
+  with:
+    app-id: ${{ secrets.REVIEWER_APP_ID }}
+    private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
 
-      - name: Review and vote
-        uses: anthropics/claude-code-action@v1
-        with:
-          github_token: ${{ steps.reviewer-token.outputs.token }}
-          # ...
+- name: Review and vote
+  uses: anthropics/claude-code-action@v1
+  with:
+    github_token: ${{ steps.reviewer-token.outputs.token }}
+    # ...
 ```
 
 The custom app needs Contents (read), Issues (read), and Pull requests (write).
@@ -111,19 +117,29 @@ remaining guardrails are what keep the gate meaningful:
   REQUEST_CHANGES, which holds the merge until it is resolved.
 - **Approvals are dismissed on every push.** A new commit re-opens the gate and
   triggers a fresh review, so an approval always refers to the code being merged.
-- **Claude cannot approve changes to its own guardrails.** `CODEOWNERS` puts
-  `.github/workflows/`, `.github/CODEOWNERS`, and `.github/rulesets/` behind a
-  human approval, so the review job, the approval rule, and the owners file
-  cannot be weakened by a Claude-approved PR.
-- **Claude cannot approve its own PRs.** GitHub rejects an App's review on a PR
-  that App authored. Anything Claude writes still needs a human.
+- **Claude cannot approve changes to its own guardrails.** `CODEOWNERS` puts the
+  workflows, the ruleset, the owners file, the agent definitions, `REVIEW.md`,
+  `CLAUDE.md`, and the workflow and contract docs behind a human approval — so
+  neither the gate nor the rules it enforces can be weakened by a
+  Claude-approved PR.
+- **The reviewer cannot approve a PR it opened.** GitHub rejects an App's review
+  on a PR that App authored, so anything the `@claude` workflow opens by itself
+  still needs you.
 - **No bypass actors.** Nothing routes around the rules, including admins.
 
-What this setup does *not* give you is a second opinion on Claude's own
-judgment. On a PR Claude did not author, its approval is the only approval, so
-its blind spots are the system's blind spots. If you later want a human in the
-loop on higher-risk changes without reviewing everything, widen `CODEOWNERS`
-to those paths rather than raising the approval count.
+Be clear about how far that last one reaches, because it is narrower than it
+looks. The six stream agents in `.claude/agents/` run inside your local session
+and push under **your** git identity, so their PRs are authored by you, not by
+`claude[bot]` — which means the reviewer can and will approve them. The
+self-approval block only catches PRs the Claude GitHub App opens directly.
+
+So on the normal path — agent writes code, you push, reviewer approves — no
+second person sees the change. That is what you asked for, and it is worth
+naming plainly: the same model family writes the code and votes on it, and
+where the reviewer is wrong, nothing downstream catches it. The `CODEOWNERS`
+paths above are the deliberate exception, and widening that list is the cheapest
+way to put yourself back in the loop on whatever you decide is high-risk —
+`src/core/**` once the generator lands would be a reasonable next entry.
 
 ## Day-to-day
 
@@ -132,7 +148,7 @@ to those paths rather than raising the approval count.
   cannot authenticate. Those need a human reviewer.
 - Comment `@claude` on a PR to ask a question or request changes be made.
 - Push a fix and the stale approval is dismissed and the review re-runs.
-- Tune what gets flagged by editing `CLAUDE.md`.
+- Tune what gets flagged by editing [`REVIEW.md`](../REVIEW.md).
 
 ## Cost
 

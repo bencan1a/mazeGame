@@ -1,11 +1,20 @@
-# Paths where a human approval is required regardless of Claude's review.
+# Paths where a human approval is required regardless of the automated review.
 #
-# Claude reviews and approves ordinary PRs, but it must not be able to approve
-# changes to the automation that governs it. Anything that could weaken the
-# review gate itself is owned by a human.
+# The reviewer approves ordinary PRs, but it must not be able to approve changes
+# to the automation that governs it, or to the rules it reviews against. Anything
+# that could weaken the gate — the workflows, the agent definitions, the review
+# criteria, and the contracts — is owned by a human.
 #
-# Requires "Require review from Code Owners" to be enabled on the branch rule.
+# Requires "Require review from Code Owners" on the branch rule. Note that
+# docs/** is already contract-change territory per docs/WORKFLOW.md; the two
+# entries below are the ones that also carry review policy.
 
-/.github/workflows/   @bencan1a
-/.github/CODEOWNERS   @bencan1a
-/.github/rulesets/    @bencan1a
+/.github/workflows/       @bencan1a
+/.github/CODEOWNERS       @bencan1a
+/.github/rulesets/        @bencan1a
+/.claude/agents/          @bencan1a
+/.claude/settings.json    @bencan1a
+/CLAUDE.md                @bencan1a
+/REVIEW.md                @bencan1a
+/docs/WORKFLOW.md         @bencan1a
+/docs/CONTRACTS.md        @bencan1a

@@ -54,27 +54,21 @@ jobs:
             PR NUMBER: ${{ github.event.pull_request.number }}
             PR AUTHOR: ${{ github.event.pull_request.user.login }}
 
-            The PR branch is already checked out in the working directory. Read the
-            diff with `gh pr diff`, then read the surrounding files so you judge each
-            change in context rather than from the diff hunk alone.
+            ## Read first
 
-            ## What counts as blocking
+            Read `REVIEW.md` — it holds the criteria you apply, what blocks versus
+            what is a nit, and how to keep reviews cheap. Then read `CLAUDE.md`,
+            `docs/WORKFLOW.md` (lane ownership and the contract-change rule), and
+            `docs/CONTRACTS.md` (the invariants generator work must hold). Consult
+            `docs/adr/` when a change looks like it cuts against a recorded decision.
 
-            Treat a finding as BLOCKING only when you can name a concrete failure:
-            the input or state that triggers it, and the wrong behaviour that results.
+            The PR branch is already checked out. Read the diff with `gh pr diff`,
+            then read the surrounding files so you judge each change in context
+            rather than from the diff hunk alone.
 
-            - Logic errors that produce wrong output or corrupt state
-            - Crashes, unhandled errors, resource leaks, unbounded growth
-            - Security problems: injection, secrets in code or logs, missing
-              authorization, unsafe deserialization
-            - Data loss, or a migration that cannot be rolled back
-            - A breaking change to a public interface with no migration path
-            - New behaviour whose failure mode would be silent and untested
-
-            Everything else - naming, style, structure, test coverage you would
-            merely prefer, speculative future problems - is a NIT. Do not block on
-            nits. If you are unsure whether something is a real bug, say so in the
-            comment and treat it as a nit rather than inventing certainty.
+            Do not re-report anything CI settles. `npm run verify` gates format,
+            lint, typecheck, tests, coverage, build, and bundle budget, and the
+            `verify` check must be green for this PR to merge regardless of you.
 
             ## How to report
 
