@@ -17,14 +17,14 @@ node scripts/seed-github.mjs             # create what is missing
 
 ## Milestones
 
-| Milestone              | Meaning                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| M0 — Repo ready        | Scaffolding, contracts, CI, task board, agent workflow.                                     |
-| M1 — A board exists    | generateBoard returns a validated, acyclic, deterministic board headlessly.                 |
-| M2 — Range confirmed   | Metrics harness sweeps the parameter space; difficulty range and generation time confirmed. |
-| M3 — Playable          | Board renders, taps work, lives count, a board can be won on a phone — at 60fps.            |
-| M4 — Tunable & offline | Dev panel regenerates live; airplane-mode acceptance test passes on device.                 |
-| M5 — Verdict           | Playtest rounds complete, defaults chosen, PoC recommendation written.                      |
+| Milestone | Meaning |
+|---|---|
+| M0 — Repo ready | Scaffolding, contracts, CI, task board, agent workflow. |
+| M1 — A board exists | generateBoard returns a validated, acyclic, deterministic board headlessly. |
+| M2 — Range confirmed | Metrics harness sweeps the parameter space; difficulty range and generation time confirmed. |
+| M3 — Playable | Board renders, taps work, lives count, a board can be won on a phone — at 60fps. |
+| M4 — Tunable & offline | Dev panel regenerates live; airplane-mode acceptance test passes on device. |
+| M5 — Verdict | Playtest rounds complete, defaults chosen, PoC recommendation written. |
 
 ## Wave 0
 
