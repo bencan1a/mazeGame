@@ -98,10 +98,10 @@ interface Harmonic {
  * beyond) sit outside the half-resolution lattice entirely, and so must never
  * be inside the silhouette. `upscale2x` enforces exactly that: it never
  * writes past `2 * halfSize` in either axis, so that leftover strip stays
- * zeroed (outside) by construction. The floor of 1 covers the degenerate
- * `gridSize` 0/1 case a couple of existing corner-case tests still exercise;
- * a `gridSize` that small has no meaningful "half resolution", but it must
- * still come back non-empty rather than throw.
+ * zeroed (outside) by construction. The floor of 1 exists for `gridSize` 1,
+ * which has no meaningful "half resolution" but is a legal positive integer
+ * and must still come back non-empty. `gridSize` 0 never reaches here —
+ * `generateBlob` rejects anything below 1, and a test asserts that it throws.
  */
 function halfResSize(gridSize: number): number {
   return Math.max(1, Math.floor(gridSize / 2));
@@ -222,9 +222,12 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
 /**
  * Maps every `half` cell to the 2x2 block of full-resolution cells at
  * `(2*hx, 2*hy)`. This is what makes the output block-aligned to lattice
- * offset (0, 0) unconditionally: `classifyTiling` (src/core/path/tiling.ts)
- * needs *some* offset to work, and this generator simply never produces
- * anything else, so it always finds one on the first try.
+ * offset (0, 0) unconditionally. The contour path fill (#5) accepts a region
+ * only when it divides into whole 2x2 blocks under one of four lattice
+ * offsets; a region built out of such blocks satisfies that at offset (0, 0)
+ * by construction, so the search succeeds on its first try. No path is named
+ * here on purpose: that code lives on another branch, and a hardcoded path to
+ * a file this branch does not contain would be stale the moment either moves.
  *
  * `fullWidth`/`fullHeight` may exceed `2 * half.width` / `2 * half.height`
  * when `gridSize` is odd (`halfResSize` rounds down) — the leftover
