@@ -2,7 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import { pathViolations } from '../../../test/fixtures/postconditions.js';
 import { createRng } from '../rng.js';
+import type { Mask } from '../types.js';
 import { buildContourPath } from './contour.js';
+
+describe('buildContourPath: mask.pathCellCount disagreeing with inside/unvisited (regression)', () => {
+  // Before classifyTiling reconciled the two, this exact mask produced
+  // cells = [4294967286, 0, 0, 0]: blockFull.indexOf(1) was -1 (no cell is
+  // actually inside), and toIndex(-2, 0, width) wrapped to a huge value once
+  // stored in the Uint32Array start index — an ok: true result no caller
+  // could tell apart from a real path.
+  it('reports ok: false instead of a garbage path for an all-empty mask claiming 4 path cells', () => {
+    const mask: Mask = {
+      width: 2,
+      height: 2,
+      inside: new Uint8Array(4),
+      unvisited: new Uint8Array(4),
+      pathCellCount: 4,
+    };
+    const result = buildContourPath(mask, createRng(1));
+    expect(result.ok).toBe(false);
+  });
+});
 
 describe('buildContourPath: merge derivation, worked by hand', () => {
   // These two cases are the smallest possible instance of a tree edge in
@@ -83,7 +103,8 @@ describe('buildContourPath', () => {
   });
 
   it('reports cleanly instead of throwing when the region will not tile', () => {
-    // Odd height: cannot form a half-resolution grid at all.
+    // A full odd-height rectangle: every cell is on the path, so no lattice
+    // offset can avoid leaving a path-carrying border strip uncovered.
     const mask = makeMask({ width: 4, height: 5 });
     const result = buildContourPath(mask, createRng(1));
     expect(result.ok).toBe(false);
@@ -96,6 +117,32 @@ describe('buildContourPath', () => {
     const mask = makeMask(['.##.', '####', '####', '.##.'].join('\n'));
     const result = buildContourPath(mask, createRng(1));
     expect(result.ok).toBe(false);
+  });
+
+  it('accepts an odd-sized grid holding a block-aligned even silhouette', () => {
+    // Only the region needs to tile, not the whole grid — a 5x5 mask whose
+    // silhouette is a block-aligned 4x4 tiles at offset (0, 0) even though
+    // the grid itself is odd on both axes.
+    const mask = makeMask(['####.', '####.', '####.', '####.', '.....'].join('\n'));
+    const result = buildContourPath(mask, createRng(1));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.offsetX).toBe(0);
+    expect(result.offsetY).toBe(0);
+    expect(pathViolations(result.path, mask)).toEqual([]);
+  });
+
+  it('accepts a region with an absorbed cell when a non-zero lattice offset routes around it', () => {
+    // Interior 2x2 block plus one absorbed corner cell that would make the
+    // (0, 0)-offset block mixed; offset (1, 1) lines up on the interior block
+    // instead, where the absorbed cell falls outside any block.
+    const mask = makeMask(['o...', '.##.', '.##.', '....'].join('\n'));
+    const result = buildContourPath(mask, createRng(1));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.offsetX).toBe(1);
+    expect(result.offsetY).toBe(1);
+    expect(pathViolations(result.path, mask)).toEqual([]);
   });
 
   it('completes a 100x100 region in well under 100ms', () => {

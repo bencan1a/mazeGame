@@ -38,7 +38,7 @@
  * arbitrary cell yields the Hamiltonian path.
  */
 
-import { EAST, NORTH, SOUTH, WEST, toIndex } from '../grid.js';
+import { EAST, NORTH, SOUTH, WEST, toIndex, xOf, yOf } from '../grid.js';
 import type { Rng } from '../rng.js';
 import type { HamiltonianPath, Mask } from '../types.js';
 import { buildSpanningTree } from './spanningTree.js';
@@ -48,6 +48,9 @@ import type { TilingFailed } from './tiling.js';
 export interface ContourOk {
   readonly ok: true;
   readonly path: HamiltonianPath;
+  /** Which of the 4 lattice offsets classifyTiling accepted; see tiling.ts. */
+  readonly offsetX: 0 | 1;
+  readonly offsetY: 0 | 1;
 }
 
 export type ContourFailed = TilingFailed;
@@ -67,7 +70,7 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
   const tiling = classifyTiling(mask);
   if (!tiling.ok) return tiling;
 
-  const { halfWidth, halfHeight, blockFull } = tiling;
+  const { halfWidth, halfHeight, blockFull, offsetX, offsetY } = tiling;
   const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, rng);
 
   const width = mask.width;
@@ -78,8 +81,8 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
       const block = by * halfWidth + bx;
       if (blockFull[block] !== 1) continue;
 
-      const x0 = bx * 2;
-      const y0 = by * 2;
+      const x0 = offsetX + bx * 2;
+      const y0 = offsetY + by * 2;
       const nw = toIndex(x0, y0, width);
       const ne = toIndex(x0 + 1, y0, width);
       const sw = toIndex(x0, y0 + 1, width);
@@ -104,9 +107,19 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
   // Cut the cycle at the first full block's NW corner. Any cell would do —
   // the contour is a cycle, so every cut yields a valid Hamiltonian path.
   const startBlock = blockFull.indexOf(1);
-  const startBx = startBlock % halfWidth;
-  const startBy = Math.floor(startBlock / halfWidth);
-  const start = toIndex(startBx * 2, startBy * 2, width);
+  // classifyTiling's ok:true guarantees at least one full, connected block
+  // (mask.pathCellCount === 0 and an empty blockFull are both rejected there),
+  // so this should be unreachable. Guarded anyway: a negative index here would
+  // silently wrap into a huge Uint32Array value below rather than fail loudly.
+  if (startBlock === -1) {
+    throw new Error(
+      'classifyTiling reported ok:true with no full block; this is a contract violation, not ' +
+        'a tileable-or-not outcome the caller can recover from',
+    );
+  }
+  const startBx = xOf(startBlock, halfWidth);
+  const startBy = yOf(startBlock, halfWidth);
+  const start = toIndex(offsetX + startBx * 2, offsetY + startBy * 2, width);
 
   const cells = new Uint32Array(mask.pathCellCount);
   let cell = start;
@@ -115,5 +128,5 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
     cell = next[cell] as number;
   }
 
-  return { ok: true, path: { cells } };
+  return { ok: true, path: { cells }, offsetX, offsetY };
 }
