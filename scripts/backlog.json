@@ -1,0 +1,486 @@
+{
+  "milestones": [
+    {
+      "title": "M0 — Repo ready",
+      "description": "Scaffolding, contracts, CI, task board, agent workflow."
+    },
+    {
+      "title": "M1 — A board exists",
+      "description": "generateBoard returns a validated, acyclic, deterministic board headlessly."
+    },
+    {
+      "title": "M2 — Range confirmed",
+      "description": "Metrics harness sweeps the parameter space; grid-size ceiling decided."
+    },
+    {
+      "title": "M3 — Playable",
+      "description": "Board renders, taps work, lives count, a board can be won on a phone."
+    },
+    {
+      "title": "M4 — Tunable & offline",
+      "description": "Dev panel regenerates live; airplane-mode acceptance test passes on device."
+    },
+    {
+      "title": "M5 — Verdict",
+      "description": "Playtest rounds complete, defaults chosen, PoC recommendation written."
+    }
+  ],
+  "labels": [
+    { "name": "stream:mask", "color": "1d76db", "description": "S1 — silhouette mask pipeline" },
+    { "name": "stream:path", "color": "0e8a16", "description": "S2 — Hamiltonian path fill" },
+    {
+      "name": "stream:topology",
+      "color": "5319e7",
+      "description": "S3 — segmentation, orientation, coloring"
+    },
+    {
+      "name": "stream:harness",
+      "color": "fbca04",
+      "description": "S4 — validation, metrics, sweep harness"
+    },
+    { "name": "stream:render", "color": "d93f0b", "description": "S5 — canvas renderer" },
+    { "name": "stream:app", "color": "c2e0c6", "description": "S6 — game loop, UI, PWA" },
+    {
+      "name": "stream:infra",
+      "color": "bfd4f2",
+      "description": "S7 — tooling, CI, repo scaffolding"
+    },
+    { "name": "wave:0", "color": "ededed", "description": "Unblocks every other stream" },
+    { "name": "wave:1", "color": "ededed", "description": "Generator core" },
+    { "name": "wave:2", "color": "ededed", "description": "Metrics and tuning range" },
+    { "name": "wave:3", "color": "ededed", "description": "Playable" },
+    { "name": "wave:4", "color": "ededed", "description": "Tuning, offline, verdict" },
+    {
+      "name": "contract-change",
+      "color": "b60205",
+      "description": "Touches shared files; needs human review"
+    },
+    {
+      "name": "spike",
+      "color": "d4c5f9",
+      "description": "Time-boxed investigation; deliverable is a written answer"
+    },
+    { "name": "blocked", "color": "e99695", "description": "Waiting on another issue" },
+    {
+      "name": "risk:R1",
+      "color": "f9d0c4",
+      "description": "bendProbability is not natively controllable"
+    },
+    { "name": "risk:R2", "color": "f9d0c4", "description": "Orientation search may not converge" },
+    { "name": "risk:R3", "color": "f9d0c4", "description": "100x100 may not be fun" },
+    { "name": "risk:R4", "color": "f9d0c4", "description": "Arrowhead legibility floor" },
+    { "name": "risk:R5", "color": "f9d0c4", "description": "Offscreen buffer memory on iOS" }
+  ],
+  "issues": [
+    {
+      "key": "fixtures",
+      "title": "Test fixture builders: makeMask, makePath, makeBoard",
+      "labels": ["stream:harness", "wave:0", "contract-change"],
+      "milestone": "M1 — A board exists",
+      "context": "Fixtures are how the streams run in parallel: every stage is developed against a synthetic version of its own input rather than waiting for the stage upstream of it. This is the first task after contracts and it unblocks everyone.",
+      "criteria": [
+        "`makeMask(spec)` builds a Mask from an ASCII-art string (`#` inside, `.` outside, `o` unvisited) and from a plain rectangle",
+        "`makePath(mask)` returns a trivially-correct boustrophedon Hamiltonian path over a rectangular mask",
+        "`makeBoard(spec)` returns a small hand-checkable Board with correct CSR arrays",
+        "A deliberately cyclic board fixture exists, so validation can be tested for the failing case",
+        "Fixtures satisfy the postconditions in docs/CONTRACTS.md — asserted by their own tests",
+        "ASCII specs round-trip: `render(makeMask(s)) === s`"
+      ]
+    },
+    {
+      "key": "blob",
+      "title": "Procedural blob generator",
+      "labels": ["stream:mask", "wave:0"],
+      "milestone": "M1 — A board exists",
+      "context": "Produce a binary silhouette to feed the repair pipeline. Crude is fine to start — S2 needs some mask to path-fill. PRD §3.1 says procedural blobs for the PoC; the mask-repair pipeline is built but fed synthetic input.",
+      "criteria": [
+        "Deterministic given (seed, gridSize) — same inputs, identical grid",
+        "Produces an organically-shaped region, not a rectangle or a disc",
+        "Region area is a tunable fraction of the grid",
+        "No use of Math.random or Date.now (lint enforces this)",
+        "Property test: output is always non-empty and fits inside the grid"
+      ]
+    },
+    {
+      "key": "morphology",
+      "title": "Mask repair: largest component, morphological open, hole fill",
+      "labels": ["stream:mask", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 1. The morphological open (erode then dilate) is the load-bearing step: it amputates 1-cell-wide spurs and severs hairline necks, both of which make a Hamiltonian path impossible. Connectivity must be re-checked afterwards because opening can disconnect the region.",
+      "criteria": [
+        "Largest 4-connected component extraction, with a test on a mask with three islands",
+        "Erode then dilate with a documented structuring element",
+        "Connectivity re-checked and largest component re-taken after the open",
+        "Interior holes below an area threshold are filled",
+        "Property test: no cell in the repaired mask has fewer than 2 inside-neighbours",
+        "Property test: result is exactly one 4-connected component"
+      ]
+    },
+    {
+      "key": "parity",
+      "title": "Checkerboard parity absorption",
+      "labels": ["stream:mask", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "A Hamiltonian path needs |black| - |white| in {0, +/-1}. PRD §4.2 step 1.6 is explicit that the mismatch is absorbed by marking 1-3 cells unvisited rather than by editing the silhouette — visually invisible, and it removes the feasibility problem entirely.",
+      "criteria": [
+        "Counts checkerboard classes over inside cells",
+        "Marks the minimum number of cells unvisited to bring the imbalance into {0, +/-1}",
+        "Unvisited cells are chosen so the remaining region stays 4-connected",
+        "`pathCellCount` matches the count of inside && !unvisited cells",
+        "Property test over 500 random blobs: parity condition holds and connectivity survives",
+        "If more than 3 cells would be needed, fail loudly rather than silently degrading"
+      ]
+    },
+    {
+      "key": "contour",
+      "title": "Path fill: spanning-tree contour",
+      "labels": ["stream:path", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 2, primary method. A random spanning tree on a half-resolution grid, with the tree's outline traced at full resolution. The contour walk IS a Hamiltonian cycle, guaranteed, in linear time. Requires the region to tile into 2x2 blocks — detect and report when it does not, so the backbite fallback can take over.",
+      "criteria": [
+        "Returns a HamiltonianPath satisfying every postcondition in docs/CONTRACTS.md",
+        "Reports cleanly (not by throwing on a happy path) when the region will not tile into 2x2 blocks",
+        "Linear time — a 100x100 region completes in well under 100ms",
+        "Deterministic for a given (mask, seed)",
+        "Property test over fixture masks: every path cell visited exactly once, consecutive cells are 4-neighbours"
+      ]
+    },
+    {
+      "key": "backbite",
+      "title": "Path fill: backbite fallback and randomizer",
+      "labels": ["stream:path", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 2, fallback. Mansfield's backbite: take an endpoint, pick a random neighbour, reverse the tail. Mixes toward near-uniform random paths and handles irregular regions the contour method cannot tile.",
+      "criteria": [
+        "Handles regions the contour method rejects",
+        "Path invariants hold after every move, not just at the end (assert in dev)",
+        "Mixing iteration count is a parameter with a documented default",
+        "Terminates within a time box; reports failure rather than spinning",
+        "Property test: the path remains Hamiltonian across thousands of backbite moves"
+      ]
+    },
+    {
+      "key": "bendiness",
+      "title": "SPIKE: make bendProbability actually controllable",
+      "labels": ["stream:path", "wave:2", "spike", "risk:R1"],
+      "milestone": "M2 — Range confirmed",
+      "context": "R1, and the PRD calls it a headline tuning knob. The contour method determines path shape; bendiness is not a free parameter of it. Candidate approaches: bias spanning-tree growth (weighted Prim favouring straight continuation), or backbite with annealing on a bendiness objective. Resolve early — the answer changes what the dev panel can honestly offer.",
+      "criteria": [
+        "Measured bendRate plotted against requested bendProbability across at least 5 settings and 50 seeds each",
+        "A written answer in the issue: does the achieved rate track the requested one, and over what range",
+        "If it does not track, either a working alternative or an explicit recommendation to drop/rename the parameter",
+        "Time-boxed; a negative result written up is a successful outcome"
+      ]
+    },
+    {
+      "key": "segmentation",
+      "title": "Segmentation: cut the path into pieces",
+      "labels": ["stream:topology", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 3. Cut per meanPieceLength and pieceLengthVariance, with minStraightRun constraining where cuts may land.",
+      "criteria": [
+        "Segments partition the path exactly — concatenation reproduces the original cell order",
+        "Mean segment length is within tolerance of meanPieceLength over 100 boards",
+        "No cut leaves a straight run shorter than minStraightRun, except where the path offers none",
+        "No empty segments; CSR arrays are well-formed",
+        "Deterministic for a given (path, params, seed)"
+      ]
+    },
+    {
+      "key": "blocking",
+      "title": "Blocking digraph construction (CSR)",
+      "labels": ["stream:topology", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.4. Walk the ray from each head in segDir to the board edge, reading occupancy. Every distinct OTHER segment id on the ray is a blocker; the edge means the blocker must be removed first. A segment's own body never blocks it.",
+      "criteria": [
+        "Self-blocking is impossible — a segment crossing its own ray produces no self-edge",
+        "Duplicate blockers de-duplicated: a long segment crossing a ray twice yields one edge",
+        "CSR output, edgeStart length n+1, edges sorted within each row",
+        "Hand-checked fixture board produces exactly the expected edge set",
+        "100x100 construction time measured and recorded in the issue"
+      ]
+    },
+    {
+      "key": "orientation",
+      "title": "Orientation: acyclic head assignment via SCC local search",
+      "labels": ["stream:topology", "wave:1", "risk:R2"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 4. Each segment has exactly two legal heads. Choose an assignment making the blocking digraph acyclic. This is NOT 2-SAT — acyclicity is not a binary clause — so: build graph, Tarjan SCC, flip a segment inside a non-trivial SCC, recheck, repeat. Time-box it; R2 says fall back to reverse construction.",
+      "criteria": [
+        "Tarjan SCC implementation with its own tests, including nested and trivial SCC cases",
+        "Local search flips heads inside non-trivial SCCs and re-checks",
+        "Hard time box; on expiry it reports failure rather than spinning",
+        "Automatic fallback to reverse construction, and the fallback is recorded in metrics",
+        "Property test over 500 boards: the resulting digraph is always acyclic"
+      ]
+    },
+    {
+      "key": "reverse-construct",
+      "title": "Orientation fallback: reverse construction",
+      "labels": ["stream:topology", "wave:1", "risk:R2"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 4 escape hatch, and R2's mitigation. Start with an empty board and slide segments in from the edge one at a time; the reversed insertion order is a guaranteed-valid removal order, so acyclicity is free by construction. Build it in Wave 1 rather than deferring — discovering you need it in Wave 3 is expensive.",
+      "criteria": [
+        "Produces a board whose blocking digraph is acyclic by construction, with no search",
+        "Packing density measured against the local-search path and recorded — this is the trade",
+        "Used automatically when local search times out",
+        "Property test over 200 boards at 40x40 and 100x100: always acyclic, always fully covered"
+      ]
+    },
+    {
+      "key": "coloring",
+      "title": "Segment coloring: greedy over the adjacency graph",
+      "labels": ["stream:topology", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §3.3 and §4.2 step 6. Adjacent segments must be visually distinguishable or the player cannot tell where one segment ends and the next begins. This is a readability mechanic, not decoration — so the test asserts the property, not merely that colors were assigned.",
+      "criteria": [
+        "Adjacency graph built from 4-neighbour cell contacts between different segments",
+        "Greedy coloring using 4-6 hues",
+        "Property test over 500 boards: no two adjacent segments share a palette index",
+        "If 6 hues are insufficient for some board, that is reported rather than silently reused",
+        "Palette itself lives in the render layer, not in core — core emits indices only"
+      ]
+    },
+    {
+      "key": "validate",
+      "title": "Board validation: acyclicity, coverage, reachability, determinism",
+      "labels": ["stream:harness", "wave:1"],
+      "milestone": "M1 — A board exists",
+      "context": "PRD §4.2 step 5 — assert and fail loudly in dev. This is the gate on PoC goal 1: never ship an unsolvable board.",
+      "criteria": [
+        "Topological sort consumes all n segments, else BoardInvariantError",
+        "Coverage >= 99% of inside cells, with unvisited cells accounting for the remainder",
+        "occupancy and the CSR segment lists agree in both directions",
+        "A simulated greedy clear removes every segment",
+        "Determinism check: regenerating from the same (seed, params) yields byte-identical arrays",
+        "Each failure names the offending segment or cell — a bare 'invalid board' is not enough"
+      ]
+    },
+    {
+      "key": "generate",
+      "title": "generateBoard(params): wire the pipeline end to end",
+      "labels": ["stream:harness", "wave:1", "contract-change"],
+      "milestone": "M1 — A board exists",
+      "context": "The single public entry point, pure in (seed, params) per ADR-0004. Callable identically from the dev panel, a headless script, and the game loop.",
+      "criteria": [
+        "generateBoard(params) runs mask -> path -> segmentation -> orientation -> validation -> colors",
+        "Validation runs in dev and in tests; production behaviour on failure is documented",
+        "Retry-with-new-internal-seed on validation failure, bounded and counted",
+        "No React, DOM, clock, or Math.random anywhere in the call tree (lint enforces)",
+        "Integration test: 1000 seeds at 20x20, 40x40, and 100x100 all validate"
+      ]
+    },
+    {
+      "key": "metrics",
+      "title": "Board metrics: DAG depth, free-set size, bend rate, coverage",
+      "labels": ["stream:harness", "wave:2"],
+      "milestone": "M2 — Range confirmed",
+      "context": "PRD §5. Both headline numbers fall out of the topological sort validation already computes — compute them there rather than walking the graph twice. See docs/METRICS.md.",
+      "criteria": [
+        "All BoardMetrics fields populated per docs/CONTRACTS.md",
+        "dagDepth and free-set statistics computed in a single pass with the topological sort",
+        "Hand-checked fixture board yields exactly the expected metrics",
+        "generationMs measured by the caller, not inside core (ADR-0004)",
+        "Metrics on a 100x100 board add under 10ms"
+      ]
+    },
+    {
+      "key": "harness-cli",
+      "title": "Headless sweep harness CLI",
+      "labels": ["stream:harness", "wave:2"],
+      "milestone": "M2 — Range confirmed",
+      "context": "PRD §5 and §6 step 5. Parameters in, metrics out, no rendering. Harness before renderer is deliberate: it is cheap, and it confirms the parameter space actually has range before anyone invests in presentation.",
+      "criteria": [
+        "`npm run harness -- --seeds N --grid G` prints aggregate metrics",
+        "`--sweep <file.json>` runs a parameter grid and writes JSON or CSV",
+        "Runs in plain Node with no DOM",
+        "A 200-board sweep at 40x40 completes in seconds",
+        "Failures are reported per-board with the seed, so any failure is reproducible"
+      ]
+    },
+    {
+      "key": "sweep-report",
+      "title": "Sweep report: does the parameter space have range?",
+      "labels": ["stream:harness", "wave:2", "risk:R3"],
+      "milestone": "M2 — Range confirmed",
+      "context": "The gate on M2, and the cheap answer to R3 before the renderer exists. Two questions: does varying the parameters actually move dagDepth and free-set size, and is 100x100 a multi-hour board? Be willing to conclude the real ceiling is ~50x50.",
+      "criteria": [
+        "Sweep across gridSize, meanPieceLength, pieceLengthVariance, bendProbability",
+        "Written report in docs/sweeps/ with the data and the plots or tables",
+        "Explicit answer: which parameter regions produce which difficulty profile",
+        "Explicit answer on the grid-size ceiling, with segmentCount x animationDuration as the clear-time floor",
+        "Recommended default parameters for first playtest"
+      ]
+    },
+    {
+      "key": "renderer-static",
+      "title": "Two-layer canvas renderer: static offscreen layer",
+      "labels": ["stream:render", "wave:3"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §4.5. All idle segments drawn once to an offscreen canvas at full resolution, redrawn only when a segment leaves. React never touches this canvas (ADR-0002).",
+      "criteria": [
+        "Renders a fixture board without any generator dependency",
+        "Offscreen buffer, redrawn only on segment removal",
+        "Uncontrolled ref; no React state per segment",
+        "Buffer size capped, with documented degradation past the cap (R5)",
+        "Draws correctly at 20x20 through 100x100"
+      ]
+    },
+    {
+      "key": "renderer-arrowheads",
+      "title": "Arrowheads and legibility floor",
+      "labels": ["stream:render", "wave:3", "risk:R4"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §3.3 and R4. Arrowheads need roughly 8-10 CSS px to read as a direction, which caps unzoomed boards at about 40 cells across on a phone. Measure it on a device rather than estimating.",
+      "criteria": [
+        "Arrowhead drawn at the head, pointing along the terminal stroke",
+        "Segment polylines drawn with rounded joins so a piece reads as one object",
+        "Measured minimum legible size on a real phone, recorded in the issue",
+        "Below the legible threshold, zoom is required — the UI says so rather than rendering mush",
+        "Colors come from a palette indexed by segColor; adjacent pieces are visibly distinct"
+      ]
+    },
+    {
+      "key": "pan-zoom",
+      "title": "Pan and zoom",
+      "labels": ["stream:render", "wave:3", "risk:R5"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §3.2 — required at 100x100. Implemented as a single drawImage from the offscreen buffer with source and destination rects. Thousands of segments are never re-rendered per frame.",
+      "criteria": [
+        "Pinch-zoom and drag-pan on touch, plus mouse/trackpad for desktop dev",
+        "Single drawImage per frame; no per-segment work while panning",
+        "60fps on a real phone at 100x100 — measured, not assumed",
+        "Zoom clamped to the buffer memory cap, degrading to re-render past it (R5)",
+        "Pan bounded so the board cannot be lost off-screen"
+      ]
+    },
+    {
+      "key": "snake-out",
+      "title": "Snake-out exit animation",
+      "labels": ["stream:render", "wave:3"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §3.3 and §4.5. Concatenate the segment's polyline with its exit ray into one path and animate the dash offset with dash length equal to the segment length. The piece visibly slithers out head-first for the cost of one polyline per frame.",
+      "criteria": [
+        "The piece follows its own polyline, then the ray, then leaves the board",
+        "Fixed duration from PlayParams.animationDurationMs",
+        "Only the animating segment is redrawn per frame; static layer untouched until it finishes",
+        "Reads as slithering, not as sliding or fading — judged on device",
+        "Animation completes reliably even if the tab is backgrounded mid-flight"
+      ]
+    },
+    {
+      "key": "hit-test",
+      "title": "Hit testing and free-segment tap radius",
+      "labels": ["stream:app", "wave:3"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §3.2 plus its explicit note. Hit test is pixel -> cell -> occupancy -> segment id, O(1). The radius search MUST only snap to free segments: snapping to a blocked one would cost a life the player never chose to risk. No free segment in radius is a no-op miss, not a bounce.",
+      "criteria": [
+        "Direct hit on a free segment selects it",
+        "Empty cell or blocked segment searches outward within a radius for the nearest FREE segment",
+        "No free segment in radius is a miss with no life lost — asserted by test",
+        "The radius never snaps to a blocked segment under any input — asserted by test",
+        "Radius is in CSS pixels and holds its physical size across zoom levels"
+      ]
+    },
+    {
+      "key": "game-loop",
+      "title": "Game loop: tap queue, bounce, lives, win, restart",
+      "labels": ["stream:app", "wave:3"],
+      "milestone": "M3 — Playable",
+      "context": "PRD §3.2. Taps queue during animation and resolve in order. A blocked tap bounces and costs a life. Zero lives restarts the SAME seed — a failed board stays a puzzle you can learn, not a reroll.",
+      "criteria": [
+        "Tapping a free segment removes it; tapping a blocked one bounces and costs a life",
+        "Taps queue during animation and resolve in order",
+        "Clearing every segment wins",
+        "Zero lives restarts the same seed with the same board",
+        "Removal state lives in the game layer as a removed-set; Board is never mutated",
+        "State machine is unit-tested headlessly against a fixture board, with no canvas"
+      ]
+    },
+    {
+      "key": "dev-panel",
+      "title": "Dev tuning panel",
+      "labels": ["stream:app", "wave:4"],
+      "milestone": "M4 — Tunable & offline",
+      "context": "PRD §3.4. Live-editable parameters with immediate regenerate, plus a metrics readout. This is the instrument the whole tuning phase runs on, so it calls the same generateBoard the game does (ADR-0004).",
+      "criteria": [
+        "Live edit of gridSize, seed, meanPieceLength, pieceLengthVariance, bendProbability, minStraightRun, lives, animationDuration",
+        "Immediate regenerate on change",
+        "Displays the §5 metrics for the current board",
+        "Calls the same generateBoard as the game — no parallel code path",
+        "Collapsible, and out of the way during play on a phone screen"
+      ]
+    },
+    {
+      "key": "persistence",
+      "title": "State persistence: seed, params, removed segments, lives",
+      "labels": ["stream:app", "wave:4"],
+      "milestone": "M4 — Tunable & offline",
+      "context": "PRD §3.5. Current board and lives must survive a reload and an app kill. Because a board is a pure function of (seed, params), persistence is those two plus the removed-segment list — not a serialized board.",
+      "criteria": [
+        "Persists (seed, params, removedSegments, lives) and restores mid-game",
+        "Survives reload and force-quit",
+        "Storage failures degrade to a fresh board rather than a crash",
+        "Restored board is verified identical to the persisted one via the seed",
+        "iOS eviction caveat surfaced to the player, or explicitly accepted in the issue"
+      ]
+    },
+    {
+      "key": "offline",
+      "title": "Offline: service worker, install path, airplane-mode acceptance test",
+      "labels": ["stream:app", "wave:4"],
+      "milestone": "M4 — Tunable & offline",
+      "context": "PRD §3.5 — first-class requirement, not a nice-to-have. No network calls during play, ever. No runtime fonts, images, or audio. iOS evicts IndexedDB after ~7 days for non-installed sites, which is why the install path matters for saved state.",
+      "criteria": [
+        "App loads and is fully playable in airplane mode after one prior visit",
+        "No network requests at all during play — verified on a devtools trace",
+        "Installable to home screen, with a prompt or instructions",
+        "ACCEPTANCE TEST run on a real device: load once, airplane mode, force-quit, relaunch — board resumes mid-game with lives intact, and a fresh board can be generated",
+        "Result of that test recorded in the issue"
+      ]
+    },
+    {
+      "key": "perf-pass",
+      "title": "Device performance pass at 100x100",
+      "labels": ["stream:render", "wave:4", "risk:R3", "risk:R5"],
+      "milestone": "M4 — Tunable & offline",
+      "context": "PoC goal 3: generation under 1s and 60fps pan/zoom on a phone. Also the place R5 gets settled — a 3000x3000 offscreen buffer is roughly 36MB, fine on a modern phone but capped rather than left to crash Safari.",
+      "criteria": [
+        "Generation time at 100x100 measured on a real phone, recorded in the issue",
+        "Pan/zoom frame rate measured on a real phone at 100x100",
+        "Peak memory measured; buffer cap validated by forcing it",
+        "Degradation past the cap verified to be graceful, not a crash",
+        "If a target is missed, a written recommendation on the real ceiling"
+      ]
+    },
+    {
+      "key": "playtest",
+      "title": "Playtest rounds across the parameter space",
+      "labels": ["stream:app", "wave:4", "risk:R3"],
+      "milestone": "M5 — Verdict",
+      "context": "PoC goal 2, and the only one that cannot be automated. The harness cannot tell you whether the game is fun; only playing does. Structured sessions across the regions the sweep identified.",
+      "criteria": [
+        "At least 3 sessions across distinct parameter regions",
+        "Each session logged in docs/playtest/ with parameters, board seed, time to clear, lives lost, and notes",
+        "Explicit note on whether pan-and-judge is tense or merely frustrating (PRD §8)",
+        "Explicit note on whether the tap radius ever caused an unintended bounce",
+        "Boards that were unpleasant are recorded with their seed so they can be re-examined"
+      ]
+    },
+    {
+      "key": "verdict",
+      "title": "PoC verdict and recommended defaults",
+      "labels": ["stream:app", "wave:4"],
+      "milestone": "M5 — Verdict",
+      "context": "Closes the PoC. Answers the three questions in PRD §2 with evidence, and says what a v1 would need.",
+      "criteria": [
+        "docs/VERDICT.md written",
+        "Answers goal 1 (correctness) with sweep numbers",
+        "Answers goal 2 (fun) with playtest evidence, including the negative findings",
+        "Answers goal 3 (performance) with device measurements and the real grid ceiling",
+        "Recommended default parameters",
+        "Says which deferred items (PRD §8) playtesting promoted — notably the ray-trace hint"
+      ]
+    }
+  ]
+}
