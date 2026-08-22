@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../../test/fixtures/board.js';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import { makePath } from '../../../test/fixtures/path.js';
-import { NORTH, step } from '../grid.js';
+import { NORTH, NO_CELL, step } from '../grid.js';
 import type { Direction } from '../types.js';
 import type { BlockingGraphInput } from './blocking.js';
 import { buildBlockingGraph } from './blocking.js';
@@ -217,7 +217,7 @@ function referenceRayBlockers(input: BlockingGraphInput, id: number): number[] {
   const seen = new Set<number>();
   const found: number[] = [];
   let cell = step(input.segHead[id - 1] as number, dir, input.width, input.height);
-  while (cell !== -1) {
+  while (cell !== NO_CELL) {
     const other = input.occupancy[cell] as number;
     if (other !== 0 && other !== id && !seen.has(other)) {
       seen.add(other);

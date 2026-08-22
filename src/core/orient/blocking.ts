@@ -45,7 +45,9 @@ export type BlockingGraph = Pick<Board, 'edgeStart' | 'edgeTarget'>;
  */
 export function buildBlockingGraph(input: BlockingGraphInput): BlockingGraph {
   const { width, height, segmentCount, occupancy, segHead, segDir } = input;
-  const perSegment: number[][] = Array.from({ length: segmentCount }, () => []);
+  // Sized, not filled: every slot is assigned below, so pre-seeding each one
+  // with a literal would allocate segmentCount arrays only to discard them.
+  const perSegment: number[][] = new Array<number[]>(segmentCount);
 
   for (let id = 1; id <= segmentCount; id++) {
     const dir = segDir[id - 1] as number;
