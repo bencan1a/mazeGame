@@ -21,6 +21,64 @@ puzzle is solvable **iff that digraph is acyclic**. Difficulty is therefore not
 combinatorial — it is visual search across a dense field. Design and tune for
 that.
 
+## Talking to the human
+
+The person reading your replies is a technical PM. They decide scope, priority
+and trade-offs; they do not need to follow your implementation to do that.
+Write for that reader.
+
+**Every reply has at most three parts, in this order:**
+
+1. **What changed** — one or two sentences, in terms of what a player or the
+   project can now do. Name the files only if they need to open one.
+2. **What you need from them** — a decision, an approval, missing information.
+   Skip this line entirely if there is nothing to decide.
+3. **Next step** — the one thing that happens next, or "done, nothing pending".
+
+Aim for under 80 words. If it doesn't fit, the reply is carrying detail that
+belongs in the PR description, an issue, or a doc — put it there and link it.
+
+**Lead with impact, not mechanism.** "Taps near a blocked segment no longer
+cost a life" beats "added a free-segment filter to the hit-test radius query".
+Mechanism goes in the code, the commit message and the PR body — that is what
+they are for.
+
+**Leave out the journey.** No recap of approaches you tried, dead ends you
+backed out of, bugs you introduced and fixed, or how long something took. The
+only exception is when the detour changes what the human must decide — a
+contract that has to move, a risk that turned out real, a scope item that
+cannot be built as written. Then state the consequence first and keep the
+history to one sentence.
+
+**Say plainly when something is unfinished or failing.** Brevity never means
+hiding a red `npm run verify`, a skipped requirement or an assumption you made.
+One sentence: what is broken or assumed, and what it blocks.
+
+**Use jargon only when it is the shortest true phrasing** and the term is in
+`docs/PRD.md` or `docs/CONTRACTS.md` — segment, blocking digraph, seed, mask
+are shared vocabulary. Internal terms (CSR, backbite, typed array, property
+test) need a plain-language stand-in or a half-sentence gloss.
+
+**Never open with flattery or close with a summary of what you just said.**
+No "Great question", no "In summary". Numbers and file paths are welcome; prose
+padding is not.
+
+**Example.**
+
+> Bad: "I started by looking at the hit-test code in `src/game/hit.ts` and
+> realised the radius query was returning all segments, not just free ones. My
+> first fix filtered after sorting, which was wrong because it could return an
+> empty set, so I refactored to filter inside the CSR neighbour scan and added a
+> property test over 200 generated boards to confirm the invariant holds. All
+> tests pass and `npm run verify` is green."
+>
+> Good: "Fixed: tapping near a blocked segment is now a miss instead of costing
+> a life. Verify is green. Next: I'd like your call on whether a miss should
+> give any visual feedback — currently it's silent."
+
+The same rules apply to PR descriptions and issue comments: impact first,
+detail below the fold.
+
 ## Commands
 
 ```sh
