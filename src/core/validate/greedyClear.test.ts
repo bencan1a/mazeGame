@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import type { Board } from '../types.js';
+import { DEFAULT_GEN_PARAMS } from '../types.js';
 import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../../test/fixtures/index.js';
 import { createRng, shuffle } from '../rng.js';
 import { greedyClear } from './greedyClear.js';
@@ -101,14 +102,11 @@ function boardFromEdges(perSegment: readonly number[][]): Board {
   return {
     width: 1,
     height: n,
-    params: {
-      gridSize: n,
-      seed: 1,
-      meanPieceLength: 1,
-      pieceLengthVariance: 0,
-      bendProbability: 0,
-      minStraightRun: 1,
-    },
+    // Spread the defaults rather than listing every field: a bare literal
+    // stops compiling the moment GenParams gains a required field, which is
+    // how this broke when fillFraction landed. Only what this test cares
+    // about is overridden.
+    params: { ...DEFAULT_GEN_PARAMS, gridSize: n, meanPieceLength: 1, minStraightRun: 1 },
     segmentCount: n,
     occupancy: new Uint16Array(n),
     segStart: new Uint32Array(n + 1),
