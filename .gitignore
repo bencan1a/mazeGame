@@ -13,3 +13,4 @@ npm-debug.log*
 /artifacts/
 /sweeps/
 .claude/settings.local.json
+*.tsbuildinfo
