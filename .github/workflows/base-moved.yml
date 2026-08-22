@@ -1,0 +1,80 @@
+name: Base moved
+
+# A green check on a stale branch says the code passed against whatever `main`
+# was when the branch was last pushed, not against what the merge will produce.
+# #62 reached `main` through exactly that gap: two PRs, each green, that did not
+# compile together. Cost of re-checking is measured in docs/CI-COST.md.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: base-moved
+  cancel-in-progress: false
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.pick.outputs.count }}
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - id: pick
+        run: node scripts/recheck-open-prs.mjs --select --before "${{ github.event.before }}" --after "${{ github.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  recheck:
+    needs: select
+    if: needs.select.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The PR is verified in a throwaway merge, never by pushing to its branch:
+      # a push from GITHUB_TOKEN does not re-trigger CI, and it would reset the
+      # PR's approvals and race whoever is working on it.
+      - name: Merge the PR into current main
+        id: merge
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git fetch origin "pull/${{ matrix.pr.number }}/head:pr"
+          git merge --no-edit pr
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run verify
+
+      - name: Report the result on the PR
+        if: always()
+        run: |
+          case "${{ job.status }}" in
+            success) node scripts/recheck-open-prs.mjs --status "${{ matrix.pr.head }}" success "Passes against main at ${GITHUB_SHA::7}" ;;
+            *) node scripts/recheck-open-prs.mjs --status "${{ matrix.pr.head }}" failure "Fails against main at ${GITHUB_SHA::7} — merge main in and fix before merging" ;;
+          esac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

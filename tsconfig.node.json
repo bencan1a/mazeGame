@@ -5,6 +5,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "types": ["node"],
+    // scripts/ ships plain .mjs so the Actions runner can execute it without a
+    // build; allowJs lets its tests typecheck against the real implementation.
+    "allowJs": true,
     "strict": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
