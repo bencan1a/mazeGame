@@ -39,6 +39,14 @@ Milestones map to M0–M5 in the plan.
 5. **PR.** Fill in the template. Quote the issue's acceptance criteria and check
    them off. Link with `Closes #23`.
 6. **Merge.** Human merges. Agents do not merge, approve, or self-review.
+   **A PR may only merge once its branch contains the current `main`.** A green
+   check on a stale branch is not evidence: it says the code passed against
+   whatever `main` was when you last pushed, not against what the merge will
+   actually produce. Merge `main` in and push — that re-runs the checks against
+   the real result. Required even when git reports no conflict, because the
+   failure mode is semantic, not textual: two PRs can each be green, merge
+   cleanly, and not compile together. That is how `main` broke in #62 — one PR
+   made a field required while another added a literal that named every field.
 
 ## File ownership
 
@@ -150,3 +158,4 @@ Copied into every PR by the template:
 - [ ] No cross-lane file edits (or a `contract-change` issue linked)
 - [ ] Determinism preserved
 - [ ] No new dependency without justification
+- [ ] Branch contains the current `main`, with checks re-run against it
