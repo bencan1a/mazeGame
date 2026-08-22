@@ -30,7 +30,14 @@ npm run verify       # format + lint + typecheck + tests + coverage — run befo
 npm test             # vitest
 npm run harness      # headless generator sweep, no DOM
 npm run build        # production build incl. service worker
+npm run budget       # bundle size budget (CI gate)
+npm run dev -- --host  # serve on the LAN, to open on a phone
 ```
+
+Deployed build: <https://bencan1a.github.io/mazeGame/>. Read
+[`docs/TESTING.md`](docs/TESTING.md) before claiming anything about
+performance — **CI cannot measure frame rate or memory**, and a number from a
+headless Linux runner is not evidence about a phone.
 
 ## Layout
 

@@ -22,7 +22,10 @@ The PoC answers three questions, in priority order (PRD §2):
 
 G1 is objective and gated by CI. G3 is objective and gated by a benchmark **on
 a device** — the headless harness can measure generation time, but nothing about
-frame rate or buffer memory, which is where G3 actually fails.
+frame rate or buffer memory, which is where G3 actually fails. Which checks are
+automatable and which need a phone is spelled out in
+[TESTING.md](./TESTING.md); the short version is that CI guards against
+regressions and cannot settle G3 at all.
 **G2 is the only one that can fail quietly**, so the plan front-loads getting to
 a playable board and treats "playtest and write down what happened" as real,
 scheduled work rather than a thing that happens at the end.

@@ -12,7 +12,7 @@ node scripts/seed-github.mjs --dry-run   # preview
 node scripts/seed-github.mjs             # create what is missing
 ```
 
-30 issues, 6 milestones, 20 labels.
+32 issues, 6 milestones, 21 labels.
 
 ## Milestones
 
@@ -216,7 +216,7 @@ The single public entry point, pure in (seed, params) per ADR-0004. Callable ide
 
 ### SPIKE: canvas blit and buffer-memory floor at 100x100
 
-`stream:render` · M2 — Range confirmed · `spike` `risk:R3` `risk:R5`
+`stream:render` · M2 — Range confirmed · `spike` `risk:R3` `risk:R5` `device`
 
 The whole renderer design rests on one assumption: a large offscreen buffer can be blitted per frame with drawImage fast enough for 60fps pan/zoom, and iOS Safari will tolerate its memory. That assumption is testable TODAY with a bare benchmark page — no generator, no renderer, no React — so test it before five other tasks are built on top of it. R3 is a performance risk rather than a playability one (ADR-0006), and this is the cheap half of the answer.
 
@@ -228,6 +228,7 @@ The whole renderer design rests on one assumption: a large offscreen buffer can 
 - [ ] Peak memory recorded; the point at which Safari degrades or drops the buffer found by increasing size until it does
 - [ ] A written verdict: does the two-layer + drawImage architecture hold at 100x100, and what is the safe buffer cap
 - [ ] If it does not hold, propose the alternative (tiled buffers, lower-resolution static layer, re-render on zoom) before the renderer is built
+- [ ] This cannot be run in CI — a frame rate from a headless Linux runner says nothing about a phone (docs/TESTING.md)
 
 ## Wave 2
 
@@ -288,6 +289,20 @@ The gate on M2. Two questions: does varying the parameters actually move dagDept
 - [ ] Recommended default parameters for first playtest
 - [ ] No claim made about frame rate, memory, or fun — those are not measurable here
 
+### CI generation-time regression check
+
+`stream:harness` · M2 — Range confirmed
+
+Run the headless harness in CI and fail on a large generation-time regression. GitHub runners are shared and noisy, so this is a relative check with a wide threshold — it catches 'this PR made generation 4x slower' and says nothing about the absolute 1s target, which is read off a device (docs/TESTING.md D3).
+
+**Acceptance criteria**
+
+- [ ] CI job runs a fixed seed set at 40x40 and 100x100 and records generationMs
+- [ ] Threshold wide enough not to flake on runner variance — start at 2x a committed baseline
+- [ ] Baseline committed and updated deliberately, with the commit that changed it named
+- [ ] Failure output names the seeds and sizes that regressed
+- [ ] Job is a warn/soft gate, and the CI summary says explicitly that it is not the G3 measurement
+
 ## Wave 3
 
 ### Two-layer canvas renderer: static offscreen layer
@@ -304,9 +319,26 @@ PRD §4.5. All idle segments drawn once to an offscreen canvas at full resolutio
 - [ ] Buffer size capped, with documented degradation past the cap (R5)
 - [ ] Draws correctly at 20x20 through 100x100
 
+### Automated browser tests: offline, persistence, hit testing, game loop
+
+`stream:infra` · M3 — Playable
+
+Headless Chromium via Playwright on a Linux runner, covering the behaviour that IS automatable: service worker registration and a genuinely offline second load, manifest/scope/start_url under the deployed base path, persistence across reload, synthetic taps resolving to the expected segment, and the game loop's bounce/lives/win transitions. See docs/TESTING.md for what this deliberately does not cover — a frame rate from a Linux runner is not evidence about a phone, and no CI gate should imply it is.
+
+**Acceptance criteria**
+
+- [ ] Playwright installed as a dev dependency and wired into CI
+- [ ] Offline test: load once, context.setOffline(true), reload, app still works
+- [ ] PWA test: manifest, icons, scope, and start_url all resolve under the deployed base path
+- [ ] Persistence test: (seed, params, removed, lives) survives a reload
+- [ ] Hit-test: a synthetic tap at a known pixel selects the expected segment on a fixture board
+- [ ] Game loop: bounce costs a life, zero lives restarts the same seed, clearing every segment wins
+- [ ] Visual regression on a fixture board, with a tolerance loose enough not to flake on runner antialiasing
+- [ ] No frame-rate assertion — that measurement is not meaningful here
+
 ### Arrowheads and legibility floor
 
-`stream:render` · M3 — Playable · `risk:R4`
+`stream:render` · M3 — Playable · `risk:R4` `device`
 
 PRD §3.3 and R4. Arrowheads need roughly 8-10 CSS px to read as a direction, which caps unzoomed boards at about 40 cells across on a phone. Measure it on a device rather than estimating.
 
@@ -320,7 +352,7 @@ PRD §3.3 and R4. Arrowheads need roughly 8-10 CSS px to read as a direction, wh
 
 ### Pan and zoom
 
-`stream:render` · M3 — Playable · `risk:R5`
+`stream:render` · M3 — Playable · `risk:R5` `device`
 
 PRD §3.2 — required at 100x100. Implemented as a single drawImage from the offscreen buffer with source and destination rects. Thousands of segments are never re-rendered per frame.
 
@@ -377,7 +409,7 @@ PRD §3.2. Taps queue during animation and resolve in order. A blocked tap bounc
 
 ### Device performance pass at 100x100 (G3 gate)
 
-`stream:render` · M3 — Playable · `risk:R3` `risk:R5`
+`stream:render` · M3 — Playable · `risk:R3` `risk:R5` `device`
 
 PoC goal 3, and the gate on M3: generation under 1s, 60fps pan/zoom, and buffer memory inside a cap iOS Safari tolerates. This sits at the end of Wave 3 rather than in Wave 4 because it is the one PoC goal whose failure can force an architecture change rather than a parameter change — late is expensive. Grid size being adjustable does NOT make this soft: it is a stated goal, and retreating to a smaller maximum is a recorded decision, not a default.
 
@@ -389,6 +421,7 @@ PoC goal 3, and the gate on M3: generation under 1s, 60fps pan/zoom, and buffer 
 - [ ] Degradation past the cap verified to be graceful, not a crash
 - [ ] Measured against the canvas-perf-spike predictions — if they disagree, say why
 - [ ] If a target is missed: a written architecture recommendation, and an explicit recorded decision if the maximum grid size drops
+- [ ] Device model and OS version recorded alongside every number; results from different hardware are not combined
 
 ## Wave 4
 
@@ -422,7 +455,7 @@ PRD §3.5. Current board and lives must survive a reload and an app kill. Becaus
 
 ### Offline: service worker, install path, airplane-mode acceptance test
 
-`stream:app` · M4 — Tunable & offline
+`stream:app` · M4 — Tunable & offline · `device`
 
 PRD §3.5 — first-class requirement, not a nice-to-have. No network calls during play, ever. No runtime fonts, images, or audio. iOS evicts IndexedDB after ~7 days for non-installed sites, which is why the install path matters for saved state.
 
@@ -433,10 +466,11 @@ PRD §3.5 — first-class requirement, not a nice-to-have. No network calls duri
 - [ ] Installable to home screen, with a prompt or instructions
 - [ ] ACCEPTANCE TEST run on a real device: load once, airplane mode, force-quit, relaunch — board resumes mid-game with lives intact, and a fresh board can be generated
 - [ ] Result of that test recorded in the issue
+- [ ] Run against the deployed HTTPS build, not the LAN dev server — http://192.168.x.x is not a secure context, so service workers never register there
 
 ### Playtest rounds across the parameter space
 
-`stream:app` · M5 — Verdict
+`stream:app` · M5 — Verdict · `device`
 
 PoC goal 2, and the only one that cannot be automated. The harness cannot tell you whether the game is fun; only playing does. Structured sessions across the regions the sweep identified.
 

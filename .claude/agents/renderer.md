@@ -28,7 +28,8 @@ mush.
 **Performance is the binding risk on this stream** (R3, ADR-0006). Grid size is
 a parameter, so nobody is worried about whether a 100×100 board is fun — they
 are worried about whether it renders at 60fps inside a survivable memory budget,
-and that can only be answered on a device. Run the bare canvas benchmark
+and that can only be answered on a device — CI cannot measure either
+(`docs/TESTING.md`). Run the bare canvas benchmark
 (3000×3000 offscreen buffer, a few hundred synthetic polylines, blitted per
 frame) **before** building the real renderer on top of the assumption.
 

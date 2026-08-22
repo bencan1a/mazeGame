@@ -5,16 +5,20 @@ import { VitePWA } from 'vite-plugin-pwa';
 // The app must be fully playable offline after one visit (PRD §3.5).
 // Everything is code — no runtime fonts, images, or audio — so precaching the
 // build output is sufficient.
+// GitHub Pages serves this from /<repo>/, so the base path comes from the
+// environment at build time. Dev and any root-hosted deploy use '/'.
+const base = process.env.VITE_BASE ?? '/';
+
 export default defineConfig({
-  base: './',
+  base,
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-        navigateFallback: 'index.html',
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        navigateFallback: `${base}index.html`,
       },
       manifest: {
         name: 'Arrow Maze',
@@ -24,8 +28,13 @@ export default defineConfig({
         background_color: '#151527',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: './',
-        icons: [],
+        scope: base,
+        start_url: base,
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
     }),
   ],
