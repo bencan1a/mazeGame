@@ -116,9 +116,20 @@ export interface Board {
   readonly segStart: Uint32Array;
   /** Flattened per-segment polylines, ordered tail -> head. */
   readonly segCells: Uint32Array;
-  /** Head cell index per segment. Length n. Indexed by (id - 1). */
+  /**
+   * Head cell index per segment. Length n. Indexed by (id - 1).
+   *
+   * Always the *last* cell of the segment's segCells slice — an orienter that
+   * picks the other endpoint has reversed the segment and the assembler must
+   * emit its cells reversed. `checkStructure` enforces this.
+   */
   readonly segHead: Uint32Array;
-  /** Exit direction per segment. Length n. */
+  /**
+   * Exit direction per segment. Length n.
+   *
+   * Derived from the terminal stroke, not chosen independently. A one-cell
+   * segment has no terminal stroke, so all four directions are legal for it.
+   */
   readonly segDir: Uint8Array;
 
   /** CSR offsets into edgeTarget. Length n+1. */
@@ -142,7 +153,15 @@ export interface BoardMetrics {
   readonly dagDepth: number;
   /** Mean number of clickable segments across a full greedy clear. */
   readonly meanFreeSetSize: number;
+  /**
+   * Smallest free set at a step where something was still blocked. Steps where
+   * every remaining segment is free — always including the last — are endgame,
+   * not bottleneck, and counting them makes this 1 on every board. See
+   * docs/METRICS.md.
+   */
   readonly minFreeSetSize: number;
+  /** Whether orientation fell back to reverse construction (R2). */
+  readonly orientationFallback: boolean;
   /** Blocking edges. */
   readonly edgeCount: number;
   readonly generationMs: number;

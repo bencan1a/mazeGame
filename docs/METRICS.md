@@ -11,19 +11,32 @@ dialled from measurements instead.
 
 ## What the harness reports
 
-| Metric                              | Definition                                                   | Reads as                                          |
-| ----------------------------------- | ------------------------------------------------------------ | ------------------------------------------------- |
-| `dagDepth`                          | Longest chain in the blocking digraph                        | How far ahead the board forces you to work        |
-| `meanFreeSetSize`                   | Mean number of clickable segments across a full greedy clear | How much there is to scan at any moment           |
-| `minFreeSetSize`                    | Smallest free set seen during the clear                      | Bottleneck moments — a 1 here means a forced move |
-| `coverage`                          | Covered cells / inside cells                                 | Generation quality; target ≥ 0.99                 |
-| `bendRate`                          | Fraction of interior path cells that are corners             | Ground truth for `bendProbability` (R1)           |
-| `segmentCount`, `meanSegmentLength` | Board composition                                            | Board length; sanity check on segmentation        |
-| `edgeCount`                         | Blocking edges                                               | Memory pressure at large sizes                    |
-| `generationMs`                      | Wall clock for `generateBoard`                               | PRD §2 goal 3: under 1s at 100×100                |
+| Metric                              | Definition                                                    | Reads as                                          |
+| ----------------------------------- | ------------------------------------------------------------- | ------------------------------------------------- |
+| `dagDepth`                          | Longest chain in the blocking digraph                         | How far ahead the board forces you to work        |
+| `meanFreeSetSize`                   | Mean number of clickable segments across a full greedy clear  | How much there is to scan at any moment           |
+| `minFreeSetSize`                    | Smallest free set at a step where something was still blocked | Bottleneck moments — a 1 here means a forced move |
+| `orientationFallback`               | Whether orientation fell back to reverse construction         | How load-bearing the R2 escape hatch actually is  |
+| `coverage`                          | Covered cells / inside cells                                  | Generation quality; target ≥ 0.99                 |
+| `bendRate`                          | Fraction of interior path cells that are corners              | Ground truth for `bendProbability` (R1)           |
+| `segmentCount`, `meanSegmentLength` | Board composition                                             | Board length; sanity check on segmentation        |
+| `edgeCount`                         | Blocking edges                                                | Memory pressure at large sizes                    |
+| `generationMs`                      | Wall clock for `generateBoard`                                | PRD §2 goal 3: under 1s at 100×100                |
 
 `dagDepth` and the free-set statistics both fall out of the topological sort
 validation already runs. Compute them there; do not walk the graph twice.
+
+**`minFreeSetSize` excludes the endgame, deliberately.** Defined as the smallest
+free set seen at _any_ step, it is 1 on every board that has segments at all:
+the last step leaves exactly one segment and it is necessarily free. Measured
+across 400 boards at 40×40 and 100×100 it was 1.0 every single time — a metric
+with no variance is not a metric. So it counts only steps where some segment was
+still blocked. Running out of board is not a bottleneck. If a board never blocks
+anything, there is no such step and the metric is the segment count.
+
+The underlying signal is real once the endgame is out of the way: on the boards
+measured, the free set first narrows to 1 around 70–82% of the way through a
+clear.
 
 ## The counterintuitive one
 

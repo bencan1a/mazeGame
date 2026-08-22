@@ -82,11 +82,30 @@ Postconditions:
 ### orientation (S3)
 
 ```ts
-orientSegments(segments, occupancy, width, height, rng): { segHead: Uint32Array; segDir: Uint8Array }
+orientSegments(segments, occupancy, width, height, rng): { segHead: Uint32Array; segDir: Uint8Array; segReversed: Uint8Array }
 ```
 
 The head is one of the segment's two endpoints; `segDir` is the direction of its
-terminal stroke, i.e. the direction it exits in.
+terminal stroke, i.e. the direction it exits in. `segDir` is therefore _derived_,
+not chosen — picking the head fixes it. Orientation's entire search space is one
+bit per segment.
+
+**`segCells` runs tail → head, so the head must be the _last_ cell of the
+segment's slice.** `checkStructure` enforces that. An orienter that picks the
+other endpoint has not merely set `segHead` — it has reversed the segment, and
+must say so: `segReversed[k] === 1` means segment k's cells are to be emitted in
+reverse of the order the segmenter produced them. Whoever assembles the `Board`
+applies the flag.
+
+Returning a head without the flag produces a board `validateBoard` rejects at
+the _structure_ gate, not the acyclicity one — the digraph is perfectly acyclic,
+the polyline just runs the wrong way. That is a quiet failure mode, which is why
+the flag is part of the contract rather than a convention.
+
+**A one-cell segment has no terminal stroke**, so nothing constrains its
+direction: all four are legal, and an orienter must offer all four as candidates
+rather than two. `checkStructure` skips the terminal-stroke check for these,
+which is what makes that sound.
 
 The only hard postcondition is that the resulting blocking digraph is **acyclic**.
 Everything else is a quality preference.
@@ -97,10 +116,23 @@ Two implementations, and both are in scope:
    non-trivial SCC, recheck. Time-boxed.
 2. **Reverse construction** — start empty and slide segments in from the edge.
    The reversed insertion order is a guaranteed-valid removal order, so
-   acyclicity is free by construction. Trades away some packing density.
+   acyclicity is free by construction.
 
-Fallback from 1 to 2 must be automatic and must be reported in metrics, because
-"how often do we fall back" is data the tuning phase needs.
+Reverse construction **trades away no packing density**. Segmentation is
+upstream and fixed, so both implementations place identical cells in identical
+positions; there is nothing for orientation to pack. What it trades is puzzle
+quality — DAG depth and the free-set profile.
+
+It is also **complete** over the candidate set: if any acyclic orientation of a
+given segmentation exists, the peel finds one. Take the first segment of a valid
+removal order that has not been peeled — all its blockers are already gone, so
+it is ready. So a failure means no acyclic orientation of _those cells_ exists,
+and the recovery is re-segmenting or re-pathing. Never retry orientation with a
+different seed; there is nothing for a different seed to find.
+
+Fallback from 1 to 2 must be automatic and must be recorded in
+`BoardMetrics.orientationFallback`, because "how often do we fall back" is data
+the tuning phase needs.
 
 ### blocking digraph (S3)
 
