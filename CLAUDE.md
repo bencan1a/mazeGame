@@ -76,8 +76,34 @@ padding is not.
 > a life. Verify is green. Next: I'd like your call on whether a miss should
 > give any visual feedback — currently it's silent."
 
-The same rules apply to PR descriptions and issue comments: impact first,
-detail below the fold.
+## PR descriptions
+
+The first reader of every PR is the `reviewer` agent, and it reads the **diff**.
+So the PR body's only job is to carry what a diff physically cannot show. Write
+nothing the reviewer could learn by reading the code — that is duplicated tokens
+on every review.
+
+The diff already shows what changed, how it was implemented, which files moved,
+and that tests exist. Do not narrate any of it.
+
+Four things the diff cannot show, and the body must:
+
+1. **The issue number** (`Closes #N`) — the acceptance criteria live there.
+2. **Acceptance criteria, copied verbatim** and ticked. The reviewer checks
+   whether they are genuinely met; it cannot do that against criteria it has
+   never seen, and a loose restatement is worse than none.
+3. **Justification for anything that looks like a rule break** — a shared-file
+   edit and its `contract-change` issue, an out-of-lane file, a new runtime
+   dependency, a deliberate deviation from an ADR. Without this the reviewer
+   must flag it; with one line it can move on.
+4. **What you deliberately left undone or are unsure about.** Absence of code is
+   invisible in a diff.
+
+Everything else is silence. Two sentences of "what changed" for the human is the
+ceiling — no design essays, no file-by-file tour, no restating the test names.
+
+Issue comments follow the reply rules above: impact first, decision needed,
+next step.
 
 ## Commands
 
