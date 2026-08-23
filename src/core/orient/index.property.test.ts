@@ -20,7 +20,7 @@ import { orientSegments } from './index.js';
 import { countCyclicComponents, tarjanSCC } from './tarjan.js';
 import type { ReverseConstructOrienter } from './index.js';
 
-/** Trivially-acyclic stand-in for #11: point every segment's head off the board. */
+/** Trivially-acyclic stand-in: point every segment's head off the board. */
 const stubFallback: ReverseConstructOrienter = (segments, _occupancy, width, height) => {
   const segmentCount = segments.segStart.length - 1;
   const segHead = new Uint32Array(segmentCount);
@@ -35,10 +35,10 @@ const stubFallback: ReverseConstructOrienter = (segments, _occupancy, width, hei
     ok: true,
     segHead,
     segDir,
-    // Not exercised by this test (it only checks the blocking digraph, which
-    // never reads segCells order); the round-trip structural check lives in
-    // validateBoard.roundtrip.test.ts.
+    // This test reads only the blocking digraph, which does not depend on
+    // segCells order.
     segReversed: new Uint8Array(segmentCount),
+    segCells: Uint32Array.from(segments.segCells),
     peelOrder: Uint32Array.from({ length: segmentCount }, (_, i) => i + 1),
   };
 };

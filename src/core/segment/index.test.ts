@@ -4,7 +4,7 @@ import { DEFAULT_GEN_PARAMS } from '../types.js';
 import { makeMask, makePath } from '../../../test/fixtures/index.js';
 import { segmentPath } from './index.js';
 
-// Every other test file imports directly, so only this catches a bad re-export.
+// Covers the barrel itself: most tests import segmentPath.ts directly.
 describe('segment barrel export', () => {
   it('re-exports a working segmentPath', () => {
     const mask = makeMask({ width: 6, height: 1 });

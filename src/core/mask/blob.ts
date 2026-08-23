@@ -1,5 +1,3 @@
-// Drawn at half resolution and upscaled 2x so every region tiles into whole
-// 2x2 blocks; see docs/adr/0009-half-resolution-silhouette.md.
 import { toIndex } from '../grid.js';
 import { createRng, type Rng } from '../rng.js';
 import type { Seed } from '../types.js';

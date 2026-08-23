@@ -1,7 +1,6 @@
 /**
- * Repairs at half resolution and upscales afterwards, so that every operation
- * moves whole 2x2 blocks; see docs/adr/0009-half-resolution-silhouette.md.
- * The input `Blob` must therefore be block-aligned to offset (0, 0).
+ * Repairs at half resolution and upscales afterwards, so every operation moves
+ * whole 2x2 blocks. The input `Blob` must be block-aligned to offset (0, 0).
  */
 
 import { toIndex } from '../grid.js';

@@ -7,7 +7,7 @@ import {
 } from '../../../test/fixtures/index.js';
 import * as validate from './index.js';
 
-/** Every other test file imports directly, so only this catches a bad re-export. */
+/** Covers the barrel itself: most tests import the modules behind it directly. */
 describe('the public API surface', () => {
   it('re-exports validateBoard and it behaves the same as the direct import', () => {
     const { mask } = makeBoardAndMask({ art: ACYCLIC_BOARD_ART, walks: ACYCLIC_BOARD_WALKS });

@@ -25,7 +25,7 @@ export interface TilingOk {
    */
   readonly offsetX: 0 | 1;
   readonly offsetY: 0 | 1;
-  /** Index into `blockFull` of the first full block, row-major. -1 if none. */
+  /** Index into `blockFull` of the first full block, row-major. */
   readonly firstFullBlock: number;
 }
 

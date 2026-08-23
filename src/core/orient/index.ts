@@ -8,6 +8,7 @@
 import type { Rng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
 import { DEFAULT_MAX_ITERATIONS, orientByLocalSearch } from './localSearch.js';
+import type { reverseConstruct } from './reverseConstruct.js';
 import type { LocalSearchStats } from './localSearch.js';
 
 export interface OrientationResult {
@@ -23,28 +24,10 @@ export interface OrientationResult {
 }
 
 /** The result shape `reverseConstruct` produces. */
-export interface ReverseConstructOk extends OrientationResult {
-  readonly ok: true;
-  /** Insertion order, reversed, gives a valid removal order by construction. */
-  readonly peelOrder: Uint32Array;
-}
+export type { ReverseConstructResult } from './reverseConstruct.js';
 
-/** Reverse construction could not place every segment. */
-export interface ReverseConstructStuck {
-  readonly ok: false;
-  readonly stuck: Uint32Array;
-}
-
-export type ReverseConstructResult = ReverseConstructOk | ReverseConstructStuck;
-
-/** Same argument order as `orientSegments`, minus the options bag. */
-export type ReverseConstructOrienter = (
-  segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
-  occupancy: Uint16Array,
-  width: number,
-  height: number,
-  rng: Rng,
-) => ReverseConstructResult;
+/** Structurally `reverseConstruct`, kept a type so the seam stays injected. */
+export type ReverseConstructOrienter = typeof reverseConstruct;
 
 export interface OrientSegmentsOptions {
   /** Overrides `DEFAULT_MAX_ITERATIONS`. */

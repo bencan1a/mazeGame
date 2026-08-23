@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
+import { assembleSegCells } from './assembleSegCells.js';
 import { orientSegments } from './index.js';
 import type { ReverseConstructOrienter, ReverseConstructResult } from './index.js';
 
@@ -46,11 +47,13 @@ describe('orientSegments: local search converges', () => {
 
 describe('orientSegments: local search does not converge inside its iteration box', () => {
   it('calls the injected fallback and reports usedFallback: true', () => {
+    const stubReversed = Uint8Array.from([0, 1]);
     const stubResult: ReverseConstructResult = {
       ok: true,
       segHead: Uint32Array.from([1, 2]),
       segDir: Uint8Array.from([1, 3]),
-      segReversed: Uint8Array.from([0, 1]),
+      segReversed: stubReversed,
+      segCells: assembleSegCells(SEGMENTS, stubReversed),
       peelOrder: Uint32Array.from([2, 1]),
     };
     const fallback = vi.fn<ReverseConstructOrienter>(() => stubResult);
