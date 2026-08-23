@@ -139,18 +139,15 @@ generated from [`scripts/backlog.json`](../scripts/backlog.json).
 2. **Path fill** (S2) — spanning-tree contour first, since it is _guaranteed_
    and linear. Backbite second, as the randomizer and the fallback for regions
    that will not tile into 2×2 blocks.
-3. **Segmentation** (S3) — cut the path by `meanPieceLength` /
-   `pieceLengthVariance`, honouring `minStraightRun`.
+3. **Cut and orient** (S3) — cut the path by `meanPieceLength` /
+   `pieceLengthVariance`, with `minPieceLength` as a floor and honouring
+   `minStraightRun`, choosing each segment's head at the same moment as its
+   cut so that acyclicity is constructed rather than searched for.
 4. **Blocking digraph** (S3) — ray-walk `occupancy` from each head; CSR out.
-5. **Orientation** (S3) — randomized local search: build graph → Tarjan SCC →
-   flip a segment inside an SCC → recheck. **Time-boxed.** If it does not
-   converge, R2 says fall back to reverse construction, and that fallback is a
-   scheduled task, not a contingency: build it in Wave 1, because discovering
-   you need it in Wave 3 is expensive.
-6. **Coloring** (S3) — greedy over the adjacency graph, 4–6 hues. This is a
+5. **Coloring** (S3) — greedy over the adjacency graph, 4–6 hues. This is a
    readability mechanic (PRD §3.3), so the test asserts no two adjacent
    segments share a hue, not merely that colors were assigned.
-7. **Validation** (S4) — acyclicity, coverage, reachability, determinism.
+6. **Validation** (S4) — acyclicity, coverage, reachability, determinism.
    Throws `BoardInvariantError`. Runs in dev and in every test.
 
 ### Wave 2 — knowing whether it is any good (M2)
@@ -219,13 +216,13 @@ generated from [`scripts/backlog.json`](../scripts/backlog.json).
 
 The PRD's risks map onto scheduled work rather than sitting in a table:
 
-| Risk                                  | Where it is handled                                | Trigger for the fallback                                                            |
-| ------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| R1 `bendProbability` not controllable | Task 11, a Wave 2 spike                            | Achieved bend rate does not track requested across ≥ 3 settings                     |
-| R2 Orientation search won't converge  | Reverse construction built in Wave 1, not deferred | Local search exceeds its time box on any board in the standard sweep                |
-| R3 100×100 doesn't hold performance   | Task 12 spike early, Task 19 device pass           | Generation over 1s, frame rate under 60fps, or memory over the cap on real hardware |
-| R4 Legibility floor                   | Task 14, measured on device                        | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional      |
-| R5 iOS buffer memory                  | Task 12 spike, Task 15 buffer cap, Task 19 pass    | Buffer would exceed the cap → degrade to re-render on zoom                          |
+| Risk                                  | Where it is handled                                     | Trigger for the fallback                                                            |
+| ------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| R1 `bendProbability` not controllable | Task 11, a Wave 2 spike                                 | Achieved bend rate does not track requested across ≥ 3 settings                     |
+| R2 Orientation search won't converge  | Retired by #83: acyclicity is constructed, not searched | —                                                                                   |
+| R3 100×100 doesn't hold performance   | Task 12 spike early, Task 19 device pass                | Generation over 1s, frame rate under 60fps, or memory over the cap on real hardware |
+| R4 Legibility floor                   | Task 14, measured on device                             | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional      |
+| R5 iOS buffer memory                  | Task 12 spike, Task 15 buffer cap, Task 19 pass         | Buffer would exceed the cap → degrade to re-render on zoom                          |
 
 Two additional risks this plan adds:
 

@@ -64,92 +64,75 @@ Postconditions:
 The contour method returns a Hamiltonian _cycle_; cutting it anywhere yields the
 path. Backbite is the fallback for regions that will not tile into 2×2 blocks.
 
-### `HamiltonianPath -> segments` (S3)
+### `HamiltonianPath -> segments + heads` (S3)
 
 ```ts
-segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng): { segStart: Uint32Array; segCells: Uint32Array }
+peelSegments(path: HamiltonianPath, params: GenParams, rng: Rng, width: number, height: number): PeeledSegments
 ```
+
+**Cutting and orienting are one stage.** They were two, in that order, because
+[PRD.md](./PRD.md) §4.2 wrote the pipeline as a linear sequence — and cut
+placement blind to the blocking digraph does not work: above roughly 20×20 the
+segmentations it produces admit **no** acyclic orientation at all, so no
+orienter, however complete, could have rescued them. Issue #83 has the
+measurements.
+
+The stage is a peel. Keep the set of not-yet-committed path cells; repeatedly
+commit one piece — a contiguous run of still-free path positions, with a head
+at one of its two ends — accepting it only when the ray from that head to the
+board edge crosses no cell that is still free. Committing removes those cells.
 
 Postconditions:
 
-- Segments partition the path exactly: concatenating them reproduces
-  `path.cells` in order.
+- Segments partition the path exactly: undoing `segReversed` and concatenating
+  reproduces `path.cells` in order.
 - No segment is empty.
-- No cut leaves a straight run shorter than `params.minStraightRun`, except
-  where the path itself has no such run available.
-- Mean segment length is within tolerance of `params.meanPieceLength`.
+- **The blocking digraph is acyclic**, and `peelOrder` is a witness: every
+  segment a ray crosses was committed strictly earlier. This holds by
+  construction — there is no search, and no way for the stage to fail.
+- The head is the segment's **last** cell in `segCells`; `segReversed[k] === 1`
+  where that required emitting the slice against path order.
+- `segDir` is the direction of the terminal stroke for a segment of two cells
+  or more. **A one-cell segment is the exception**: it has no terminal stroke,
+  so all four directions are legal for it. `checkStructure` skips the
+  terminal-stroke check for these, which is what makes that sound — and the
+  one-cell piece is also what makes the peel unable to stall, since the topmost
+  free cell always has a clear northward ray.
+- Mean segment length tracks `params.meanPieceLength`, with
+  `params.pieceLengthVariance` as the spread; cuts avoid leaving a straight run
+  shorter than `params.minStraightRun` where the path offers an alternative.
+- No segment is shorter than `params.minPieceLength` — at the default 2, no
+  segment is a lone arrowhead with no body. A piece is only cut when what it
+  leaves behind is itself long enough to be a legal piece, so the floor is
+  maintained rather than checked afterwards.
 
-### orientation (S3)
+**The floor is a target, not a postcondition, and `PeelStats.belowMinimum` is
+how a caller tells.** Writing the corner cell's run as `[lo, hi]` and the cell's
+position as `p`, the two moves that leave nothing behind are `[lo, p]` and
+`[p, hi]`, so both fall short only when the run holds fewer than
+`2 * minPieceLength - 1` cells with `p` away from both ends. At the default
+floor of 2 that is a three-cell run with the corner in the middle, plus a
+one-cell run where neither move exists at all; at larger floors it is a
+widening family. `wholeRunEscape` covers what it can by committing a whole run
+against an exactly-checked ray; where even that fails the peel relaxes rather
+than failing. Measured over 40 boards at gridSize 40:
 
-```ts
-orientSegments(segments, occupancy, width, height, rng): { segHead: Uint32Array; segDir: Uint8Array; segReversed: Uint8Array }
-```
+| `minPieceLength` | 2   | 3   | 4   | 6   | 8   |
+| ---------------- | --- | --- | --- | --- | --- |
+| pieces below it  | 0   | 0   | 0   | 2   | 12  |
 
-The head is one of the segment's two endpoints; `segDir` is the direction of its
-terminal stroke, i.e. the direction it exits in. So for a segment of two cells or
-more, `segDir` is _derived_ rather than chosen — picking the head fixes it, and
-the segment contributes one bit to orientation's search space.
+Zero at the shipped default across 171,233 segments, and the heavy sweep
+asserts it per board across 6000 more. Do not assume it above 3.
 
-**A one-cell segment is the exception**: it has no terminal stroke for that rule
-to read, so nothing constrains its direction and all four are legal. An orienter
-must offer all four as candidates for such a segment rather than two, and it
-contributes two bits rather than one. `checkStructure` skips the terminal-stroke
-check for these, which is what makes that sound.
+The achieved mean is not `meanPieceLength` either, for the same reason: the
+floor truncates the distribution's left tail, so at the shipped spread
+requesting 6 lands around 7.5 while requesting 14 lands on 14.
 
-**`segCells` runs tail → head, so the head must be the _last_ cell of the
-segment's slice.** `checkStructure` enforces that. An orienter that picks the
-other endpoint has not merely set `segHead` — it has reversed the segment, and
-must say so: `segReversed[k] === 1` means segment k's cells are to be emitted in
-reverse of the order the segmenter produced them. Whoever assembles the `Board`
-applies the flag.
-
-Returning a head without the flag produces a board `validateBoard` rejects at
-the _structure_ gate, not the acyclicity one — the digraph is perfectly acyclic,
-the polyline just runs the wrong way. That is a quiet failure mode, which is why
-the flag is part of the contract rather than a convention.
-
-The only hard postcondition is that the resulting blocking digraph is **acyclic**.
-Everything else is a quality preference.
-
-Two implementations, and both are in scope:
-
-1. **Local search** — build graph, Tarjan SCC, flip a segment inside a
-   non-trivial SCC, recheck. Time-boxed.
-2. **Reverse construction** — implemented as a **peel over the full board**,
-   not as insertion into an empty one. Repeatedly take any remaining segment
-   whose exit ray is clear of the segments still present, fix that endpoint as
-   its head, and remove it. The peel order is a valid removal order, so
-   reversing it gives the PRD's insertion order and acyclicity is free by
-   construction.
-
-   The direction matters, and not only for exposition. Removals only ever
-   unblock, which is what makes the peel safe. Insertion is the anti-monotone
-   mirror — the placed set only grows, so a segment's ray only becomes more
-   constrained — and a greedy insertion order is not in general the reverse of
-   a valid removal order. Greedy insertion would need backtracking to match
-   what the peel gets for free.
-
-Reverse construction **trades away no packing density**. Segmentation is
-upstream and fixed, so both implementations place identical cells in identical
-positions; there is nothing for orientation to pack. What it trades is puzzle
-quality — DAG depth and the free-set profile.
-
-The peel is also **complete** over the candidate set: if any acyclic
-orientation of a given segmentation exists, the peel finds one, whichever
-eligible segment it happens to pick. Take any valid removal order and consider
-its first segment not yet peeled — every segment blocking it comes earlier in
-that order, so all of them are already gone and it is eligible now. The peel
-therefore never strands. So a failure means no acyclic orientation of _those
-cells_ exists, and the recovery is re-segmenting or re-pathing. Never retry
-orientation with a different seed; there is nothing for a different seed to
-find.
-
-This completeness is a property of the peel direction specifically. It would
-not survive a rewrite to greedy insertion.
-
-Fallback from 1 to 2 must be automatic and must be recorded in
-`BoardMetrics.orientationFallback`, because "how often do we fall back" is data
-the tuning phase needs.
+Everything after the acyclicity postcondition is a preference, and that is the
+trade this design makes: the failure mode moves from "no board" to "an uglier
+board". `PeelStats` reports the pressure — `shortOfTarget`, `belowMinimum`,
+`wholeRunEscapes`, `shortStraightRuns` — so a sweep can see it rather than
+infer it.
 
 ### blocking digraph (S3)
 
@@ -204,8 +187,8 @@ generateBoard(params: GenParams): Board
 generateBoardWithDiagnostics(params: GenParams, options?: GenerateBoardOptions): GenerateBoardResult
 ```
 
-The single public entry point: mask -> path -> segmentation -> orientation ->
-validation -> colors, pure in `(seed, params)` per ADR-0004. `generateBoard` is
+The single public entry point: mask -> path -> cut-and-orient -> validation ->
+colors, pure in `(seed, params)` per ADR-0004. `generateBoard` is
 the exact `GenerateBoard` shape declared in `types.ts`; `generateBoardWithDiagnostics`
 is the same pipeline with the retry count and per-attempt failure reasons
 attached, for a caller (the tuning harness) that needs to see why a board took
@@ -215,35 +198,27 @@ more than one attempt.
 `true` and there is no environment-based branching — an explicit `false` is
 the only way to skip it. There is no meaningful performance case for skipping
 it: `validateBoard` costs low single-digit milliseconds even on a board with
-several hundred segments, negligible next to orientation's own cost.
+several hundred segments.
 
 **Retry.** A generation attempt can fail as data (`ok: false` from path
-building) or as a typed throw (`MaskRepairError`, `BoardInvariantError`, or
-`OrientationExhaustedError`, which `orientSegments` throws once every fallback
-is exhausted). All four are retried: a new internal seed is derived
-deterministically from `(params.seed, attempt)` — attempt 0 is the seed
-itself unmodified — and the whole pipeline reruns from mask generation, up to
+building) or as a typed throw (`MaskRepairError`, `BoardInvariantError`). All
+three are retried: a new internal seed is derived deterministically from
+`(params.seed, attempt)` — attempt 0 is the seed itself unmodified — and the
+whole pipeline reruns from mask generation, up to
 `GenerateBoardOptions.maxAttempts` (default 8, `DEFAULT_MAX_ATTEMPTS`).
-Re-running the whole pipeline, not just orientation, matters for a stuck
-orientation specifically: the peel is complete over its candidate set, so a
-"stuck" result proves no acyclic orientation exists for that exact
-segmentation, and only a new segmentation — which only a new seed produces —
-can change the outcome.
+Cut-and-orient contributes nothing to that list: it has no refusal to model.
 
-Any other thrown error (a malformed segment, a corrupt CSR offset — upstream
-corruption rather than a proven cycle) is deliberately **not** caught as
-retryable and propagates immediately, so a real bug surfaces as itself rather
-than as eight identical retries disguised as an unsolvable board.
+Any other thrown error (a malformed segment, a corrupt CSR offset) is
+deliberately **not** caught as retryable and propagates immediately, so a real
+bug surfaces as itself rather than as eight identical retries disguised as an
+unsolvable board.
 
 **Exhaustion.** When every attempt fails, `generateBoard` throws
 `GenerationFailedError` with every attempt's failure reason attached
-(`detail.attemptFailures`). This is a real outcome at ordinary sizes today,
-not only at pathological parameter combinations: most of the failure comes
-from orientation finding no acyclic assignment for the segmentation a given
-seed happens to produce, which is far more common at gridSize 40+ than the
-mask-repair floor at very small gridSize with very low fillFraction. Retrying
-further does not reliably help either failure mode, because every stage here
-is deterministic in its seed.
+(`detail.attemptFailures`). What is left that can exhaust is the mask-repair
+floor at very small gridSize with very low fillFraction; 1000 seeds per size
+at gridSizes 20, 40 and 100 clear it at both piece-length regimes
+(`generate.heavy.test.ts`).
 
 ### rendering (S5) and game (S6)
 

@@ -129,7 +129,7 @@ mid-game with lives intact, and a fresh board can be generated.
 ### 4.2 Generation Pipeline
 
 ```
-mask → path fill → segmentation → orientation → validation → colors
+mask → path fill → cut-and-orient → validation → colors
 ```
 
 **Step 1 — Mask.** Produce a binary region.
@@ -153,26 +153,40 @@ mask → path fill → segmentation → orientation → validation → colors
   neighbor, reverse the tail. Mixes toward near-uniform random paths and handles
   irregular regions the contour method can't tile.
 
-**Step 3 — Segmentation.** Cut the path into segments per `meanPieceLength` and
-`pieceLengthVariance`. `minStraightRun` constrains where cuts may land.
+**Step 3 — Cut and orient.** One stage, not two. Cutting the path first and then
+searching for an acyclic head assignment does not work at the sizes the game needs:
+measured on real contour output, cut placement that is blind to the blocking digraph
+produces segmentations with **no** acyclic orientation at all above roughly 20×20, and no
+amount of retrying or tuning recovers it (issue #83 has the tables).
 
-**Step 4 — Orientation.** Each segment has two legal heads (either endpoint) — except a
-one-cell segment, which has no terminal stroke and so allows all four directions.
-Choose an assignment over all _n_ segments such that the blocking digraph is acyclic.
+So the cut and the head are chosen together, by a peel:
 
-- This is **not** 2-SAT — acyclicity is not a binary clause. Use randomized local search:
-  build graph → Tarjan SCC → flip a segment inside an SCC → recheck → repeat.
-- **Escape hatch if convergence is bad:** generate _backward_. Start with an empty board
-  and slide segments _in_ from the edge one at a time. Reversed insertion order is a
-  guaranteed-valid removal order, so acyclicity is free by construction. It trades away no
-  packing density — segmentation is fixed upstream, so both methods place identical cells —
-  but it does trade puzzle quality. See [CONTRACTS.md](./CONTRACTS.md) for the exact
-  contract, including why an orienter must report which segments it reversed.
+1. Keep the set of not-yet-committed path cells.
+2. Propose a piece — a contiguous run of still-free path positions near
+   `meanPieceLength`, with `pieceLengthVariance` for spread, `minPieceLength` as a hard
+   floor, and `minStraightRun` discouraging cuts too close to the end of a straight
+   run — and a head at one of its two ends. A piece takes its exit direction from its
+   terminal stroke, so choosing the head fixes it; only a one-cell piece, which
+   `minPieceLength` rules out by default, is free to point anywhere.
+3. Accept only if the ray from that head to the board edge crosses no cell that is still
+   free.
+4. Commit the piece and remove its cells.
 
-**Step 5 — Validation.** Assert acyclic, assert coverage, assert every segment reachable.
+Every blocker on a committed piece's ray is therefore a piece committed earlier, so the
+commit order **is** a valid removal order: the blocking digraph is acyclic by
+construction, with no search and nothing that can fail to converge.
+
+The peel also cannot stall. Take the topmost free cell and, within that row, the
+leftmost: nothing free is above it or west of it, so both those rays are clear, and
+every free path-neighbour it has is east of it or below it — so a piece ending there
+exits north or west either way. A legal move exists while any cell remains. What
+degrades under pressure is piece quality, not feasibility, and
+[CONTRACTS.md](./CONTRACTS.md) has the measured numbers for how much.
+
+**Step 4 — Validation.** Assert acyclic, assert coverage, assert every segment reachable.
 Fail loudly in dev.
 
-**Step 6 — Colors.** Greedy graph coloring over segment adjacency.
+**Step 5 — Colors.** Greedy graph coloring over segment adjacency.
 
 ### 4.3 Core Data Structures
 
@@ -278,7 +292,7 @@ harness and live play once both exist.
 | #   | Risk                                                                                                                                  | Mitigation                                                                                                                                                                  |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | R1  | **`bendProbability` is not natively controllable.** The contour method determines path shape; bendiness isn't a free parameter of it. | Bias spanning-tree growth (weighted Prim favoring straight continuation), or backbite with annealing on a bendiness objective. Resolve early — it's a headline tuning knob. |
-| R2  | Orientation search may not converge at high segment counts.                                                                           | Fall back to reverse construction (§4.2 step 4).                                                                                                                            |
+| R2  | Orientation search may not converge at high segment counts.                                                                           | Retired: cut-and-orient (§4.2 step 3) constructs an acyclic digraph rather than searching for one, so there is nothing left to converge.                                    |
 | R3  | **100×100 may simply not be fun.** Thousands of segments × even a fast animation is a multi-hour board.                               | Metrics harness will expose this before the renderer exists. Be willing to conclude the real ceiling is ~50×50.                                                             |
 | R4  | Legibility floor. ~8–10px per arrowhead caps unzoomed boards at ~40 cells across on a phone.                                          | Zoom is mandatory above that, already in scope.                                                                                                                             |
 | R5  | Offscreen buffer memory on iOS at high zoom.                                                                                          | Cap buffer size, degrade to re-render on zoom past threshold.                                                                                                               |

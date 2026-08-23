@@ -24,10 +24,25 @@ export interface GenParams {
   /** Square board edge length. */
   readonly gridSize: number;
   readonly seed: Seed;
-  /** Target mean segment length in cells. */
+  /**
+   * Mean of the distribution segment lengths are sampled from, in cells.
+   *
+   * Not the achieved mean: `minPieceLength` truncates that distribution's left
+   * tail, so the two diverge as the floor takes a larger share of it. A sweep
+   * should read the achieved figure.
+   */
   readonly meanPieceLength: number;
-  /** Spread of the segment-length distribution, in cells (std-dev-like). */
+  /** Spread of that distribution, in cells (std-dev-like). */
   readonly pieceLengthVariance: number;
+  /**
+   * Floor on segment length in cells. At 1 a segment may be a lone arrowhead
+   * with no body; at 2 or more every segment reads as a stroke.
+   *
+   * A target the generator maintains rather than a guarantee, and it gives up
+   * more of it as the floor rises: read `PeelStats.belowMinimum` for what a
+   * given board actually cost.
+   */
+  readonly minPieceLength: number;
   /** 0..1 target bend rate for the space-filling path. */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
@@ -49,8 +64,9 @@ export interface PlayParams {
 export const DEFAULT_GEN_PARAMS: GenParams = {
   gridSize: 40,
   seed: 1,
-  meanPieceLength: 14,
-  pieceLengthVariance: 5,
+  meanPieceLength: 6,
+  pieceLengthVariance: 8,
+  minPieceLength: 2,
   bendProbability: 0.35,
   minStraightRun: 2,
   fillFraction: 0.45,
@@ -105,17 +121,17 @@ export interface Board {
   /**
    * Head cell index per segment. Length n. Indexed by (id - 1).
    *
-   * Always the *last* cell of the segment's segCells slice — an orienter that
-   * picks the other endpoint has reversed the segment and the assembler must
-   * emit its cells reversed. `checkStructure` enforces this.
+   * Always the *last* cell of the segment's segCells slice, so a segment whose
+   * head is the other endpoint is emitted with its cells reversed.
+   * `checkStructure` enforces this.
    */
   readonly segHead: Uint32Array;
   /**
    * Exit direction per segment. Length n.
    *
-   * For a segment of two cells or more this is derived from the terminal stroke
-   * rather than chosen independently: picking the head fixes it. A one-cell
-   * segment has no terminal stroke, so all four directions are legal for it.
+   * For a segment of two cells or more this is the direction of its terminal
+   * stroke rather than an independent choice: picking the head fixes it. A
+   * one-cell segment has no terminal stroke, so all four are legal for it.
    */
   readonly segDir: Uint8Array;
 
@@ -146,8 +162,6 @@ export interface BoardMetrics {
    * not bottleneck, and counting them makes this 1 on every board.
    */
   readonly minFreeSetSize: number;
-  /** Whether orientation fell back to reverse construction. */
-  readonly orientationFallback: boolean;
   /** Blocking edges. */
   readonly edgeCount: number;
   readonly generationMs: number;

@@ -11,20 +11,24 @@ dialled from measurements instead.
 
 ## What the harness reports
 
-| Metric                              | Definition                                                    | Reads as                                          |
-| ----------------------------------- | ------------------------------------------------------------- | ------------------------------------------------- |
-| `dagDepth`                          | Longest chain in the blocking digraph                         | How far ahead the board forces you to work        |
-| `meanFreeSetSize`                   | Mean number of clickable segments across a full greedy clear  | How much there is to scan at any moment           |
-| `minFreeSetSize`                    | Smallest free set at a step where something was still blocked | Bottleneck moments — a 1 here means a forced move |
-| `orientationFallback`               | Whether orientation fell back to reverse construction         | How load-bearing the R2 escape hatch actually is  |
-| `coverage`                          | Covered cells / inside cells                                  | Generation quality; target ≥ 0.99                 |
-| `bendRate`                          | Fraction of interior path cells that are corners              | Ground truth for `bendProbability` (R1)           |
-| `segmentCount`, `meanSegmentLength` | Board composition                                             | Board length; sanity check on segmentation        |
-| `edgeCount`                         | Blocking edges                                                | Memory pressure at large sizes                    |
-| `generationMs`                      | Wall clock for `generateBoard`                                | PRD §2 goal 3: under 1s at 100×100                |
+| Metric                              | Definition                                                                               | Reads as                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `dagDepth`                          | Longest chain in the blocking digraph                                                    | How far ahead the board forces you to work        |
+| `meanFreeSetSize`                   | Mean number of clickable segments across a full greedy clear                             | How much there is to scan at any moment           |
+| `minFreeSetSize`                    | Smallest free set at a step where something was still blocked                            | Bottleneck moments — a 1 here means a forced move |
+| `shortOfTarget`, `belowMinimum`     | Pieces the cut-and-orient peel cut shorter than asked, and shorter than `minPieceLength` | How much board quality the peel is giving up      |
+| `coverage`                          | Covered cells / inside cells                                                             | Generation quality; target ≥ 0.99                 |
+| `bendRate`                          | Fraction of interior path cells that are corners                                         | Ground truth for `bendProbability` (R1)           |
+| `segmentCount`, `meanSegmentLength` | Board composition                                                                        | Board length; sanity check on segmentation        |
+| `edgeCount`                         | Blocking edges                                                                           | Memory pressure at large sizes                    |
+| `generationMs`                      | Wall clock for `generateBoard`                                                           | PRD §2 goal 3: under 1s at 100×100                |
 
 `dagDepth` and the free-set statistics both fall out of the topological sort
 validation already runs. Compute them there; do not walk the graph twice.
+
+`shortOfTarget` and `belowMinimum` are not derivable from a finished `Board` —
+they are what the peel _wanted_ versus what it got. They reach the harness on
+`generateBoardWithDiagnostics(...).diagnostics.peel`.
 
 **`minFreeSetSize` excludes the endgame, deliberately.** Defined as the smallest
 free set seen at _any_ step, it is 1 on every board that has segments at all:
