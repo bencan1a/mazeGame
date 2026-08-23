@@ -40,7 +40,7 @@ describe('fillHoles', () => {
     const grid = blobFromRows(['.....', '.###.', '.#.#.', '.###.', '.....']);
     const result = fillHoles(grid, 100);
     // The one enclosed cell (centre) is filled...
-    expect(result.inside[2 * 5 + 2]).toBe(1);
+    expect(result.inside[toIndex(2, 2, 5)]).toBe(1);
     // ...but the outside ring, reachable from the border, is untouched.
     expect(result.inside[0]).toBe(0);
   });
@@ -49,14 +49,14 @@ describe('fillHoles', () => {
     const grid = blobFromRows(['#######', '#.....#', '#.....#', '#.....#', '#######']);
     const holeSize = 3 * 5; // interior 5x3 hole
     const result = fillHoles(grid, holeSize - 1);
-    expect(result.inside[2 * 7 + 3]).toBe(0); // hole centre stays a hole
+    expect(result.inside[toIndex(3, 2, 7)]).toBe(0); // hole centre stays a hole
   });
 
   it('fills a hole exactly at the threshold and leaves one just above it unfilled', () => {
     const grid = blobFromRows(['#######', '#.....#', '#.....#', '#.....#', '#######']);
     const holeSize = 3 * 5;
-    expect(fillHoles(grid, holeSize).inside[2 * 7 + 3]).toBe(1);
-    expect(fillHoles(grid, holeSize - 1).inside[2 * 7 + 3]).toBe(0);
+    expect(fillHoles(grid, holeSize).inside[toIndex(3, 2, 7)]).toBe(1);
+    expect(fillHoles(grid, holeSize - 1).inside[toIndex(3, 2, 7)]).toBe(0);
   });
 
   it('is a no-op on a grid with no enclosed background', () => {

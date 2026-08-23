@@ -76,8 +76,8 @@ describe('morphologicalOpen', () => {
     // from the spur itself (see the morphology.ts module comment).
     const grid = blobFromRows(['.#....', '.####.', '.####.', '.####.', '.####.', '......']);
     const opened = morphologicalOpen(grid);
-    expect(opened.inside[0 * 6 + 1]).toBe(0); // the spur cell
-    expect(opened.inside[2 * 6 + 2]).toBe(1); // deep interior of the block survives
+    expect(opened.inside[toIndex(1, 0, 6)]).toBe(0); // the spur cell
+    expect(opened.inside[toIndex(2, 2, 6)]).toBe(1); // deep interior of the block survives
   });
 
   it('does not, by itself, remove every single-cell spur (documented limitation)', () => {
@@ -88,7 +88,7 @@ describe('morphologicalOpen', () => {
     // a property of `morphologicalOpen` in isolation, not a repair defect.
     const grid = blobFromRows(['####', '####', '####', '####', '.#..']);
     const opened = morphologicalOpen(grid);
-    expect(opened.inside[4 * 4 + 1]).toBe(1); // the spur survives
+    expect(opened.inside[toIndex(1, 4, 4)]).toBe(1); // the spur survives
   });
 
   it('is anti-extensive: the result is always a subset of the input', () => {

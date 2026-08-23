@@ -55,11 +55,11 @@ describe('largestComponent', () => {
     expect(componentCount(result)).toBe(1);
     expect(insideCount(result.inside)).toBe(5);
     // The 5-cell island (row 4) survives...
-    expect(result.inside[4 * 7 + 1]).toBe(1);
-    expect(result.inside[4 * 7 + 5]).toBe(1);
+    expect(result.inside[toIndex(1, 4, 7)]).toBe(1);
+    expect(result.inside[toIndex(5, 4, 7)]).toBe(1);
     // ...the 2-cell and 3-cell islands do not.
-    expect(result.inside[0 * 7 + 0]).toBe(0);
-    expect(result.inside[2 * 7 + 2]).toBe(0);
+    expect(result.inside[toIndex(0, 0, 7)]).toBe(0);
+    expect(result.inside[toIndex(2, 2, 7)]).toBe(0);
   });
 
   it('is a no-op on a grid with no inside cells', () => {

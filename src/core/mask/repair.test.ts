@@ -238,7 +238,7 @@ describe('repairMask edge cases', () => {
     for (let y = 1; y <= 4; y++) {
       for (let x = 1; x <= 4; x++) {
         const isRingCell = y === 1 || y === 4 || x === 1 || x === 4;
-        if (isRingCell) inside[y * width + x] = 1;
+        if (isRingCell) inside[toIndex(x, y, width)] = 1;
       }
     }
     const blob: Blob = { width, height, inside };
@@ -318,11 +318,11 @@ describe('repairMask edge cases', () => {
       [6, 7],
       [7, 7],
     ]) {
-      inside[(y as number) * width + (x as number)] = 0;
+      inside[toIndex(x as number, y as number, width)] = 0;
     }
     const blob: Blob = { width, height, inside };
     const mask = repairMask(blob);
-    expect(mask.inside[6 * width + 6]).toBe(1);
-    expect(mask.inside[7 * width + 7]).toBe(1);
+    expect(mask.inside[toIndex(6, 6, width)]).toBe(1);
+    expect(mask.inside[toIndex(7, 7, width)]).toBe(1);
   });
 });
