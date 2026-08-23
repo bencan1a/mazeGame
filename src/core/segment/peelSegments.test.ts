@@ -178,24 +178,114 @@ describe('peelSegments: stats', () => {
     const mean = lengths.reduce((a, b) => a + b, 0) / count;
     expect(result.stats.segmentCount).toBe(count);
     expect(result.stats.meanLength).toBeCloseTo(mean, 10);
-    expect(result.stats.forcedSingles).toBeLessThanOrEqual(result.stats.shortOfTarget);
+    expect(result.stats.belowMinimum).toBeLessThanOrEqual(result.stats.shortOfTarget);
   });
 
-  it('is never short of a target of one cell, which it can always honour', () => {
+  it('is never short of a target it can always honour', () => {
     const mask = makeMask({ width: 8, height: 8 });
     const path = makePath(mask);
     const result = peelSegments(
       path,
-      paramsAt({ gridSize: 8, meanPieceLength: 1, pieceLengthVariance: 0 }),
+      paramsAt({ gridSize: 8, meanPieceLength: 2, pieceLengthVariance: 0 }),
       createRng(3),
       8,
       8,
     );
     expect(result.stats.shortOfTarget).toBe(0);
-    expect(result.stats.forcedSingles).toBe(0);
-    // Overshoots instead: a lone cell left beside a one-cell piece would be a
-    // piece the next step could not improve on, so it is absorbed.
-    expect(result.stats.meanLength).toBeGreaterThanOrEqual(1);
-    expect(result.stats.meanLength).toBeLessThan(2.5);
+    expect(result.stats.belowMinimum).toBe(0);
+    // Overshoots instead: a lone cell left beside a two-cell piece could only
+    // ever become an illegal piece, so it is absorbed.
+    expect(result.stats.meanLength).toBeGreaterThanOrEqual(2);
+    expect(result.stats.meanLength).toBeLessThan(3.5);
+  });
+});
+
+describe('peelSegments: minPieceLength', () => {
+  const mask = makeMask({ width: 16, height: 16 });
+  const path = makePath(mask);
+
+  function lengths(result: PeeledSegments): number[] {
+    return Array.from({ length: result.segStart.length - 1 }, (_, k) => sliceOf(result, k).length);
+  }
+
+  it.each([2, 3, 4])('emits no segment shorter than %i cells', (minPieceLength) => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const result = peelSegments(
+        path,
+        paramsAt({ gridSize: 16, minPieceLength, meanPieceLength: 5, pieceLengthVariance: 3 }),
+        createRng(seed),
+        16,
+        16,
+      );
+      expect(Math.min(...lengths(result))).toBeGreaterThanOrEqual(minPieceLength);
+      expect(result.stats.belowMinimum).toBe(0);
+    }
+  });
+
+  it('allows a lone arrowhead again at 1, so the floor is doing the work', () => {
+    const withFloor = peelSegments(
+      path,
+      paramsAt({ gridSize: 16, minPieceLength: 1, meanPieceLength: 3, pieceLengthVariance: 3 }),
+      createRng(11),
+      16,
+      16,
+    );
+    expect(Math.min(...lengths(withFloor))).toBe(1);
+  });
+
+  it('still honours the floor on a path too short to hold one whole piece', () => {
+    // A one-cell path cannot satisfy a floor of two, so the peel relaxes
+    // rather than failing, and says so.
+    const tiny = makeMask(['#.', '..'].join('\n'));
+    const result = peelSegments(
+      makePathFromCells(tiny, [0]),
+      paramsAt({ gridSize: 2, minPieceLength: 2 }),
+      createRng(1),
+      2,
+      2,
+    );
+    expect(Array.from(result.segStart)).toEqual([0, 1]);
+    expect(result.stats.belowMinimum).toBe(1);
+  });
+});
+
+describe('peelSegments: taking a whole run to keep every piece legal', () => {
+  // A plus, filled by a real backbite walk, asked for pieces of eight. Every
+  // ordinary candidate at one step would have left a remnant too short to be
+  // a legal piece of its own, so the only move left is a whole run — here the
+  // sixteen-cell one. Without that move the peel would have to emit an
+  // under-length piece instead.
+  const PLUS = makeMask(
+    [
+      '....##..',
+      '....##..',
+      '..######',
+      '..######',
+      '..######',
+      '..######',
+      '....##..',
+      '....##..',
+    ].join('\n'),
+  );
+  const WALK = [
+    29, 30, 38, 46, 47, 39, 31, 23, 22, 21, 13, 5, 4, 12, 20, 28, 27, 19, 18, 26, 34, 42, 43, 35,
+    36, 37, 45, 44, 52, 60, 61, 53,
+  ];
+
+  it('reaches for it rather than emitting an under-length piece', () => {
+    const result = peelSegments(
+      makePathFromCells(PLUS, WALK),
+      paramsAt({ gridSize: 8, minPieceLength: 8, meanPieceLength: 2, pieceLengthVariance: 0 }),
+      createRng(1),
+      8,
+      8,
+    );
+    expect(result.stats.wholeRunEscapes).toBe(1);
+    expect(result.stats.belowMinimum).toBe(0);
+    const lengths = Array.from(
+      { length: result.segStart.length - 1 },
+      (_, k) => (result.segStart[k + 1] as number) - (result.segStart[k] as number),
+    );
+    expect(lengths).toEqual([8, 8, 16]);
   });
 });

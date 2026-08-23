@@ -22,6 +22,14 @@ function paramsAt(overrides: Partial<GenParams>): GenParams {
 function assertExternallySound(board: ReturnType<typeof generateBoard>): void {
   expect(() => checkStructure(board)).not.toThrow();
   expect(greedyClear(board).stuck.length).toBe(0);
+  let shortest = Infinity;
+  for (let k = 0; k < board.segmentCount; k++) {
+    shortest = Math.min(
+      shortest,
+      (board.segStart[k + 1] as number) - (board.segStart[k] as number),
+    );
+  }
+  expect(shortest).toBeGreaterThanOrEqual(board.params.minPieceLength);
 }
 
 describe('deriveAttemptSeed', () => {

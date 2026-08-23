@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_GEN_PARAMS } from './types.js';
-import { generateBoard, GenerationFailedError } from './generate.js';
+import { generateBoardWithDiagnostics, GenerationFailedError } from './generate.js';
 import { checkStructure, greedyClear } from './validate/index.js';
 
 const RUN = process.env.RUN_HEAVY_GENERATE_SWEEP === '1';
@@ -32,7 +32,7 @@ describe.skipIf(!RUN)('generateBoard heavy sweep: 1000 seeds per size', () => {
       let failures = 0;
       for (let seed = 1; seed <= SEED_COUNT; seed++) {
         try {
-          const board = generateBoard({
+          const { board, diagnostics } = generateBoardWithDiagnostics({
             ...DEFAULT_GEN_PARAMS,
             gridSize,
             seed,
@@ -41,6 +41,7 @@ describe.skipIf(!RUN)('generateBoard heavy sweep: 1000 seeds per size', () => {
           });
           expect(() => checkStructure(board)).not.toThrow();
           expect(greedyClear(board).stuck.length).toBe(0);
+          expect(diagnostics.peel.belowMinimum).toBe(0);
           successes++;
         } catch (err) {
           expect(err).toBeInstanceOf(GenerationFailedError);

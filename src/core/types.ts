@@ -28,6 +28,11 @@ export interface GenParams {
   readonly meanPieceLength: number;
   /** Spread of the segment-length distribution, in cells (std-dev-like). */
   readonly pieceLengthVariance: number;
+  /**
+   * Floor on segment length in cells. At 1 a segment may be a lone arrowhead
+   * with no body; at 2 or more every segment reads as a stroke.
+   */
+  readonly minPieceLength: number;
   /** 0..1 target bend rate for the space-filling path. */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
@@ -51,6 +56,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   seed: 1,
   meanPieceLength: 14,
   pieceLengthVariance: 5,
+  minPieceLength: 2,
   bendProbability: 0.35,
   minStraightRun: 2,
   fillFraction: 0.45,

@@ -163,10 +163,11 @@ So the cut and the head are chosen together, by a peel:
 
 1. Keep the set of not-yet-committed path cells.
 2. Propose a piece — a contiguous run of still-free path positions near
-   `meanPieceLength`, with `pieceLengthVariance` for spread and `minStraightRun`
-   discouraging cuts too close to the end of a straight run — and a head at one of its
-   two ends. A piece of two cells or more takes its exit direction from its terminal
-   stroke; a one-cell piece has none, so all four are legal for it.
+   `meanPieceLength`, with `pieceLengthVariance` for spread, `minPieceLength` as a hard
+   floor, and `minStraightRun` discouraging cuts too close to the end of a straight
+   run — and a head at one of its two ends. A piece takes its exit direction from its
+   terminal stroke, so choosing the head fixes it; only a one-cell piece, which
+   `minPieceLength` rules out by default, is free to point anywhere.
 3. Accept only if the ray from that head to the board edge crosses no cell that is still
    free.
 4. Commit the piece and remove its cells.
@@ -175,9 +176,12 @@ Every blocker on a committed piece's ray is therefore a piece committed earlier,
 commit order **is** a valid removal order: the blocking digraph is acyclic by
 construction, with no search and nothing that can fail to converge.
 
-The peel also cannot stall. The topmost free cell has no free cell above it, so a
-one-cell piece there always has a clear northward ray — a legal move exists while any
-cell remains. What degrades under pressure is piece quality, not feasibility.
+The peel also cannot stall. Take the topmost free cell and, within that row, the
+leftmost: nothing free is above it or west of it, so both those rays are clear, and
+every free path-neighbour it has is east of it or below it — so a piece ending there
+exits north or west either way. A legal move exists while any cell remains. What
+degrades under pressure is piece quality, not feasibility, and
+[CONTRACTS.md](./CONTRACTS.md) has the measured numbers for how much.
 
 **Step 4 — Validation.** Assert acyclic, assert coverage, assert every segment reachable.
 Fail loudly in dev.

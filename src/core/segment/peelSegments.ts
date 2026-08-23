@@ -11,19 +11,29 @@
  * earlier, so commit order is a valid removal order and the digraph has no
  * cycle to search for.
  *
- * The peel cannot stall. Let `c` be the topmost free cell anywhere on the
- * board. Its column holds no free cell above it, so the whole northward ray
- * from `c` is free of live cells, and a one-cell piece at `c` has all four
- * directions legal, north among them. So a legal move exists whenever any
- * cell remains, and `chooseCandidate` enumerates that move: `c` is the
- * north-exposed cell of its column.
+ * The peel cannot stall. Take the topmost free cell and, among that row, the
+ * leftmost — call it `c`. Nothing free lies above `c` in its column and
+ * nothing free lies west of it in its row, so both those rays are clear, and
+ * every free path-neighbour of `c` is either east of it or below it. A piece
+ * ending at `c` therefore arrives travelling west or south, and exits north or
+ * west: clear either way. `chooseCandidate` enumerates `c` twice, as the
+ * north-exposed cell of its column and the west-exposed cell of its row.
+ *
+ * `minPieceLength` narrows that. Writing `c`'s run as `[lo, hi]` at position
+ * `p`, taking `[lo, p]` leaves only `[p + 1, hi]` and taking `[p, hi]` leaves
+ * only `[lo, p - 1]`, so one of the two is short of the minimum exactly when
+ * `p` sits one cell in from both ends — that is, when the run is three cells
+ * and `c` is the middle one. `wholeRunEscape` covers that case where it can,
+ * by committing a whole run against an exactly-checked ray. Where it cannot,
+ * `relaxed` peeling runs anyway rather than failing, and `PeelStats.
+ * belowMinimum` counts what it cost.
  *
  * What can degrade is piece quality, not feasibility: when the free set
  * fragments, the lengths on offer shrink. `PeelStats` reports how often that
  * happened, so a sweep can see the trade rather than infer it.
  */
 
-import { directionBetween, opposite, xOf, yOf } from '../grid.js';
+import { NO_CELL, directionBetween, opposite, step, xOf, yOf } from '../grid.js';
 import type { Rng } from '../rng.js';
 import type { Direction, GenParams, HamiltonianPath } from '../types.js';
 
@@ -57,8 +67,10 @@ export interface PeelStats {
   readonly lengthStdDev: number;
   /** Pieces committed shorter than the length sampled for them. */
   readonly shortOfTarget: number;
-  /** Pieces that had to come down to a single cell despite a longer target. */
-  readonly forcedSingles: number;
+  /** Pieces that came out shorter than `minPieceLength`. Nothing else reports this. */
+  readonly belowMinimum: number;
+  /** Steps that had to take a whole run to keep every piece legal. */
+  readonly wholeRunEscapes: number;
   /** Cuts that left a straight run shorter than `minStraightRun`. */
   readonly shortStraightRuns: number;
 }
@@ -97,7 +109,8 @@ export function peelSegments(
         meanLength: 0,
         lengthStdDev: 0,
         shortOfTarget: 0,
-        forcedSingles: 0,
+        belowMinimum: 0,
+        wholeRunEscapes: 0,
         shortStraightRuns: 0,
       },
     };
@@ -118,13 +131,14 @@ export function peelSegments(
   }
 
   const straight = straightRuns(stepDir);
-  // Below 1 the constraint is vacuous: every cut satisfies it.
+  // Below 1 each constraint is vacuous: every cut satisfies it.
   const minStraightRun = Math.max(1, Math.round(params.minStraightRun));
-  const targetLength = Math.max(1, params.meanPieceLength);
+  const minLength = Math.max(1, Math.round(params.minPieceLength));
+  const targetLength = Math.max(minLength, params.meanPieceLength);
   const spread = Math.max(0, params.pieceLengthVariance);
-  // A remnant shorter than this is absorbed rather than left to become a
-  // stub piece later.
-  const minKeep = Math.max(2, Math.round(targetLength / 2));
+  // A remnant shorter than this is absorbed rather than left behind, even
+  // though it would be a legal piece on its own.
+  const absorbBelow = Math.max(minLength, Math.round(targetLength / 2));
 
   const board = new BoardState(cells, width, height);
   const committed = new Uint8Array(length);
@@ -135,7 +149,8 @@ export function peelSegments(
   const pieceDir: number[] = [];
 
   let shortOfTarget = 0;
-  let forcedSingles = 0;
+  let belowMinimum = 0;
+  let wholeRunEscapes = 0;
   let shortStraightRuns = 0;
 
   const candidate: Candidate = { headPos: -1, dir: 0, mode: BACKWARD, pieceLength: 1 };
@@ -144,16 +159,19 @@ export function peelSegments(
   let remaining = length;
   while (remaining > 0) {
     const sampled = Math.round(rng.normal(targetLength, spread));
-    const target = Math.min(Math.max(sampled, 1), length);
+    const target = Math.min(Math.max(sampled, minLength), length);
 
-    const found = chooseCandidate(candidate, scratch, target);
-    if (!found) {
-      // Unreachable while cells remain — see the module comment. Kept as a
-      // throw rather than a silent stall so a broken exposure index cannot
-      // present itself as an empty board.
-      throw new Error(
-        `peelSegments: no legal piece with ${remaining} of ${length} path cells still free`,
-      );
+    if (!chooseCandidate(candidate, scratch, target, false)) {
+      if (wholeRunEscape(candidate)) {
+        wholeRunEscapes++;
+      } else if (!chooseCandidate(candidate, scratch, target, true)) {
+        // Unreachable while cells remain — see the module comment. Kept as a
+        // throw rather than a silent stall so a broken exposure index cannot
+        // present itself as an empty board.
+        throw new Error(
+          `peelSegments: no legal piece with ${remaining} of ${length} path cells still free`,
+        );
+      }
     }
 
     const head = candidate.headPos;
@@ -161,10 +179,8 @@ export function peelSegments(
     const from = candidate.mode === BACKWARD ? head - pieceLen + 1 : head;
     const to = candidate.mode === BACKWARD ? head : head + pieceLen - 1;
 
-    if (pieceLen < target) {
-      shortOfTarget++;
-      if (pieceLen === 1) forcedSingles++;
-    }
+    if (pieceLen < target) shortOfTarget++;
+    if (pieceLen < minLength) belowMinimum++;
     if (from > 0 && committed[from - 1] === 0 && cutViolates(from - 1)) shortStraightRuns++;
     if (to < length - 1 && committed[to + 1] === 0 && cutViolates(to)) shortStraightRuns++;
 
@@ -186,16 +202,24 @@ export function peelSegments(
    * Fills `best` with the lowest-cost legal piece whose head is an exposed
    * cell, and answers whether one was found.
    *
-   * Exposure is what makes the acceptance test free: a cell that is the
-   * first free cell of its column or row in some direction has, by
-   * definition, nothing free along the ray that way.
+   * Exposure is what makes the acceptance test free: a cell that is the first
+   * free cell of its column or row in some direction has, by definition,
+   * nothing free along the ray that way.
+   *
+   * `relaxed` drops the length floor and the remnant rule — quality rules, not
+   * correctness ones — for the rare step where nothing else is on offer.
    */
-  function chooseCandidate(best: Candidate, probe: Candidate, target: number): boolean {
+  function chooseCandidate(
+    best: Candidate,
+    probe: Candidate,
+    target: number,
+    relaxed: boolean,
+  ): boolean {
     let bestCost = Infinity;
     let found = false;
 
     const consider = (cell: number, dir: Direction): void => {
-      const cost = evaluate(probe, cell, dir, target) + rng.next() * JITTER;
+      const cost = evaluate(probe, cell, dir, target, relaxed) + rng.next() * JITTER;
       if (cost >= bestCost) return;
       bestCost = cost;
       found = true;
@@ -221,39 +245,60 @@ export function peelSegments(
 
   /**
    * Fills `out` with the cheapest piece that exits `cell` in `dir`, and
-   * answers what it costs.
+   * answers what it costs. `Infinity` means no legal piece exits that way.
    *
-   * A piece of two cells or more takes its exit direction from its terminal
-   * stroke, so `dir` decides which way along the path such a piece may
-   * extend — often neither. The one-cell piece is what is always on offer:
-   * with no terminal stroke to read, every direction is legal for it.
+   * A piece takes its exit direction from its terminal stroke, so `dir`
+   * decides which way along the path it may extend — often neither.
    */
-  function evaluate(out: Candidate, cell: number, dir: Direction, target: number): number {
+  function evaluate(
+    out: Candidate,
+    cell: number,
+    dir: Direction,
+    target: number,
+    relaxed: boolean,
+  ): number {
     const pos = board.posOf(cell);
+    const floor = relaxed ? 1 : minLength;
     let bestCost = Infinity;
-    let bestLen = 1;
+    let bestLen = 0;
     let bestMode: Mode = BACKWARD;
 
     const propose = (mode: Mode, pieceLen: number): void => {
+      if (pieceLen < floor) return;
       const from = mode === BACKWARD ? pos - pieceLen + 1 : pos;
-      const cost = scorePiece(from, from + pieceLen - 1, pieceLen, target);
+      const to = from + pieceLen - 1;
+      const before = freeRun(from - 1, -1, absorbBelow);
+      const after = freeRun(to + 1, 1, absorbBelow);
+      // A remnant below the floor could only ever become an illegal piece.
+      if (!relaxed && ((before > 0 && before < floor) || (after > 0 && after < floor))) return;
+      const cost = scorePiece(from, to, pieceLen, target, before, after);
       if (cost >= bestCost) return;
       bestCost = cost;
       bestLen = pieceLen;
       bestMode = mode;
     };
 
+    const tryMode = (mode: Mode, stride: number): void => {
+      // Capped, so `free` is "at least this many" once it reaches the cap —
+      // enough to size a piece, and every length offered stays inside it.
+      const free = freeRun(pos, stride, target + absorbBelow);
+      if (free < floor) return;
+      propose(mode, pieceLengthFor(free, target));
+      propose(mode, floor);
+      propose(mode, free);
+    };
+
     if (pos >= 1 && committed[pos - 1] === 0 && (stepDir[pos - 1] as number) === dir) {
-      propose(BACKWARD, pieceLengthFor(freeRun(pos, -1, target + minKeep), target));
+      tryMode(BACKWARD, -1);
     }
     if (
       pos <= length - 2 &&
       committed[pos + 1] === 0 &&
       opposite(stepDir[pos] as Direction) === dir
     ) {
-      propose(FORWARD, pieceLengthFor(freeRun(pos, 1, target + minKeep), target));
+      tryMode(FORWARD, 1);
     }
-    propose(BACKWARD, 1);
+    if (floor === 1) propose(BACKWARD, 1);
 
     out.headPos = pos;
     out.dir = dir;
@@ -263,13 +308,65 @@ export function peelSegments(
   }
 
   /**
+   * Fills `out` with a whole free run whose head ray is clear, if one exists.
+   *
+   * Taking a run entire is the move that leaves no remnant to be short, which
+   * is what the ordinary candidates can run out of. It costs an exact ray walk
+   * per endpoint instead of relying on exposure, and an O(path) scan for the
+   * runs, so it is only reached when nothing else is on offer.
+   */
+  function wholeRunEscape(out: Candidate): boolean {
+    let lo = 0;
+    while (lo < length) {
+      if (committed[lo] === 1) {
+        lo++;
+        continue;
+      }
+      let hi = lo;
+      while (hi + 1 < length && committed[hi + 1] === 0) hi++;
+
+      if (hi - lo + 1 >= minLength) {
+        const headAtHi = hi > lo ? (stepDir[hi - 1] as Direction) : null;
+        const headAtLo = hi > lo ? opposite(stepDir[lo] as Direction) : null;
+        if (headAtHi !== null && rayIsClear(cells[hi] as number, headAtHi, lo, hi)) {
+          out.headPos = hi;
+          out.dir = headAtHi;
+          out.mode = BACKWARD;
+          out.pieceLength = hi - lo + 1;
+          return true;
+        }
+        if (headAtLo !== null && rayIsClear(cells[lo] as number, headAtLo, lo, hi)) {
+          out.headPos = lo;
+          out.dir = headAtLo;
+          out.mode = FORWARD;
+          out.pieceLength = hi - lo + 1;
+          return true;
+        }
+      }
+      lo = hi + 1;
+    }
+    return false;
+  }
+
+  /** Whether the ray from `cell` meets no free cell outside `[from, to]`. */
+  function rayIsClear(cell: number, dir: Direction, from: number, to: number): boolean {
+    let next = step(cell, dir, width, height);
+    while (next !== NO_CELL) {
+      const pos = board.posOf(next);
+      if (pos >= 0 && committed[pos] === 0 && (pos < from || pos > to)) return false;
+      next = step(next, dir, width, height);
+    }
+    return true;
+  }
+
+  /**
    * How long to make a piece with `free` cells available that wants `target`.
    * A remainder too short to become a piece of its own is absorbed rather
    * than left behind to force a stub later.
    */
   function pieceLengthFor(free: number, target: number): number {
     const remainder = free - target;
-    if (remainder > 0 && remainder < minKeep) return free;
+    if (remainder > 0 && remainder < absorbBelow) return free;
     return Math.min(target, free);
   }
 
@@ -278,19 +375,25 @@ export function peelSegments(
    * it leaves stranded on either side, and whether it cuts a straight run too
    * close to that run's end.
    */
-  function scorePiece(from: number, to: number, pieceLen: number, target: number): number {
+  function scorePiece(
+    from: number,
+    to: number,
+    pieceLen: number,
+    target: number,
+    before: number,
+    after: number,
+  ): number {
     let cost = LENGTH_COST * Math.abs(pieceLen - target);
-    cost += sideCost(from - 1, -1) + sideCost(to + 1, 1);
+    cost += sideCost(before) + sideCost(after);
     if (from > 0 && committed[from - 1] === 0 && cutViolates(from - 1)) cost += STRAIGHT_RUN_COST;
     if (to < length - 1 && committed[to + 1] === 0 && cutViolates(to)) cost += STRAIGHT_RUN_COST;
     return cost;
   }
 
   /** What the free cells left beyond one end of a piece cost. */
-  function sideCost(pos: number, stride: number): number {
-    const free = freeRun(pos, stride, minKeep);
+  function sideCost(free: number): number {
     if (free === 0) return 0;
-    return free < minKeep ? FRAGMENT_COST + STRANDED_COST : FRAGMENT_COST;
+    return free < absorbBelow ? FRAGMENT_COST + STRANDED_COST : FRAGMENT_COST;
   }
 
   /** Free positions starting at `pos` and walking by `stride`, capped at `cap`. */
@@ -382,7 +485,8 @@ export function peelSegments(
         meanLength: mean,
         lengthStdDev: Math.sqrt(variance),
         shortOfTarget,
-        forcedSingles,
+        belowMinimum,
+        wholeRunEscapes,
         shortStraightRuns,
       },
     };

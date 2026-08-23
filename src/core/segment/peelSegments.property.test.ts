@@ -110,7 +110,9 @@ function violations(
     const from = peeled.segStart[k] as number;
     const to = peeled.segStart[k + 1] as number;
     const slice = Array.from(peeled.segCells.slice(from, to));
-    if (slice.length === 0) problems.push(`segment ${k + 1} is empty`);
+    if (slice.length < params.minPieceLength) {
+      problems.push(`segment ${k + 1} is ${slice.length} cells, below minPieceLength`);
+    }
     rebuilt.push(...(peeled.segReversed[k] === 1 ? [...slice].reverse() : slice));
   }
   if (rebuilt.length !== path.cells.length) {
@@ -212,9 +214,10 @@ describe.each([
         fc.pre(path !== null);
         const { stats } = peelSegments(path, params, createRng(seed), gridSize, gridSize);
         expect(stats.segmentCount).toBeGreaterThan(0);
+        expect(stats.belowMinimum).toBe(0);
         expect(stats.meanLength).toBeGreaterThan((REFERENCE_LIKE.meanPieceLength as number) * 0.8);
         expect(stats.shortOfTarget / stats.segmentCount).toBeLessThan(0.2);
-        expect(stats.forcedSingles / stats.segmentCount).toBeLessThan(0.1);
+        expect(stats.belowMinimum / stats.segmentCount).toBeLessThan(0.1);
       }),
       { numRuns, seed: 20260823 },
     );

@@ -98,14 +98,28 @@ Postconditions:
   terminal-stroke check for these, which is what makes that sound — and the
   one-cell piece is also what makes the peel unable to stall, since the topmost
   free cell always has a clear northward ray.
-- Mean segment length tracks `params.meanPieceLength`; cuts avoid leaving a
-  straight run shorter than `params.minStraightRun` where the path offers an
-  alternative.
+- **No segment is shorter than `params.minPieceLength`** — at the default 2,
+  no segment is a lone arrowhead with no body. A piece is only cut when what it
+  leaves behind is itself long enough to be a legal piece, so the floor is
+  maintained rather than checked afterwards.
+- Mean segment length tracks `params.meanPieceLength`, with
+  `params.pieceLengthVariance` as the spread; cuts avoid leaving a straight run
+  shorter than `params.minStraightRun` where the path offers an alternative.
 
-The last two are preferences, not guarantees, and that is the trade this design
-makes: the failure mode moves from "no board" to "an uglier board". `PeelStats`
-reports the pressure — `shortOfTarget`, `forcedSingles`, `shortStraightRuns` —
-so a sweep can see it happening rather than infer it.
+The length floor is nearly, but not quite, a guarantee. Writing the corner
+cell's run as `[lo, hi]` and the cell's position as `p`, the two moves that
+leave nothing behind are `[lo, p]` and `[p, hi]`, so one of them is always
+long enough unless `p` sits one cell in from both ends — a three-cell run with
+the corner in the middle. `wholeRunEscape` covers that where a whole run has a
+clear ray; where it does not, the peel relaxes rather than failing.
+`PeelStats.belowMinimum` counts every piece that cost. Measured: **0 across
+537,898 segments** over 2100 boards at gridSizes 40 and 100.
+
+Everything after the acyclicity postcondition is a preference, and that is the
+trade this design makes: the failure mode moves from "no board" to "an uglier
+board". `PeelStats` reports the pressure — `shortOfTarget`, `belowMinimum`,
+`wholeRunEscapes`, `shortStraightRuns` — so a sweep can see it rather than
+infer it.
 
 ### orientation over a fixed segmentation (S3)
 
