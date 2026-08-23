@@ -245,11 +245,12 @@ describe('generateBoard: orientation failure classification', () => {
     }
     expect(sawMultiAttemptSuccess).toBe(true);
     expect(sawOrientationFailureReason).toBe(true);
-  }, 30_000); // for the same tradeoff on a related check). // uninstrumented it runs in under 2s (see localSearch.convergence.test.ts // v8 coverage instrumentation slows this well past vitest's 5s default;
+    // Uninstrumented this runs in under 2s; v8 coverage pushes it well past
+    // vitest's 5s default.
+  }, 30_000);
 
   it('an orientation error other than "no further fallback" is not retried and propagates directly', () => {
-    // Only the "local search did not converge, and reverse construction
-    // ... There is no further fallback" throw is a proven cycle. Anything
+    // Only OrientationExhaustedError is a proven cycle. Anything
     // else (a malformed segment, a corrupt CSR offset) is upstream
     // corruption; catching it broadly would retry it 8 times and surface it
     // as an indistinguishable GenerationFailedError instead of the real bug.

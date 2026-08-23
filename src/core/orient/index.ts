@@ -50,6 +50,23 @@ export interface OrientSegmentsResult extends OrientationResult {
   readonly localSearch: LocalSearchStats;
 }
 
+/**
+ * Neither orienter could produce an acyclic assignment. Because reverse
+ * construction is complete over its candidate set, this means no acyclic
+ * orientation of these cells exists — the recovery is re-segmenting or
+ * re-pathing, never retrying orientation. Typed so a caller can tell it
+ * apart from a genuine fault thrown out of the same stage.
+ */
+export class OrientationExhaustedError extends Error {
+  constructor(
+    message: string,
+    readonly stuck: Uint32Array,
+  ) {
+    super(message);
+    this.name = 'OrientationExhaustedError';
+  }
+}
+
 export function orientSegments(
   segments: SegmentedPath,
   occupancy: Uint16Array,
@@ -81,9 +98,10 @@ export function orientSegments(
 
   const fallback = (options.fallback ?? reverseConstruct)(segments, occupancy, width, height, rng);
   if (!fallback.ok) {
-    throw new Error(
+    throw new OrientationExhaustedError(
       `orientSegments: local search did not converge, and reverse construction (issue #11) could ` +
         `not place segment(s) ${Array.from(fallback.stuck).join(', ')} either. There is no further fallback.`,
+      fallback.stuck,
     );
   }
   return {

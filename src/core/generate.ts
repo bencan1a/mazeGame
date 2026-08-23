@@ -31,6 +31,7 @@ import {
   orientSegments,
   assembleSegCells,
   buildBlockingGraph,
+  OrientationExhaustedError,
 } from './orient/index.js';
 import { buildAdjacencyGraph, colorSegments } from './color/index.js';
 import { validateBoard } from './validate/index.js';
@@ -162,15 +163,12 @@ export function deriveAttemptSeed(seed: Seed, attempt: number): Seed {
  * segment, which is a proof that no acyclic orientation exists for that
  * segmentation — the one case a whole-pipeline retry can plausibly fix.
  * `orientSegments` does not export a type for that specific throw, so this
- * narrows on the fixed message text it uses only for that case. Anything else
- * thrown out of the orientation stage (a malformed segment, a corrupt CSR
- * offset surfacing from deeper in `reverseConstruct` or `localSearch`) is
- * upstream corruption a retry would only hide behind repeated identical
- * throws, so it is deliberately not matched here and is left to propagate.
+ * matches `OrientationExhaustedError` and nothing else. Anything else thrown
+ * out of the orientation stage (a malformed segment, a corrupt CSR offset
+ * surfacing from deeper in `reverseConstruct` or `localSearch`) is upstream
+ * corruption a retry would only hide behind repeated identical throws, so it
+ * propagates.
  */
-function isOrientationExhausted(err: unknown): err is Error {
-  return err instanceof Error && err.message.includes('There is no further fallback.');
-}
 
 function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): AttemptOutcome {
   const root = createRng(seed);
@@ -222,7 +220,9 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
       createRng(orientSeed),
     );
   } catch (err) {
-    if (isOrientationExhausted(err)) return { ok: false, reason: `orientation: ${err.message}` };
+    if (err instanceof OrientationExhaustedError) {
+      return { ok: false, reason: `orientation: ${err.message}` };
+    }
     throw err;
   }
 

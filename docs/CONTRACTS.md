@@ -219,9 +219,8 @@ several hundred segments, negligible next to orientation's own cost.
 
 **Retry.** A generation attempt can fail as data (`ok: false` from path
 building) or as a typed throw (`MaskRepairError`, `BoardInvariantError`, or
-the specific "local search did not converge, and reverse construction ...
-There is no further fallback" throw `orientSegments` uses once every fallback
-is exhausted). All three are retried: a new internal seed is derived
+`OrientationExhaustedError`, which `orientSegments` throws once every fallback
+is exhausted). All four are retried: a new internal seed is derived
 deterministically from `(params.seed, attempt)` — attempt 0 is the seed
 itself unmodified — and the whole pipeline reruns from mask generation, up to
 `GenerateBoardOptions.maxAttempts` (default 8, `DEFAULT_MAX_ATTEMPTS`).
