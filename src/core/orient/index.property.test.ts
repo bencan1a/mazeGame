@@ -43,6 +43,7 @@ const stubFallback: ReverseConstructOrienter = (segments, _occupancy, width, hei
     // never reads segCells order); the round-trip structural check lives in
     // validateBoard.roundtrip.test.ts.
     segReversed: new Uint8Array(segmentCount),
+    segCells: segments.segCells,
     peelOrder: Uint32Array.from({ length: segmentCount }, (_, i) => i + 1),
   };
 };
