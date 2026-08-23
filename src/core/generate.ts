@@ -113,10 +113,10 @@ export function generateBoardWithDiagnostics(
 
   throw new GenerationFailedError(
     `generateBoard: exhausted ${maxAttempts} attempt(s) for seed ${params.seed} at gridSize ` +
-      `${params.gridSize}, fillFraction ${params.fillFraction} without a valid board. This can ` +
-      'be a genuine parameter-space limit rather than bad luck: very small gridSize combined ' +
-      'with very low fillFraction fails mask repair on a geometric floor most seeds cannot ' +
-      'clear. Narrowing fillFraction or raising gridSize is the likely fix, not more retries. ' +
+      `${params.gridSize}, fillFraction ${params.fillFraction} without a valid board. Retrying ` +
+      'further is unlikely to help: every stage here is deterministic in its seed, so a repeated ' +
+      'failure across attempts is a property of the parameters rather than bad luck. The per-' +
+      'attempt reasons below say which stage refused. ' +
       `Attempt failures: ${attemptFailures.join(' | ')}`,
     { params, attemptFailures },
   );
