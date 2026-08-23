@@ -9,17 +9,19 @@
  *      construction, the mandated fallback when local search's iteration box
  *      expires (R2, docs/PLAN.md).
  *
- * #11 is landing in parallel on its own branch and does not own this file, so
- * the fallback is an injected dependency (`options.fallback`) rather than an
- * import: this module is fully testable today against a stub, and wiring the
- * real implementation in later is a one-line change at the call site (see
- * `ReverseConstructOrienter` below for the exact shape #11 must match).
+ * Reverse construction is the default fallback and needs no wiring by the
+ * caller. It stays injectable through `options.fallback` so a test can
+ * substitute a stub or force the stuck path, but the default is the real one:
+ * on measured board geometry local search rarely converges, so a caller that
+ * had to remember to supply it would be a thrown error waiting to happen.
  */
 
 import type { Rng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
 import { DEFAULT_MAX_ITERATIONS, orientByLocalSearch } from './localSearch.js';
 import type { LocalSearchStats } from './localSearch.js';
+import { reverseConstruct } from './reverseConstruct.js';
+import type { ReverseConstructResult } from './reverseConstruct.js';
 
 export interface OrientationResult {
   readonly segHead: Uint32Array;
@@ -34,27 +36,6 @@ export interface OrientationResult {
   readonly segReversed: Uint8Array;
 }
 
-/**
- * The result shape reverse construction (issue #11, `reverseConstruct.ts`)
- * produces. That module, not this one, is the source of truth for this
- * shape - it is declared here only so this file can type-check the injected
- * fallback without importing across the branch boundary; keep it in sync
- * with #11's actual export rather than the other way around.
- */
-export interface ReverseConstructOk extends OrientationResult {
-  readonly ok: true;
-  /** Insertion order, reversed, gives a valid removal order by construction. */
-  readonly peelOrder: Uint32Array;
-}
-
-/** Reverse construction could not place every segment (geometry-dependent; see #11). */
-export interface ReverseConstructStuck {
-  readonly ok: false;
-  readonly stuck: Uint32Array;
-}
-
-export type ReverseConstructResult = ReverseConstructOk | ReverseConstructStuck;
-
 /** Same argument order as `orientSegments` itself, minus the options bag - reverse construction has no iteration box to configure. */
 export type ReverseConstructOrienter = (
   segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
@@ -68,15 +49,10 @@ export interface OrientSegmentsOptions {
   /** Overrides `localSearch.ts`'s `DEFAULT_MAX_ITERATIONS`. */
   readonly maxIterations?: number;
   /**
-   * Reverse construction (issue #11), injected. Required, not optional: AC #4
-   * says the fallback is automatic, and on real board geometry local search
-   * fails to converge often enough (see this issue's report) that a forgotten
-   * injection would surface as a thrown error out of the generator, not a
-   * rare edge case. A caller that genuinely wants to see local search's raw
-   * failure (tests exercising that path) can still pass a stub that itself
-   * throws or reports `{ ok: false, ... }`.
+   * Defaults to `reverseConstruct`. Override only to substitute a stub or to
+   * force the stuck path in a test - production callers should not pass this.
    */
-  readonly fallback: ReverseConstructOrienter;
+  readonly fallback?: ReverseConstructOrienter;
 }
 
 export interface OrientSegmentsResult extends OrientationResult {
@@ -99,7 +75,7 @@ export function orientSegments(
   width: number,
   height: number,
   rng: Rng,
-  options: OrientSegmentsOptions,
+  options: OrientSegmentsOptions = {},
 ): OrientSegmentsResult {
   const searched = orientByLocalSearch(segments, occupancy, width, height, rng, {
     maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -122,7 +98,7 @@ export function orientSegments(
     };
   }
 
-  const fallback = options.fallback(segments, occupancy, width, height, rng);
+  const fallback = (options.fallback ?? reverseConstruct)(segments, occupancy, width, height, rng);
   if (!fallback.ok) {
     throw new Error(
       `orientSegments: local search did not converge, and reverse construction (issue #11) could ` +
@@ -146,5 +122,11 @@ export type { HeadCandidates } from './headOptions.js';
 export { occupancyFromSegments } from './occupancy.js';
 export { tarjanSCC, cyclicNodes, countCyclicComponents } from './tarjan.js';
 export type { CsrGraph, TarjanResult } from './tarjan.js';
+export { reverseConstruct } from './reverseConstruct.js';
+export type {
+  ReverseConstructResult,
+  ReverseConstructSuccess,
+  ReverseConstructFailure,
+} from './reverseConstruct.js';
 export { buildBlockingGraph } from './blocking.js';
 export type { BlockingGraph, BlockingGraphInput } from './blocking.js';
