@@ -173,8 +173,14 @@ Checks, all of them, every time in dev and in tests:
 ### metrics (S4)
 
 ```ts
-computeMetrics(board: Board): BoardMetrics
+computeMetrics(board: Board, mask: Mask, generationMs: number): BoardMetrics
 ```
+
+Two arguments beyond the board, because neither is recoverable from one.
+`coverage` is covered cells over _inside_ cells and only `Mask` records which
+cells are inside; `generationMs` is wall clock, which `src/core/` may not read
+(ADR-0004). `generateBoardWithDiagnostics` carries the mask out on its result
+so a caller has both without replaying the mask stage.
 
 DAG depth and mean free-set size both fall out of the topological sort that
 validation already runs — compute them there rather than walking the graph
