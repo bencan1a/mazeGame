@@ -99,8 +99,9 @@ export function orientSegments(
   const fallback = (options.fallback ?? reverseConstruct)(segments, occupancy, width, height, rng);
   if (!fallback.ok) {
     throw new OrientationExhaustedError(
-      `orientSegments: local search did not converge, and reverse construction (issue #11) could ` +
-        `not place segment(s) ${Array.from(fallback.stuck).join(', ')} either. There is no further fallback.`,
+      `orientSegments: local search did not converge, and reverse construction could not place ` +
+        `segment(s) ${Array.from(fallback.stuck).join(', ')} either. Reverse construction is complete ` +
+        'over the candidate set, so no acyclic orientation of this segmentation exists.',
       fallback.stuck,
     );
   }

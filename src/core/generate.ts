@@ -166,12 +166,11 @@ export function deriveAttemptSeed(seed: Seed, attempt: number): Seed {
 }
 
 /**
- * `orientSegments` throws a plain `Error` in exactly one case: local search
- * did not converge and reverse construction also could not place every
- * segment, which is a proof that no acyclic orientation exists for that
- * segmentation — the one case a whole-pipeline retry can plausibly fix.
- * `orientSegments` does not export a type for that specific throw, so this
- * matches `OrientationExhaustedError` and nothing else. Anything else thrown
+ * `orientSegments` throws `OrientationExhaustedError` in exactly one case:
+ * local search did not converge and reverse construction also could not place
+ * every segment, which is a proof that no acyclic orientation exists for that
+ * segmentation — the one case a whole-pipeline retry can plausibly fix, since
+ * a new seed re-cuts as well as re-orients. Anything else thrown
  * out of the orientation stage (a malformed segment, a corrupt CSR offset
  * surfacing from deeper in `reverseConstruct` or `localSearch`) is upstream
  * corruption a retry would only hide behind repeated identical throws, so it

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
-import { orientSegments, reverseConstruct } from './index.js';
+import { OrientationExhaustedError, orientSegments, reverseConstruct } from './index.js';
 import type {
   ReverseConstructOrienter,
   ReverseConstructResult,
@@ -99,13 +99,20 @@ describe('orientSegments: local search does not converge inside its iteration bo
     expect(Array.from(result.segReversed)).toEqual(Array.from(expected.segReversed));
   });
 
-  it('throws, naming issue #11, when the fallback itself reports it could not place every segment', () => {
+  it('throws OrientationExhaustedError carrying the stuck ids when the fallback cannot place every segment', () => {
     const stuckResult: ReverseConstructResult = { ok: false, stuck: Uint32Array.from([2]) };
     const fallback = vi.fn<ReverseConstructOrienter>(() => stuckResult);
     const rng = createRng(NON_CONVERGING_SEED);
 
-    expect(() =>
-      orientSegments(SEGMENTS, OCCUPANCY, WIDTH, HEIGHT, rng, { maxIterations: 0, fallback }),
-    ).toThrow(/reverse construction \(issue #11\) could not place segment\(s\) 2/);
+    // The type and the payload, not the prose: generate.ts retries on this
+    // class, so a caller that matched the message would break on a reword.
+    let thrown: unknown;
+    try {
+      orientSegments(SEGMENTS, OCCUPANCY, WIDTH, HEIGHT, rng, { maxIterations: 0, fallback });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(OrientationExhaustedError);
+    expect(Array.from((thrown as OrientationExhaustedError).stuck)).toEqual([2]);
   });
 });
