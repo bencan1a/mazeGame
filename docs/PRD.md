@@ -156,15 +156,18 @@ mask → path fill → segmentation → orientation → validation → colors
 **Step 3 — Segmentation.** Cut the path into segments per `meanPieceLength` and
 `pieceLengthVariance`. `minStraightRun` constrains where cuts may land.
 
-**Step 4 — Orientation.** Each segment has exactly two legal heads (either endpoint).
+**Step 4 — Orientation.** Each segment has two legal heads (either endpoint) — except a
+one-cell segment, which has no terminal stroke and so allows all four directions.
 Choose an assignment over all _n_ segments such that the blocking digraph is acyclic.
 
 - This is **not** 2-SAT — acyclicity is not a binary clause. Use randomized local search:
   build graph → Tarjan SCC → flip a segment inside an SCC → recheck → repeat.
 - **Escape hatch if convergence is bad:** generate _backward_. Start with an empty board
   and slide segments _in_ from the edge one at a time. Reversed insertion order is a
-  guaranteed-valid removal order, so acyclicity is free by construction. Trades away some
-  packing density.
+  guaranteed-valid removal order, so acyclicity is free by construction. It trades away no
+  packing density — segmentation is fixed upstream, so both methods place identical cells —
+  but it does trade puzzle quality. See [CONTRACTS.md](./CONTRACTS.md) for the exact
+  contract, including why an orienter must report which segments it reversed.
 
 **Step 5 — Validation.** Assert acyclic, assert coverage, assert every segment reachable.
 Fail loudly in dev.
