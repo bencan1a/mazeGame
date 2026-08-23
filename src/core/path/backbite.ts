@@ -126,9 +126,9 @@ export const DEFAULT_MAX_GROWTH_MOVES_PER_CELL = 400;
  * setting, and disabling restarts entirely (stallLimit so large it never
  * fires) drops that to 74/80 — restarts fix exactly 2 of the 80 cases,
  * regardless of how generous the limit is otherwise. Restarting is real,
- * cheap insurance (a restart costs one O(pathCellCount) array reset,
- * negligible next to the move budget above) for whatever fraction of regions
- * do trap, but this codebase has not found an input where the exact limit
+ * cheap insurance (a restart clears only the live path, so it costs O(path
+ * length), well under the moves it sits between) for whatever fraction of
+ * regions do trap, but this codebase has not found an input where the exact limit
  * matters; 60x is simply a value comfortably larger than the handful of moves
  * a healthy attempt needs between growth events, chosen so restarts fire on
  * genuine stalls and not on ordinary slow patches.
@@ -203,13 +203,18 @@ export function buildBackbitePath(
   const pathCells = new Uint32Array(target);
   const pathIndex = new Int32Array(size).fill(-1);
 
-  const restart = (): void => {
-    pathIndex.fill(-1);
+  // Clears only the cells currently on the path, so a restart is O(live path
+  // length) rather than O(width * height). The distinction matters for a
+  // sparse silhouette in a large grid, which is the shape this builder exists
+  // to handle: there, the grid-wide reset can cost more than the moves it
+  // sits between.
+  const restart = (liveLength: number): void => {
+    for (let i = 0; i < liveLength; i++) pathIndex[pathCells[i] as number] = -1;
     const start = pathCellList[rng.int(target)] as number;
     pathCells[0] = start;
     pathIndex[start] = 0;
   };
-  restart();
+  restart(0);
   let length = 1;
 
   // Reused per-move scratch for the endpoint's candidate neighbours, so the
@@ -234,7 +239,7 @@ export function buildBackbitePath(
       // current endpoints and every reachable reordering of them (see file
       // header). Restarting from a new cell is cheap next to the budget above
       // and empirically resolves most such cases.
-      restart();
+      restart(length);
       length = 1;
       movesSinceGrowth = 0;
       moves++;
