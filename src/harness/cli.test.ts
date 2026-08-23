@@ -118,8 +118,6 @@ describe('main: a sweep spec it cannot use', () => {
   });
 
   it('reports a parameter put at the top level instead of under params', () => {
-    // The shape that used to run one default cell and exit 0, which reads as
-    // the swept parameter making no difference.
     const spec = join(dir, 'misplaced.json');
     writeFileSync(spec, JSON.stringify({ seeds: 2, gridSize: [12, 16] }));
     expect(main(['--sweep', spec])).toBe(1);

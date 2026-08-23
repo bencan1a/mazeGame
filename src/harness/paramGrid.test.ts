@@ -81,3 +81,19 @@ describe('cellsFromSweepSpec: specs it refuses', () => {
     expect(() => cellsFromSweepSpec(spec)).toThrow(/unknown field "girdSize"/);
   });
 });
+
+describe('cellsFromSweepSpec: seeds and seedBase', () => {
+  it.each([
+    { spec: { seeds: 0 }, match: /"seeds" is 0/ },
+    { spec: { seeds: 2.5 }, match: /"seeds" is 2.5/ },
+    { spec: { seeds: -1 }, match: /"seeds" is -1/ },
+    { spec: { seedBase: '10' }, match: /"seedBase" is "10"/ },
+    { spec: { seedBase: 1.5 }, match: /"seedBase" is 1.5/ },
+  ])('refuses $spec', ({ spec, match }) => {
+    expect(() => cellsFromSweepSpec(spec as unknown as SweepSpec)).toThrow(match);
+  });
+
+  it('accepts a seedBase of zero, which is a legal starting seed', () => {
+    expect(cellsFromSweepSpec({ seeds: 2, seedBase: 0 })[0]?.seeds).toEqual([0, 1]);
+  });
+});

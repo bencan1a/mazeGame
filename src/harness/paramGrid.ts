@@ -86,6 +86,12 @@ function validateSweepSpec(spec: SweepSpec, fieldNames: readonly (keyof CellPara
         (fieldNames.includes(key as keyof CellParams) ? ` — did you mean params.${key}?` : ''),
     );
   }
+  // seeds and seedBase reach seedsFrom as-is. A JSON string sails through
+  // `base + i` as concatenation, and a count of 0 builds a cell that runs no
+  // boards at all, which reports as a clean sweep of nothing.
+  assertSeedField(spec.seeds, 'seeds', 1);
+  assertSeedField(spec.seedBase, 'seedBase', 0);
+
   const params = spec.params;
   if (params !== undefined) {
     if (params === null || typeof params !== 'object') {
@@ -111,6 +117,15 @@ function validateSweepSpec(spec: SweepSpec, fieldNames: readonly (keyof CellPara
         }
       }
     }
+  }
+}
+
+function assertSeedField(value: unknown, name: string, minimum: number): void {
+  if (value === undefined) return;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum) {
+    throw new SweepSpecError(
+      `sweep spec "${name}" is ${JSON.stringify(value)}, expected an integer >= ${minimum}`,
+    );
   }
 }
 
