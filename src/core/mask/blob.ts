@@ -125,7 +125,7 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
  * `fullWidth`/`fullHeight` may exceed twice the half dimensions when the grid
  * size is odd; the leftover row and column are left as they came in.
  */
-function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
+export function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
   const inside = new Uint8Array(fullWidth * fullHeight);
   for (let hy = 0; hy < half.height; hy++) {
     const fy0 = hy * 2;

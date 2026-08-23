@@ -9,8 +9,9 @@
  * and part path is mixed and fails.
  */
 
-import { DIRECTIONS, NO_CELL, step, toIndex } from '../grid.js';
+import { toIndex } from '../grid.js';
 import type { Mask } from '../types.js';
+import { floodFillCount } from './floodFill.js';
 
 export interface TilingOk {
   readonly ok: true;
@@ -170,29 +171,4 @@ function countOnes(arr: Uint8Array): number {
   let n = 0;
   for (let i = 0; i < arr.length; i++) if (arr[i] === 1) n++;
   return n;
-}
-
-function floodFillCount(
-  blockFull: Uint8Array,
-  halfWidth: number,
-  halfHeight: number,
-  start: number,
-): number {
-  if (start === -1) return 0;
-
-  const seen = new Uint8Array(blockFull.length);
-  seen[start] = 1;
-  const stack = [start];
-  let count = 1;
-  while (stack.length > 0) {
-    const cur = stack.pop() as number;
-    for (const dir of DIRECTIONS) {
-      const next = step(cur, dir, halfWidth, halfHeight);
-      if (next === NO_CELL || seen[next] === 1 || blockFull[next] !== 1) continue;
-      seen[next] = 1;
-      count++;
-      stack.push(next);
-    }
-  }
-  return count;
 }
