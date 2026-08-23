@@ -173,12 +173,23 @@ Checks, all of them, every time in dev and in tests:
 ### metrics (S4)
 
 ```ts
-computeMetrics(board: Board): BoardMetrics
+computeMetrics(board: Board, context: MetricsContext): BoardMetrics
 ```
 
-DAG depth and mean free-set size both fall out of the topological sort that
-validation already runs — compute them there rather than walking the graph
-twice. See [METRICS.md](./METRICS.md).
+`MetricsContext` is `{ mask, path, generationMs }` — three things a finished
+`Board` cannot answer for. `coverage` is covered cells over _inside_ cells, and
+only `Mask` records which cells are inside. `bendRate` counts corners along the
+walk; a `Board` records each segment's own run but not where the walk continued
+between them, so measuring it per segment drops every cell at a cut and drifts
+with `meanPieceLength` on an identical path. `generationMs` is wall clock, which
+`src/core/` may not read (ADR-0004). `generateBoardWithDiagnostics` carries the
+mask and the path out on its result so a caller has all three without replaying
+a stage.
+
+The free-set statistics and DAG depth come from one greedy clear rather than one
+walk per statistic. That clear is `computeMetrics`'s own: a `Board` carries no
+record of the topological sort `validateBoard` already ran, so a caller that
+validates and then measures pays for two. See [METRICS.md](./METRICS.md).
 
 ### generateBoard (S4)
 
