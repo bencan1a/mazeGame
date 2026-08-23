@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
-import { assembleSegCells } from './assembleSegCells.js';
-import { orientSegments } from './index.js';
-import type { ReverseConstructOrienter, ReverseConstructResult } from './index.js';
+import { orientSegments, reverseConstruct } from './index.js';
+import type {
+  ReverseConstructOrienter,
+  ReverseConstructResult,
+  ReverseConstructSuccess,
+} from './index.js';
 
 /**
  * Two 2-cell segments end to end on a 4-wide, 1-tall strip: [0,1] then [2,3].
@@ -47,13 +50,12 @@ describe('orientSegments: local search converges', () => {
 
 describe('orientSegments: local search does not converge inside its iteration box', () => {
   it('calls the injected fallback and reports usedFallback: true', () => {
-    const stubReversed = Uint8Array.from([0, 1]);
-    const stubResult: ReverseConstructResult = {
+    const stubResult: ReverseConstructSuccess = {
       ok: true,
       segHead: Uint32Array.from([1, 2]),
       segDir: Uint8Array.from([1, 3]),
-      segReversed: stubReversed,
-      segCells: assembleSegCells(SEGMENTS, stubReversed),
+      segReversed: Uint8Array.from([0, 1]),
+      segCells: Uint32Array.from([0, 1, 3, 2]),
       peelOrder: Uint32Array.from([2, 1]),
     };
     const fallback = vi.fn<ReverseConstructOrienter>(() => stubResult);
@@ -73,12 +75,28 @@ describe('orientSegments: local search does not converge inside its iteration bo
     expect(Array.from(result.segReversed)).toEqual(Array.from(stubResult.segReversed));
   });
 
-  it('fallback is required by the type system (AC #4: automatic, not opt-in), not merely documented', () => {
+  it('falls back to the real reverseConstruct when the caller supplies none (#77)', () => {
     const rng = createRng(NON_CONVERGING_SEED);
-    expect(() =>
-      // @ts-expect-error omitting `fallback` must fail to compile - that is what makes it impossible to forget.
-      orientSegments(SEGMENTS, OCCUPANCY, WIDTH, HEIGHT, rng, { maxIterations: 0 }),
-    ).toThrow(); // and, since JS ignores the type error, still fails loudly at runtime too
+    const result = orientSegments(SEGMENTS, OCCUPANCY, WIDTH, HEIGHT, rng, { maxIterations: 0 });
+
+    expect(result.usedFallback).toBe(true);
+    expect(result.localSearch.converged).toBe(false);
+
+    // The default must be the real orienter, not a no-op: check the output is
+    // an orientation reverseConstruct itself would accept. A stub pointing
+    // every head at cell 0 would pass a length check but fail these.
+    const expected = reverseConstruct(
+      SEGMENTS,
+      OCCUPANCY,
+      WIDTH,
+      HEIGHT,
+      createRng(NON_CONVERGING_SEED),
+    );
+    expect(expected.ok).toBe(true);
+    if (!expected.ok) return;
+    expect(Array.from(result.segHead)).toEqual(Array.from(expected.segHead));
+    expect(Array.from(result.segDir)).toEqual(Array.from(expected.segDir));
+    expect(Array.from(result.segReversed)).toEqual(Array.from(expected.segReversed));
   });
 
   it('throws, naming issue #11, when the fallback itself reports it could not place every segment', () => {

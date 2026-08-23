@@ -1,15 +1,19 @@
 /**
  * Choose a head for every segment such that the blocking digraph is acyclic:
  * randomized local search first, reverse construction when its iteration box
- * expires. The fallback is injected rather than imported so this module can be
- * tested against a stub.
+ * expires.
+ *
+ * The fallback defaults to the real `reverseConstruct` and needs no wiring. It
+ * stays injectable so a test can substitute a stub or force the stuck path,
+ * but a caller who had to remember to supply it would be a thrown error
+ * waiting to happen: local search rarely converges on measured geometry.
  */
 
 import type { Rng } from '../rng.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
 import { DEFAULT_MAX_ITERATIONS, orientByLocalSearch } from './localSearch.js';
-import type { reverseConstruct } from './reverseConstruct.js';
 import type { LocalSearchStats } from './localSearch.js';
+import { reverseConstruct } from './reverseConstruct.js';
 
 export interface OrientationResult {
   readonly segHead: Uint32Array;
@@ -23,22 +27,17 @@ export interface OrientationResult {
   readonly segReversed: Uint8Array;
 }
 
-/** The result shape `reverseConstruct` produces. */
-export type { ReverseConstructResult } from './reverseConstruct.js';
-
-/** Structurally `reverseConstruct`, kept a type so the seam stays injected. */
+/** Structurally `reverseConstruct`, kept a type so the seam stays injectable. */
 export type ReverseConstructOrienter = typeof reverseConstruct;
 
 export interface OrientSegmentsOptions {
   /** Overrides `DEFAULT_MAX_ITERATIONS`. */
   readonly maxIterations?: number;
   /**
-   * Required, not optional: local search fails to converge often enough on
-   * real geometry that a forgotten injection would throw out of the generator
-   * rather than being a rare edge case. A caller that wants to see local
-   * search's raw failure passes a stub that reports `{ ok: false }`.
+   * Defaults to `reverseConstruct`. Override only to substitute a stub or to
+   * force the stuck path in a test - production callers should not pass this.
    */
-  readonly fallback: ReverseConstructOrienter;
+  readonly fallback?: ReverseConstructOrienter;
 }
 
 export interface OrientSegmentsResult extends OrientationResult {
@@ -57,7 +56,7 @@ export function orientSegments(
   width: number,
   height: number,
   rng: Rng,
-  options: OrientSegmentsOptions,
+  options: OrientSegmentsOptions = {},
 ): OrientSegmentsResult {
   const searched = orientByLocalSearch(segments, occupancy, width, height, rng, {
     maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -80,7 +79,7 @@ export function orientSegments(
     };
   }
 
-  const fallback = options.fallback(segments, occupancy, width, height, rng);
+  const fallback = (options.fallback ?? reverseConstruct)(segments, occupancy, width, height, rng);
   if (!fallback.ok) {
     throw new Error(
       `orientSegments: local search did not converge, and reverse construction (issue #11) could ` +
@@ -104,5 +103,11 @@ export type { HeadCandidates } from './headOptions.js';
 export { occupancyFromSegments } from './occupancy.js';
 export { tarjanSCC, cyclicNodes, countCyclicComponents } from './tarjan.js';
 export type { CsrGraph, TarjanResult } from './tarjan.js';
+export { reverseConstruct } from './reverseConstruct.js';
+export type {
+  ReverseConstructResult,
+  ReverseConstructSuccess,
+  ReverseConstructFailure,
+} from './reverseConstruct.js';
 export { buildBlockingGraph } from './blocking.js';
 export type { BlockingGraph, BlockingGraphInput } from './blocking.js';

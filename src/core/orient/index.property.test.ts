@@ -3,8 +3,8 @@
  * over a full rectangle is enough: this stage promises acyclicity given *some*
  * Hamiltonian path cut into segments, whatever produced it.
  *
- * The fallback is a stub, which keeps `orientSegments` total even where local
- * search's iteration box expires, so the postcondition can be asserted
+ * The fallback is a stub here, which keeps `orientSegments` total even where
+ * local search's iteration box expires, so the postcondition can be asserted
  * unconditionally rather than skipping those boards.
  */
 import { describe, expect, it } from 'vitest';
@@ -38,7 +38,7 @@ const stubFallback: ReverseConstructOrienter = (segments, _occupancy, width, hei
     // This test reads only the blocking digraph, which does not depend on
     // segCells order.
     segReversed: new Uint8Array(segmentCount),
-    segCells: Uint32Array.from(segments.segCells),
+    segCells: segments.segCells,
     peelOrder: Uint32Array.from({ length: segmentCount }, (_, i) => i + 1),
   };
 };
