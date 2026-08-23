@@ -45,9 +45,17 @@ export function cellsFromSingle(options: SingleCellOptions): ParamCell[] {
   return [{ cellIndex: 0, params, seeds }];
 }
 
+export class SweepSpecError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SweepSpecError';
+  }
+}
+
 export function cellsFromSweepSpec(spec: SweepSpec): ParamCell[] {
   const defaults = defaultCellParams();
   const fieldNames = Object.keys(defaults) as (keyof CellParams)[];
+  validateSweepSpec(spec, fieldNames);
   const axes: { readonly key: keyof CellParams; readonly values: readonly number[] }[] =
     fieldNames.map((key) => {
       const raw = spec.params?.[key];
@@ -58,6 +66,52 @@ export function cellsFromSweepSpec(spec: SweepSpec): ParamCell[] {
   const seeds = seedsFrom(spec.seeds ?? DEFAULT_SEEDS, spec.seedBase ?? DEFAULT_SEED_BASE);
   const combos = cartesianProduct(axes);
   return combos.map((params, cellIndex) => ({ cellIndex, params, seeds }));
+}
+
+/**
+ * A sweep spec arrives as parsed JSON, so a mistyped key is a value nobody
+ * reads rather than a type error. Left unchecked the sweep runs one default
+ * cell and reports success, which reads as "these parameters make no
+ * difference".
+ */
+function validateSweepSpec(spec: SweepSpec, fieldNames: readonly (keyof CellParams)[]): void {
+  if (spec === null || typeof spec !== 'object') {
+    throw new SweepSpecError('sweep spec must be a JSON object');
+  }
+  const known = new Set<string>([...fieldNames, 'seeds', 'seedBase', 'params']);
+  for (const key of Object.keys(spec)) {
+    if (key === 'seeds' || key === 'seedBase' || key === 'params') continue;
+    throw new SweepSpecError(
+      `sweep spec has unknown key "${key}"; expected seeds, seedBase or params` +
+        (fieldNames.includes(key as keyof CellParams) ? ` — did you mean params.${key}?` : ''),
+    );
+  }
+  const params = spec.params;
+  if (params !== undefined) {
+    if (params === null || typeof params !== 'object') {
+      throw new SweepSpecError('sweep spec "params" must be a JSON object');
+    }
+    for (const [key, raw] of Object.entries(params)) {
+      if (!known.has(key) || key === 'seeds' || key === 'seedBase' || key === 'params') {
+        throw new SweepSpecError(
+          `sweep spec params has unknown field "${key}"; expected one of ${fieldNames.join(', ')}`,
+        );
+      }
+      const values = Array.isArray(raw) ? raw : [raw];
+      if (values.length === 0) {
+        throw new SweepSpecError(
+          `sweep spec params.${key} is an empty list, which would sweep nothing at all`,
+        );
+      }
+      for (const value of values) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+          throw new SweepSpecError(
+            `sweep spec params.${key} contains ${JSON.stringify(value)}, expected a number`,
+          );
+        }
+      }
+    }
+  }
 }
 
 function cartesianProduct(

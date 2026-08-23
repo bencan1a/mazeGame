@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_GEN_PARAMS } from '../core/types.js';
-import { cellsFromSingle, cellsFromSweepSpec, defaultCellParams } from './paramGrid.js';
+import {
+  SweepSpecError,
+  cellsFromSingle,
+  cellsFromSweepSpec,
+  defaultCellParams,
+} from './paramGrid.js';
+import type { SweepSpec } from './types.js';
 
 describe('cellsFromSingle', () => {
   it('produces one cell with consecutive seeds starting at seedBase', () => {
@@ -54,5 +60,24 @@ describe('cellsFromSweepSpec', () => {
   it('defaults seeds and seedBase when omitted', () => {
     const cells = cellsFromSweepSpec({ params: { gridSize: [20] } });
     expect(cells[0]?.seeds).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+  });
+});
+
+describe('cellsFromSweepSpec: specs it refuses', () => {
+  it('refuses an empty axis rather than sweeping nothing', () => {
+    expect(() => cellsFromSweepSpec({ seeds: 2, params: { gridSize: [] } })).toThrow(
+      SweepSpecError,
+    );
+  });
+
+  it('refuses a non-numeric value', () => {
+    expect(() =>
+      cellsFromSweepSpec({ seeds: 2, params: { gridSize: ['40' as unknown as number] } }),
+    ).toThrow(/expected a number/);
+  });
+
+  it('refuses an unknown field under params', () => {
+    const spec = { params: { girdSize: 40 } } as unknown as SweepSpec;
+    expect(() => cellsFromSweepSpec(spec)).toThrow(/unknown field "girdSize"/);
   });
 });

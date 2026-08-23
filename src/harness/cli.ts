@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { aggregateCells } from './aggregate.js';
 import { HELP_TEXT, HarnessArgError, parseCliArgs } from './args.js';
-import { cellsFromSingle, cellsFromSweepSpec } from './paramGrid.js';
+import { SweepSpecError, cellsFromSingle, cellsFromSweepSpec } from './paramGrid.js';
 import {
   aggregatesToCsv,
   formatConsoleSummary,
@@ -14,8 +15,17 @@ import { runCells } from './run.js';
 import type { ParamCell, SweepSpec } from './types.js';
 
 function readSweepSpec(path: string): SweepSpec {
-  const text = readFileSync(path, 'utf8');
-  return JSON.parse(text) as SweepSpec;
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new SweepSpecError(`cannot read sweep spec "${path}"`);
+  }
+  try {
+    return JSON.parse(text) as SweepSpec;
+  } catch (err) {
+    throw new SweepSpecError(`sweep spec "${path}" is not valid JSON: ${(err as Error).message}`);
+  }
 }
 
 function buildCells(args: ReturnType<typeof parseCliArgs>['mode']): ParamCell[] {
@@ -23,9 +33,15 @@ function buildCells(args: ReturnType<typeof parseCliArgs>['mode']): ParamCell[] 
   return cellsFromSingle({ seeds: args.seeds, seedBase: args.seedBase, overrides: args.overrides });
 }
 
+/**
+ * Sibling path for the aggregate rows. The extension is looked for in the last
+ * path segment only — a dot in a directory name is not one.
+ */
 function csvOutputPath(base: string): string {
+  const cut = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
   const dot = base.lastIndexOf('.');
-  return dot === -1 ? `${base}.agg.csv` : `${base.slice(0, dot)}.agg${base.slice(dot)}`;
+  if (dot <= cut) return `${base}.agg.csv`;
+  return `${base.slice(0, dot)}.agg${base.slice(dot)}`;
 }
 
 export function main(argv: readonly string[]): number {
@@ -46,7 +62,17 @@ export function main(argv: readonly string[]): number {
     return 0;
   }
 
-  const cells = buildCells(args.mode);
+  let cells;
+  try {
+    cells = buildCells(args.mode);
+  } catch (err) {
+    if (err instanceof SweepSpecError) {
+      console.error(err.message);
+      console.error(HELP_TEXT);
+      return 1;
+    }
+    throw err;
+  }
   const runOptions = args.maxAttempts === undefined ? {} : { maxAttempts: args.maxAttempts };
   const rows = runCells(cells, runOptions);
   const aggregates = aggregateCells(cells, rows);
@@ -76,7 +102,7 @@ export function main(argv: readonly string[]): number {
 const isDirectRun =
   typeof process !== 'undefined' &&
   process.argv[1] !== undefined &&
-  import.meta.url === `file://${process.argv[1]}`;
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
   process.exitCode = main(process.argv.slice(2));

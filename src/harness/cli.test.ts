@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -101,5 +101,39 @@ describe('main', () => {
     const code = main(['--seeds', 'nope']);
     expect(code).toBe(1);
     expect(errorSpy).toHaveBeenCalled();
+  });
+});
+
+describe('main: a sweep spec it cannot use', () => {
+  it('reports a missing file rather than throwing a stack trace', () => {
+    expect(main(['--sweep', join(dir, 'absent.json')])).toBe(1);
+    expect(errorSpy.mock.calls.flat().join(' ')).toMatch(/cannot read sweep spec/);
+  });
+
+  it('reports malformed JSON with the parser complaint', () => {
+    const spec = join(dir, 'broken.json');
+    writeFileSync(spec, '{ "seeds": 2,,, }');
+    expect(main(['--sweep', spec])).toBe(1);
+    expect(errorSpy.mock.calls.flat().join(' ')).toMatch(/is not valid JSON/);
+  });
+
+  it('reports a parameter put at the top level instead of under params', () => {
+    // The shape that used to run one default cell and exit 0, which reads as
+    // the swept parameter making no difference.
+    const spec = join(dir, 'misplaced.json');
+    writeFileSync(spec, JSON.stringify({ seeds: 2, gridSize: [12, 16] }));
+    expect(main(['--sweep', spec])).toBe(1);
+    expect(errorSpy.mock.calls.flat().join(' ')).toMatch(/did you mean params.gridSize/);
+  });
+});
+
+describe('main: --csv sibling path', () => {
+  it('puts the aggregate file beside the rows when a directory name contains a dot', () => {
+    const nested = join(dir, 'v1.2');
+    mkdirSync(nested);
+    const base = join(nested, 'data');
+    expect(main(['--seeds', '2', '--grid', '12', '--csv', base])).toBe(0);
+    expect(() => readFileSync(base, 'utf8')).not.toThrow();
+    expect(() => readFileSync(`${base}.agg.csv`, 'utf8')).not.toThrow();
   });
 });

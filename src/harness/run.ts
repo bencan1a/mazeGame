@@ -10,7 +10,10 @@ export interface Clock {
   now(): number;
 }
 
-export const systemClock: Clock = { now: () => Date.now() };
+// performance.now, not Date.now: a board at a small gridSize generates inside
+// a single millisecond tick, which quantises the harness's headline metric to
+// 0 or 1.
+export const systemClock: Clock = { now: () => performance.now() };
 
 export interface RunOptions {
   readonly clock?: Clock;
