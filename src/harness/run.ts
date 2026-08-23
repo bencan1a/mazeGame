@@ -31,7 +31,7 @@ function runOne(cellIndex: number, params: GenParams, options: RunOptions): Boar
     options.maxAttempts === undefined ? {} : { maxAttempts: options.maxAttempts };
   const start = clock.now();
   try {
-    const { board, diagnostics } = generateBoardWithDiagnostics(params, generateOptions);
+    const { board, mask, diagnostics } = generateBoardWithDiagnostics(params, generateOptions);
     const generationMs = clock.now() - start;
     return {
       cellIndex,
@@ -39,7 +39,7 @@ function runOne(cellIndex: number, params: GenParams, options: RunOptions): Boar
       params,
       ok: true,
       attempts: diagnostics.attempts,
-      metrics: { ...computeMetrics(board), generationMs },
+      metrics: computeMetrics(board, mask, generationMs),
       peel: diagnostics.peel,
     };
   } catch (err) {

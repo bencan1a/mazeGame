@@ -208,8 +208,13 @@ export function formatConsoleSummary(aggregates: readonly CellAggregate[]): stri
     );
     lines.push(
       `  generationMs mean=${round(agg.generationMs.mean)} max=${round(agg.generationMs.max)}  ` +
-        `segments mean=${round(agg.segmentCount.mean)}  dagDepth mean=${round(agg.dagDepth.mean)} max=${round(agg.dagDepth.max)}  ` +
-        `meanFreeSetSize mean=${round(agg.meanFreeSetSize.mean)}  minFreeSetSize mean=${round(agg.minFreeSetSize.mean)}`,
+        `segments mean=${round(agg.segmentCount.mean)} len=${round(agg.meanSegmentLength.mean)}  ` +
+        `coverage min=${round(agg.coverage.min)}  bendRate mean=${round(agg.bendRate.mean)}`,
+    );
+    lines.push(
+      `  dagDepth mean=${round(agg.dagDepth.mean)} max=${round(agg.dagDepth.max)}  ` +
+        `meanFreeSetSize mean=${round(agg.meanFreeSetSize.mean)}  minFreeSetSize mean=${round(agg.minFreeSetSize.mean)}  ` +
+        `belowMinimum max=${round(agg.belowMinimum.max)}`,
     );
     if (agg.failureCount > 0) {
       lines.push(`  failed seeds: ${agg.failedSeeds.join(', ')}`);
