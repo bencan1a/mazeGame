@@ -234,8 +234,12 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
  * full-resolution row/column past `2 * half.width` (or `.height`) is left as
  * "outside" (the array already starts zeroed), never written "inside", so it
  * can never become a path cell that no 2x2 block covers.
+ *
+ * Exported so mask repair (#3) can re-upscale after repairing at half
+ * resolution using the exact same block mapping this generator upscales
+ * with, rather than a second implementation that could drift from it.
  */
-function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
+export function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
   const inside = new Uint8Array(fullWidth * fullHeight);
   for (let hy = 0; hy < half.height; hy++) {
     const fy0 = hy * 2;

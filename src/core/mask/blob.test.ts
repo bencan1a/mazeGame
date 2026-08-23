@@ -250,7 +250,9 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
       ),
       { numRuns: 200 },
     );
-  });
+    // 200 runs at up to gridSize 100 measures ~2.7s idle, over half of vitest's
+    // 5s default, so it reddens CI whenever a runner is loaded. Budget, not hang.
+  }, 20_000);
 
   it('leaves any leftover row/column from an odd gridSize entirely outside', () => {
     // halfResSize rounds gridSize/2 down, so an odd gridSize has exactly one
