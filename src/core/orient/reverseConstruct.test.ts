@@ -291,15 +291,18 @@ describe('assembles into a Board that validateBoard accepts', () => {
 
     // Confirm this genuinely exercises the tail-as-head case (the reviewer's
     // reported bug), not just the endpoint the input order already agreed
-    // with - otherwise this test would pass even with that bug back.
-    let tailChosenAsHead = 0;
+    // with - otherwise this test would pass even with that bug back. This
+    // has to read `segReversed`, not compare `segCells[from]` to `segHead`:
+    // for a 1-cell segment `from === to - 1`, so that comparison is true
+    // unconditionally, with no reversal involved, and this fixture's short
+    // pieces (meanPieceLength 3) are exactly the params likely to produce
+    // one. `segReversed` is true only where the far endpoint was genuinely
+    // chosen, which is what this guard exists to prove.
+    let reversedCount = 0;
     for (let id = 1; id <= segmentCount; id++) {
-      const from = segmented.segStart[id - 1] as number;
-      if ((segmented.segCells[from] as number) === (result.segHead[id - 1] as number)) {
-        tailChosenAsHead++;
-      }
+      if (result.segReversed[id - 1] === 1) reversedCount++;
     }
-    expect(tailChosenAsHead).toBeGreaterThan(0);
+    expect(reversedCount).toBeGreaterThan(0);
 
     // segReversed is the contract-mandated field (#10's fallback seam reads
     // it, not segCells); segCells is a convenience already-reversed copy.
@@ -316,7 +319,12 @@ describe('assembles into a Board that validateBoard accepts', () => {
       const isSameSlice = inputSlice.every((cell, i) => cell === correctedSlice[i]);
       // A 1-cell segment's slice is trivially its own reverse - both
       // characterisations agree, so segReversed can only be checked against
-      // the "already in the right order" reading for those.
+      // the "already in the right order" reading for those. That means this
+      // loop only exercises the else branch below (the one that actually
+      // checks agreement on a genuine reversal) if some segment is length
+      // >= 2 *and* reversed - exactly what `reversedCount` above already
+      // guarantees at least one of, so this cannot pass vacuously on a
+      // sample made entirely of 1-cell segments.
       if (inputSlice.length <= 1) {
         expect(result.segReversed[id - 1]).toBe(0);
       } else {
