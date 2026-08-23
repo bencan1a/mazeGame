@@ -18,8 +18,15 @@ const RUN = process.env.RUN_HEAVY_GENERATE_SWEEP === '1';
 const SEED_COUNT = 1000;
 
 const PIECE_REGIMES = [
-  { label: 'default', meanPieceLength: 14, pieceLengthVariance: 5 },
-  { label: 'reference-like', meanPieceLength: 5, pieceLengthVariance: 3 },
+  {
+    label: 'shipped default',
+    meanPieceLength: DEFAULT_GEN_PARAMS.meanPieceLength,
+    pieceLengthVariance: DEFAULT_GEN_PARAMS.pieceLengthVariance,
+  },
+  // A tight distribution as well as the shipped wide one: they put very
+  // different pressure on the peel, and only the wide one is exercised by the
+  // rest of the suite.
+  { label: 'tight', meanPieceLength: 5, pieceLengthVariance: 3 },
 ];
 
 describe.skipIf(!RUN)('generateBoard heavy sweep: 1000 seeds per size', () => {

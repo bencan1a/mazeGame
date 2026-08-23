@@ -1,5 +1,8 @@
 /**
- * A convergence measurement, not a correctness test.
+ * A convergence measurement, not a correctness test — and of a stage that no
+ * longer sits on the `generateBoard` path. It is the record of why: local
+ * search over a segmentation it had no hand in choosing does not converge on
+ * real geometry at any size the game targets.
  *
  * Two path sources, because they give very different answers. A boustrophedon
  * fixture is one fixed shape — only the segmentation cuts vary by seed — and
@@ -24,6 +27,11 @@ import { segmentPath } from '../segment/segmentPath.js';
 import { DEFAULT_MAX_ITERATIONS, orientByLocalSearch } from './localSearch.js';
 import { occupancyFromSegments } from './occupancy.js';
 
+// Pinned rather than taken from DEFAULT_GEN_PARAMS: segment count is what
+// drives convergence here, so a change to the shipped piece lengths would
+// silently move every number below and make this file read as a regression.
+const PIECE_LENGTHS = { meanPieceLength: 14, pieceLengthVariance: 5 };
+
 interface Sample {
   readonly converged: boolean;
   readonly iterations: number;
@@ -32,7 +40,7 @@ interface Sample {
 function measure(path: HamiltonianPath, size: number, seedCount: number): Sample[] {
   const samples: Sample[] = [];
   for (let seed = 1; seed <= seedCount; seed++) {
-    const params = { ...DEFAULT_GEN_PARAMS, gridSize: size, seed };
+    const params = { ...DEFAULT_GEN_PARAMS, ...PIECE_LENGTHS, gridSize: size, seed };
     const rng = createRng(seed);
     const segments = segmentPath(path, params, rng);
     const occupancy = occupancyFromSegments(segments, size, size);
@@ -51,7 +59,7 @@ function measureContourPerSeed(size: number, seedCount: number): Sample[] {
     const pathResult = buildContourPath(mask, rng);
     if (!pathResult.ok)
       throw new Error(`seed ${String(seed)} failed to tile: ${pathResult.reason}`);
-    const params = { ...DEFAULT_GEN_PARAMS, gridSize: size, seed };
+    const params = { ...DEFAULT_GEN_PARAMS, ...PIECE_LENGTHS, gridSize: size, seed };
     const segments = segmentPath(pathResult.path, params, rng);
     const occupancy = occupancyFromSegments(segments, size, size);
     const result = orientByLocalSearch(segments, occupancy, size, size, rng);

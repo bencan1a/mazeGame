@@ -112,8 +112,10 @@ leave nothing behind are `[lo, p]` and `[p, hi]`, so one of them is always
 long enough unless `p` sits one cell in from both ends — a three-cell run with
 the corner in the middle. `wholeRunEscape` covers that where a whole run has a
 clear ray; where it does not, the peel relaxes rather than failing.
-`PeelStats.belowMinimum` counts every piece that cost. Measured: **0 across
-537,898 segments** over 2100 boards at gridSizes 40 and 100.
+`PeelStats.belowMinimum` counts every piece that cost. Measured at the shipped
+defaults: **0 across 171,233 segments** over 700 boards at gridSizes 40 and
+100, with `wholeRunEscape` never reached on a real board. The heavy sweep
+asserts it per board across 6000 more.
 
 Everything after the acyclicity postcondition is a preference, and that is the
 trade this design makes: the failure mode moves from "no board" to "an uglier

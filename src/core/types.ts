@@ -54,8 +54,8 @@ export interface PlayParams {
 export const DEFAULT_GEN_PARAMS: GenParams = {
   gridSize: 40,
   seed: 1,
-  meanPieceLength: 14,
-  pieceLengthVariance: 5,
+  meanPieceLength: 6,
+  pieceLengthVariance: 8,
   minPieceLength: 2,
   bendProbability: 0.35,
   minStraightRun: 2,
