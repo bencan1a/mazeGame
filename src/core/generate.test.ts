@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import { assertDeterministic, checkStructure, greedyClear } from './validate/index.js';
 import * as validateModule from './validate/index.js';
 import * as pathModule from './path/index.js';
-import * as orientModule from './orient/index.js';
+import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
 import {
@@ -104,26 +104,27 @@ describe('generateBoard determinism', () => {
   });
 });
 
-describe('generateBoard: 20x20 is on the orientation slope, not clear of it', () => {
-  it('only 19 of 30 seeds succeed on their first internal attempt, and retries rescue the rest', () => {
-    let firstAttemptSuccesses = 0;
-    for (let seed = 1; seed <= 30; seed++) {
-      try {
-        generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed }), { maxAttempts: 1 });
-        firstAttemptSuccesses++;
-      } catch {
-        // expected: a first-attempt failure here is exactly what this test measures
+describe('generateBoard: the first internal attempt is enough at every size', () => {
+  it.each([
+    { gridSize: 20, seeds: 30 },
+    { gridSize: 40, seeds: 100 },
+    { gridSize: 100, seeds: 20 },
+  ])(
+    'gridSize $gridSize: $seeds consecutive seeds all succeed with no retry, at reference-like piece lengths',
+    ({ gridSize, seeds }) => {
+      const params = { meanPieceLength: 5, pieceLengthVariance: 3 };
+      let successes = 0;
+      for (let seed = 1; seed <= seeds; seed++) {
+        const result = generateBoardWithDiagnostics(paramsAt({ ...params, gridSize, seed }), {
+          maxAttempts: 1,
+        });
+        assertExternallySound(result.board);
+        successes++;
       }
-    }
-    expect(firstAttemptSuccesses).toBe(19);
-  });
-
-  it('succeeds and validates externally for every one of 30 consecutive seeds, given the default retry budget', () => {
-    for (let seed = 1; seed <= 30; seed++) {
-      const board = generateBoard(paramsAt({ gridSize: 20, seed }));
-      assertExternallySound(board);
-    }
-  });
+      expect(successes).toBe(seeds);
+    },
+    120_000,
+  );
 });
 
 describe('generateBoard: retry recovers from a mask-repair failure', () => {
@@ -225,73 +226,32 @@ describe('generateBoard: validate option', () => {
   });
 });
 
-describe('generateBoard: orientation failure classification', () => {
-  it('gridSize 30 needs more than one attempt on several seeds, and diagnostics record why', () => {
-    let sawMultiAttemptSuccess = false;
-    let sawOrientationFailureReason = false;
+describe('generateBoard: the cut-and-orient stage has no failure mode to classify', () => {
+  it('never reports an attempt failure from segmentation across 40 seeds at gridSize 30', () => {
     for (let seed = 1; seed <= 40; seed++) {
-      const params = paramsAt({ gridSize: 30, seed });
-      let result;
-      try {
-        result = generateBoardWithDiagnostics(params);
-      } catch {
-        continue;
-      }
-      if (result.diagnostics.attempts > 1) sawMultiAttemptSuccess = true;
-      if (result.diagnostics.attemptFailures.some((reason) => reason.startsWith('orientation:'))) {
-        sawOrientationFailureReason = true;
-      }
+      const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 30, seed }));
+      expect(
+        result.diagnostics.attemptFailures.filter((reason) => reason.startsWith('segment')),
+      ).toEqual([]);
       assertExternallySound(result.board);
     }
-    expect(sawMultiAttemptSuccess).toBe(true);
-    expect(sawOrientationFailureReason).toBe(true);
-    // Uninstrumented this runs in under 2s; v8 coverage pushes it well past
-    // vitest's 5s default.
+    // Uninstrumented this runs in well under a second; v8 coverage pushes it
+    // past vitest's 5s default.
   }, 30_000);
 
-  it('an orientation error other than "no further fallback" is not retried and propagates directly', () => {
-    // Only OrientationExhaustedError is a proven cycle. Anything
-    // else (a malformed segment, a corrupt CSR offset) is upstream
-    // corruption; catching it broadly would retry it 8 times and surface it
-    // as an indistinguishable GenerationFailedError instead of the real bug.
-    const spy = vi.spyOn(orientModule, 'orientSegments').mockImplementationOnce(() => {
-      throw new Error('segment 3 is not a walk of 4-neighbours (forced for this test)');
+  it('a throw out of the cut-and-orient stage propagates instead of being retried', () => {
+    // The stage models no refusal, so anything it throws is a fault. Catching
+    // it broadly would retry it 8 times and surface it as an
+    // indistinguishable GenerationFailedError instead of the real bug.
+    const spy = vi.spyOn(segmentModule, 'peelSegments').mockImplementationOnce(() => {
+      throw new Error('path cells 3 and 9 are not 4-neighbours (forced for this test)');
     });
 
     expect(() => generateBoard(paramsAt({ gridSize: 20, seed: 5 }))).toThrowError(
-      /not a walk of 4-neighbours/,
+      /not 4-neighbours/,
     );
 
     spy.mockRestore();
-  });
-});
-
-describe('generateBoard: usedFallbackOrientation', () => {
-  it('reflects a true usedFallback from orientSegments on the winning attempt', () => {
-    // A broad search (gridSize 15-28, meanPieceLength 4-20, well over a
-    // thousand seeds through the real pipeline) never found a seed where
-    // reverse construction succeeds after local search fails to converge —
-    // every real success in this file converges via local search alone. That
-    // is a fact about the current contour/orient pipeline, not something
-    // generate.ts controls, so the plumbing is exercised directly here
-    // instead of waiting for a natural seed to exist.
-    const realOrientSegments = orientModule.orientSegments;
-    const spy = vi
-      .spyOn(orientModule, 'orientSegments')
-      .mockImplementationOnce((...args: Parameters<typeof realOrientSegments>) => ({
-        ...realOrientSegments(...args),
-        usedFallback: true,
-      }));
-
-    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
-    expect(result.diagnostics.usedFallbackOrientation).toBe(true);
-
-    spy.mockRestore();
-  });
-
-  it('is false for a real success in this file, because local search converges on its own here', () => {
-    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
-    expect(result.diagnostics.usedFallbackOrientation).toBe(false);
   });
 });
 

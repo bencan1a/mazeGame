@@ -105,17 +105,17 @@ export interface Board {
   /**
    * Head cell index per segment. Length n. Indexed by (id - 1).
    *
-   * Always the *last* cell of the segment's segCells slice — an orienter that
-   * picks the other endpoint has reversed the segment and the assembler must
-   * emit its cells reversed. `checkStructure` enforces this.
+   * Always the *last* cell of the segment's segCells slice, so a segment whose
+   * head is the other endpoint is emitted with its cells reversed.
+   * `checkStructure` enforces this.
    */
   readonly segHead: Uint32Array;
   /**
    * Exit direction per segment. Length n.
    *
-   * For a segment of two cells or more this is derived from the terminal stroke
-   * rather than chosen independently: picking the head fixes it. A one-cell
-   * segment has no terminal stroke, so all four directions are legal for it.
+   * For a segment of two cells or more this is the direction of its terminal
+   * stroke rather than an independent choice: picking the head fixes it. A
+   * one-cell segment has no terminal stroke, so all four are legal for it.
    */
   readonly segDir: Uint8Array;
 
@@ -146,8 +146,6 @@ export interface BoardMetrics {
    * not bottleneck, and counting them makes this 1 on every board.
    */
   readonly minFreeSetSize: number;
-  /** Whether orientation fell back to reverse construction. */
-  readonly orientationFallback: boolean;
   /** Blocking edges. */
   readonly edgeCount: number;
   readonly generationMs: number;

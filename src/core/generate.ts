@@ -1,22 +1,18 @@
 /**
- * The single public entry point: mask -> path -> segmentation -> orientation
- * -> validation -> colors, pure in `(seed, params)`.
+ * The single public entry point: mask -> path -> cut-and-orient -> validation
+ * -> colors, pure in `(seed, params)`.
  *
- * A generation attempt can fail for reasons upstream stages already model as
- * data (`ok: false`) or as a thrown error (`MaskRepairError`, the specific "no
- * further fallback" throw `orientSegments` uses once local search and reverse
- * construction have both failed, `BoardInvariantError` from validation). All
- * four are treated as retryable: derive a new internal seed and rerun the
- * whole pipeline, deterministically, up to `maxAttempts`. Anything else
- * thrown out of the orientation stage is upstream corruption, not a proven
- * cycle, and is left to propagate rather than be retried into a
+ * Cutting and orienting are one stage, not two: `peelSegments` only ever cuts
+ * a piece it can immediately give a clear exit ray, so the blocking digraph
+ * it hands back is acyclic without any search and the stage has no failure
+ * mode of its own.
+ *
+ * What is left that can fail is `MaskRepairError`, a path stage that declines
+ * (`ok: false`), and `BoardInvariantError` from validation. All three are
+ * retried: derive a new internal seed and rerun the whole pipeline,
+ * deterministically, up to `maxAttempts`. Anything else thrown is a fault
+ * rather than a refusal, and propagates rather than being retried into a
  * `GenerationFailedError` indistinguishable from an honest one.
- *
- * A whole-pipeline retry is the only lever available even for a stuck
- * orientation, where retrying orientation alone provably cannot help: a
- * peeled orientation search is complete over its candidate set, so a "stuck"
- * result means no acyclic orientation exists for that exact segmentation, and
- * only a new segmentation (which a new seed produces) can change that.
  */
 
 import { createRng } from './rng.js';
@@ -25,14 +21,9 @@ import { BoardInvariantError } from './types.js';
 import { generateBlob, repairMask, MaskRepairError } from './mask/index.js';
 import type { Mask } from './types.js';
 import { buildContourPath, buildBackbitePath } from './path/index.js';
-import { segmentPath } from './segment/index.js';
-import {
-  occupancyFromSegments,
-  orientSegments,
-  assembleSegCells,
-  buildBlockingGraph,
-  OrientationExhaustedError,
-} from './orient/index.js';
+import { peelSegments } from './segment/index.js';
+import type { PeelStats } from './segment/index.js';
+import { occupancyFromSegments, buildBlockingGraph } from './orient/index.js';
 import { buildAdjacencyGraph, colorSegments } from './color/index.js';
 import { validateBoard } from './validate/index.js';
 
@@ -48,31 +39,17 @@ export class GenerationFailedError extends Error {
 }
 
 /**
- * Retries clear the vast majority of seeds at small grid sizes (20x20 and
- * below, and even there imperfectly — see the 20x20 test in generate.test.ts
- * for the measured first-attempt rate). At the sizes generation actually
- * targets they do far less: at the default gridSize 40, 8 retries clear
- * roughly 1 seed in 40; at 100x100, effectively none. That failure is not the
- * mask-repair floor — it is orientation finding no acyclic assignment for the
- * segmentation a given seed happens to produce, and no fixed retry budget
- * reliably clears it, because every stage here is deterministic in its seed:
- * a segmentation with no acyclic orientation stays that way no matter how
- * many more attempts follow.
+ * The retry budget covers the mask and path stages, the only two that decline,
+ * and they decline independently from one internal seed to the next.
  */
 export const DEFAULT_MAX_ATTEMPTS = 8;
 
 export interface GenerateBoardOptions {
   /**
-   * Run `validateBoard` after assembly. Defaults to true. `validateBoard`
-   * itself measures in the low single-digit milliseconds on a same-size board
-   * with several hundred segments — negligible next to orientation, which
-   * dominates end-to-end cost. That figure comes from a synthetic full board
-   * of that size, not from a completed 100x100 `generateBoard` call: at that
-   * size orientation itself rarely succeeds today, so validation is rarely
-   * reached in practice, and its cost there is an extrapolation, not a
-   * measurement of this call site. Either way there is no performance case
-   * for skipping it in production; an explicit `false` is how a caller opts
-   * out, rather than `src/core/` branching on an environment.
+   * Run `validateBoard` after assembly. Defaults to true. There is no
+   * performance case for skipping it in production; an explicit `false` is
+   * how a caller opts out, rather than `src/core/` branching on an
+   * environment.
    */
   readonly validate?: boolean;
   /** Overrides `DEFAULT_MAX_ATTEMPTS`. */
@@ -84,8 +61,8 @@ export interface GenerateBoardDiagnostics {
   readonly attempts: number;
   /** One message per failed attempt, in order, for a caller that wants to know why retries happened. */
   readonly attemptFailures: readonly string[];
-  /** Whether the successful attempt's orientation fell back to reverse construction. */
-  readonly usedFallbackOrientation: boolean;
+  /** How much piece quality the cut-and-orient peel gave up on the winning attempt. */
+  readonly peel: PeelStats;
 }
 
 export interface GenerateBoardResult {
@@ -94,7 +71,7 @@ export interface GenerateBoardResult {
 }
 
 type AttemptOutcome =
-  | { readonly ok: true; readonly board: Board; readonly usedFallback: boolean }
+  | { readonly ok: true; readonly board: Board; readonly peel: PeelStats }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -128,7 +105,7 @@ export function generateBoardWithDiagnostics(
         diagnostics: {
           attempts: attempt + 1,
           attemptFailures: [...attemptFailures],
-          usedFallbackOrientation: outcome.usedFallback,
+          peel: outcome.peel,
         },
       };
     }
@@ -165,25 +142,12 @@ export function deriveAttemptSeed(seed: Seed, attempt: number): Seed {
   return createRng(mixed).int(0x100000000);
 }
 
-/**
- * `orientSegments` throws `OrientationExhaustedError` in exactly one case:
- * local search did not converge and reverse construction also could not place
- * every segment, which is a proof that no acyclic orientation exists for that
- * segmentation — the one case a whole-pipeline retry can plausibly fix, since
- * a new seed re-cuts as well as re-orients. Anything else thrown
- * out of the orientation stage (a malformed segment, a corrupt CSR offset
- * surfacing from deeper in `reverseConstruct` or `localSearch`) is upstream
- * corruption a retry would only hide behind repeated identical throws, so it
- * propagates.
- */
-
 function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): AttemptOutcome {
   const root = createRng(seed);
   const blobSeed = root.int(0x100000000);
   const contourSeed = root.int(0x100000000);
   const backbiteSeed = root.int(0x100000000);
   const segmentSeed = root.int(0x100000000);
-  const orientSeed = root.int(0x100000000);
 
   let mask: Mask;
   try {
@@ -213,34 +177,23 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
   }
   const path = pathResult.path;
 
-  const segments = segmentPath(path, params, createRng(segmentSeed));
+  const segments = peelSegments(
+    path,
+    params,
+    createRng(segmentSeed),
+    params.gridSize,
+    params.gridSize,
+  );
   const occupancy = occupancyFromSegments(segments, params.gridSize, params.gridSize);
   const segmentCount = segments.segStart.length - 1;
 
-  let orientation;
-  try {
-    orientation = orientSegments(
-      segments,
-      occupancy,
-      params.gridSize,
-      params.gridSize,
-      createRng(orientSeed),
-    );
-  } catch (err) {
-    if (err instanceof OrientationExhaustedError) {
-      return { ok: false, reason: `orientation: ${err.message}` };
-    }
-    throw err;
-  }
-
-  const segCells = assembleSegCells(segments, orientation.segReversed);
   const { edgeStart, edgeTarget } = buildBlockingGraph({
     width: params.gridSize,
     height: params.gridSize,
     segmentCount,
     occupancy,
-    segHead: orientation.segHead,
-    segDir: orientation.segDir,
+    segHead: segments.segHead,
+    segDir: segments.segDir,
   });
   const adjacency = buildAdjacencyGraph(occupancy, params.gridSize, params.gridSize, segmentCount);
   const segColor = colorSegments(adjacency, segmentCount);
@@ -252,9 +205,9 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     segmentCount,
     occupancy,
     segStart: segments.segStart,
-    segCells,
-    segHead: orientation.segHead,
-    segDir: orientation.segDir,
+    segCells: segments.segCells,
+    segHead: segments.segHead,
+    segDir: segments.segDir,
     edgeStart,
     edgeTarget,
     segColor,
@@ -270,5 +223,5 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     }
   }
 
-  return { ok: true, board, usedFallback: orientation.usedFallback };
+  return { ok: true, board, peel: segments.stats };
 }
