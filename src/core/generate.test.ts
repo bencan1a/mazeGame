@@ -130,9 +130,8 @@ describe('generateBoard: the first internal attempt is enough at every size', ()
           maxAttempts: 1,
         });
         assertExternallySound(result.board);
-        // The floor is a target the peel maintains rather than a guarantee, so
-        // it is checked against what the peel says it achieved, not asserted
-        // blind. At the default floor of 2 it has never had to give any up.
+        // The floor is a target rather than a guarantee, so it is checked
+        // against what the peel says it achieved rather than asserted blind.
         expect(result.diagnostics.peel.belowMinimum).toBe(0);
         expect(shortestSegment(result.board)).toBeGreaterThanOrEqual(
           result.board.params.minPieceLength,

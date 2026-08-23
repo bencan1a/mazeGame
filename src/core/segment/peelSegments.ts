@@ -21,17 +21,11 @@
  * enumerates `c` twice, as the north-exposed cell of its column and the
  * west-exposed cell of its row.
  *
- * `minPieceLength` is a target the peel maintains, not a second guarantee.
- * Writing `c`'s run as `[lo, hi]` and its position as `p`, the two moves that
- * leave no remnant behind are `[lo, p]` and `[p, hi]`, so both fall short of
- * the floor only when the run holds fewer than `2 * minPieceLength - 1` cells
- * with `p` away from both ends. At the default floor of 2 that is a three-cell
- * run with `c` in the middle, plus the one-cell run where neither move exists;
- * at larger floors it is a widening family of runs. `wholeRunEscape` covers
- * what it can by committing a whole run against an exactly-checked ray, and
- * where even that fails the peel relaxes rather than failing.
- * `PeelStats.belowMinimum` counts every piece that cost, and is what a caller
- * should read rather than assuming the floor held.
+ * `minPieceLength` is a target the peel maintains, not a second guarantee: a
+ * short enough run leaves no move that both clears the floor and keeps what it
+ * leaves behind above it. `wholeRunEscape` covers what it can, and where even
+ * that fails the peel relaxes rather than failing. Read
+ * `PeelStats.belowMinimum` rather than assuming the floor held.
  *
  * What can degrade is piece quality, not feasibility: when the free set
  * fragments, the lengths on offer shrink. `PeelStats` reports how often that
@@ -353,7 +347,7 @@ export function peelSegments(
     return false;
   }
 
-  /** Whether the ray from `cell` meets no free cell outside `[from, to]`. */
+  /** Whether the ray from `cell` meets no free cell outside path positions `[from, to]`. */
   function rayIsClear(cell: number, dir: Direction, from: number, to: number): boolean {
     let next = step(cell, dir, width, height);
     while (next !== NO_CELL) {
@@ -366,8 +360,8 @@ export function peelSegments(
 
   /**
    * How long to make a piece with `free` cells available that wants `target`.
-   * A remainder too short to become a piece of its own is absorbed rather
-   * than left behind to force a stub later.
+   * Overshoots `target` where stopping at it would leave a remainder under
+   * `absorbBelow`.
    */
   function pieceLengthFor(free: number, target: number): number {
     const remainder = free - target;
@@ -531,10 +525,10 @@ function straightRuns(stepDir: Uint8Array): StraightRuns {
 
 /**
  * The free path cells, indexed so that the extreme free cell of any row or
- * column is O(1) amortised to find.
+ * column is cheap to find.
  *
- * Each of the four scan pointers only ever moves one way — cells are removed
- * and never restored — so the whole peel pays each pointer's travel once.
+ * Each of the four scan pointers resumes where it stopped and only ever moves
+ * one way, which is sound only because cells are removed and never restored.
  */
 class BoardState {
   readonly colAlive: Int32Array;

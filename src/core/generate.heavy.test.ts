@@ -1,7 +1,6 @@
 /**
  * The literal 1000-seeds-per-size sweep. Not part of the default suite: at
- * 100x100 a board costs around 150ms, so 1000 of them is minutes rather than
- * seconds. Opt in with:
+ * 100x100 a thousand boards is minutes rather than seconds. Opt in with:
  *
  *   RUN_HEAVY_GENERATE_SWEEP=1 npx vitest run src/core/generate.heavy.test.ts
  *
