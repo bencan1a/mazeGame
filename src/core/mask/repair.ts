@@ -1,8 +1,7 @@
 /**
- * Mask repair (PRD §4.2 step 1.2-1.5, issue #3): largest component, then
- * morphological open, then largest component again, then hole fill.
- * Checkerboard parity absorption (step 1.6, `unvisited`) is separate work
- * (#4); this module always returns `unvisited` all-zero.
+ * Mask repair (PRD §4.2 steps 1.2-1.6): largest component, then morphological
+ * open, then largest component again, then hole fill, then checkerboard
+ * parity absorption (`absorbParity`, issue #4) to set `unvisited`.
  *
  * Repairs at half resolution, then upscales with `upscale2x`, rather than
  * repairing the already-upscaled full-resolution grid — see `blob.ts`
@@ -22,8 +21,10 @@ import { toIndex } from '../grid.js';
 import type { Mask } from '../types.js';
 import { type Blob, upscale2x } from './blob.js';
 import { largestComponent } from './components.js';
+import { MaskRepairError } from './errors.js';
 import { fillHoles } from './holes.js';
 import { morphologicalOpen } from './morphology.js';
+import { absorbParity } from './parity.js';
 
 export interface RepairOptions {
   /**
@@ -43,24 +44,16 @@ export interface RepairOptions {
  */
 const DEFAULT_HOLE_AREA_THRESHOLD = 4;
 
-/** Thrown when a raw blob cannot be repaired into a usable `Mask`. */
-export class MaskRepairError extends Error {
-  constructor(
-    message: string,
-    readonly detail?: unknown,
-  ) {
-    super(message);
-    this.name = 'MaskRepairError';
-  }
-}
-
 /**
  * Runs the largest-component / morphological-open / largest-component /
  * hole-fill pipeline over a raw `Blob` and returns a `Mask`.
  *
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
- * 2-cell-thick interior for the open step to preserve. `unvisited` is always
- * all-zero: parity absorption is #4.
+ * 2-cell-thick interior for the open step to preserve. It can also throw
+ * `MaskRepairError` from `absorbParity`, on a checkerboard imbalance too
+ * large to absorb into `unvisited` — see that module; on this generator's
+ * own output it measures as never happening (parity.test.ts's guard test),
+ * since every step above stays 2x2-block-aligned.
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;
@@ -79,13 +72,13 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   }
 
   const full = upscale2x(half, blob.width, blob.height);
-  return {
+  return absorbParity({
     width: full.width,
     height: full.height,
     inside: full.inside,
     unvisited: new Uint8Array(full.inside.length),
     pathCellCount: countInside(full.inside),
-  };
+  });
 }
 
 /**
