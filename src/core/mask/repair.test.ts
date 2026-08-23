@@ -15,7 +15,7 @@ const fillFractionArb = fc.double({ min: 0.05, max: 0.85, noNaN: true });
 // stay comfortably under vitest's default per-test timeout even under
 // coverage instrumentation (see issue #3 review), while still exercising a
 // spread of grid sizes and fill fractions.
-const NUM_RUNS = 100;
+const NUM_RUNS = 80;
 
 /**
  * A blob with no 2-cell-thick interior for anything to survive the open step
