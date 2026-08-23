@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { countCyclicComponents, cyclicNodes, tarjanSCC } from './tarjan.js';
+import { countCyclicComponents, createTarjanScratch, cyclicNodes, tarjanSCC } from './tarjan.js';
 import type { CsrGraph } from './tarjan.js';
 
 /** Build a CsrGraph from an adjacency list, edges in the given per-node order. */
@@ -192,5 +192,137 @@ describe('property: condensation respects edge direction', () => {
         }
       }),
     );
+  });
+});
+
+describe('property: matches a brute-force reachability ground truth', () => {
+  // The reverse-topological-order property above only inspects edges where
+  // comp[u] !== comp[v] - the classic Tarjan bug (over-merging two distinct
+  // SCCs into one) never produces such an edge to inspect, so that property
+  // cannot catch it: the size-sum still equals n, and it would pass silently.
+  // Mutual reachability, computed independently by brute-force transitive
+  // closure, is the actual definition of "same SCC" and catches over- and
+  // under-merging both. Cheap enough to brute-force up to ~12 nodes.
+  const graphArb = fc.integer({ min: 1, max: 12 }).chain((nodeCount) =>
+    fc.record({
+      nodeCount: fc.constant(nodeCount),
+      edges: fc.array(
+        fc.tuple(
+          fc.integer({ min: 0, max: nodeCount - 1 }),
+          fc.integer({ min: 0, max: nodeCount - 1 }),
+        ),
+        { maxLength: nodeCount * 4 },
+      ),
+    }),
+  );
+
+  function reachabilityClosure(nodeCount: number, perNode: readonly number[][]): boolean[][] {
+    const reach: boolean[][] = Array.from({ length: nodeCount }, () =>
+      new Array<boolean>(nodeCount).fill(false),
+    );
+    for (let v = 0; v < nodeCount; v++) reach[v]![v] = true;
+    for (let u = 0; u < nodeCount; u++) {
+      for (const v of perNode[u] ?? []) reach[u]![v] = true;
+    }
+    for (let k = 0; k < nodeCount; k++) {
+      for (let i = 0; i < nodeCount; i++) {
+        if (!reach[i]![k]) continue;
+        for (let j = 0; j < nodeCount; j++) {
+          if (reach[k]![j]) reach[i]![j] = true;
+        }
+      }
+    }
+    return reach;
+  }
+
+  it('comp[u] === comp[v] iff u and v are mutually reachable', () => {
+    fc.assert(
+      fc.property(graphArb, ({ nodeCount, edges }) => {
+        const perNode: number[][] = Array.from({ length: nodeCount }, () => []);
+        for (const [u, v] of edges) (perNode[u] as number[]).push(v);
+        const graph = graphOf(nodeCount, perNode);
+        const result = tarjanSCC(graph);
+        const reach = reachabilityClosure(nodeCount, perNode);
+
+        for (let u = 0; u < nodeCount; u++) {
+          for (let v = 0; v < nodeCount; v++) {
+            const sameComponent = result.comp[u] === result.comp[v];
+            const mutuallyReachable =
+              (reach[u] as boolean[])[v] === true && (reach[v] as boolean[])[u] === true;
+            expect(sameComponent).toBe(mutuallyReachable);
+          }
+        }
+      }),
+    );
+  });
+});
+
+describe('TarjanScratch: reusing scratch across calls gives the same answer as fresh allocation', () => {
+  it('over a sequence of unrelated graphs of the same nodeCount', () => {
+    const nodeCount = 8;
+    const graphs: CsrGraph[] = [
+      graphOf(nodeCount, [[1], [2], [0], [4], [5], [3], [], []]), // one 3-cycle, one 3-cycle, two isolated
+      graphOf(nodeCount, [[1, 2], [3], [3], [], [5], [6], [7], [4]]), // a DAG feeding a 4-cycle
+      graphOf(nodeCount, [[], [], [], [], [], [], [], []]), // edgeless
+    ];
+
+    const scratch = createTarjanScratch(nodeCount);
+    for (const graph of graphs) {
+      const fresh = tarjanSCC(graph);
+      const reused = tarjanSCC(graph, scratch);
+      expect(Array.from(reused.comp)).toEqual(Array.from(fresh.comp));
+      expect(reused.componentCount).toBe(fresh.componentCount);
+      expect(Array.from(reused.componentSize)).toEqual(Array.from(fresh.componentSize));
+    }
+  });
+
+  it('throws if the scratch was sized for a different nodeCount', () => {
+    const scratch = createTarjanScratch(5);
+    const graph = graphOf(6, [[1], [2], [3], [4], [5], []]);
+    expect(() => tarjanSCC(graph, scratch)).toThrow(/sized for 5 nodes, graph has 6/);
+  });
+});
+
+describe('CsrGraph with edgeCount (slack): matches the equivalent tight CSR', () => {
+  it('a graph with reserved-but-unused capacity per row yields identical SCCs', () => {
+    // Same 3-cycle-plus-isolated-nodes graph as the tight-CSR case above, but
+    // every row is given extra reserved slots (garbage past edgeCount) that
+    // must be ignored.
+    const nodeCount = 5;
+    const edgeStart = Uint32Array.from([0, 4, 8, 12, 16, 20]); // capacity 4 per row
+    const edgeCount = Uint32Array.from([1, 1, 1, 0, 0]); // 0 -> 1 -> 2 -> 0, 3 and 4 isolated
+    const edgeTarget = new Uint32Array(20).fill(0xdeadbeef & 0xffff); // garbage in the slack
+    edgeTarget[0] = 1; // row 0's one real edge
+    edgeTarget[4] = 2; // row 1's one real edge
+    edgeTarget[8] = 0; // row 2's one real edge
+    const slackGraph: CsrGraph = { nodeCount, edgeStart, edgeTarget, edgeCount };
+
+    const tightGraph = graphOf(nodeCount, [[1], [2], [0], [], []]);
+
+    const slackResult = tarjanSCC(slackGraph);
+    const tightResult = tarjanSCC(tightGraph);
+    expect(Array.from(slackResult.comp)).toEqual(Array.from(tightResult.comp));
+    expect(slackResult.componentCount).toBe(tightResult.componentCount);
+    expect(Array.from(slackResult.componentSize)).toEqual(Array.from(tightResult.componentSize));
+
+    expect(Array.from(cyclicNodes(slackGraph, slackResult))).toEqual([1, 1, 1, 0, 0]);
+  });
+});
+
+describe('cyclicNodes options', () => {
+  it('skipSelfLoopScan omits the self-loop check (only safe when the caller knows there are none)', () => {
+    const graph = graphOf(3, [[0], [], []]); // node 0 has a self-loop
+    const result = tarjanSCC(graph);
+    expect(Array.from(cyclicNodes(graph, result))).toEqual([1, 0, 0]);
+    expect(Array.from(cyclicNodes(graph, result, { skipSelfLoopScan: true }))).toEqual([0, 0, 0]);
+  });
+
+  it('out reuses the supplied buffer instead of allocating', () => {
+    const graph = graphOf(2, [[1], [0]]);
+    const result = tarjanSCC(graph);
+    const buffer = new Uint8Array(2);
+    const flags = cyclicNodes(graph, result, { out: buffer });
+    expect(flags).toBe(buffer);
+    expect(Array.from(buffer)).toEqual([1, 1]);
   });
 });

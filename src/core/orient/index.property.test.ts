@@ -59,6 +59,7 @@ describe('orientSegments property: the resulting blocking digraph is always acyc
   it('holds over 500 boards built from makePath, with or without the fallback firing', () => {
     let sampleCount = 0;
     let fallbackCount = 0;
+    let localSearchCount = 0;
     fc.assert(
       fc.property(
         boardArb,
@@ -83,6 +84,7 @@ describe('orientSegments property: the resulting blocking digraph is always acyc
             fallback: stubFallback,
           });
           if (result.usedFallback) fallbackCount++;
+          else localSearchCount++;
 
           const graph = buildBlockingGraph({
             width: size,
@@ -102,10 +104,15 @@ describe('orientSegments property: the resulting blocking digraph is always acyc
       { numRuns: 500 },
     );
     expect(sampleCount).toBe(500);
-    // Not an assertion - a console note for the tuning phase (R2, docs/METRICS.md):
-    // how often local search itself needed the fallback in this sample.
+    // Most of the 500 assertions above must come from local search's own
+    // output, not the stub fallback (which is trivially acyclic by
+    // construction and proves nothing about the search). Without this floor,
+    // a change that made local search fail on every board would leave this
+    // test green while testing only the stub.
+    expect(localSearchCount).toBeGreaterThan(400);
     console.info(
-      `orientSegments fallback fired ${String(fallbackCount)}/${String(sampleCount)} times`,
+      `orientSegments fallback fired ${String(fallbackCount)}/${String(sampleCount)} times ` +
+        `(${String(localSearchCount)} verified local search's own output)`,
     );
   }, 60_000); // 500 boards, some hitting the full 2000-iteration box; margin for a loaded machine under coverage
 });

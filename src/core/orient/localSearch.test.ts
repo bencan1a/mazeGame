@@ -101,5 +101,9 @@ describe('orientByLocalSearch: reported stats are internally consistent', () => 
     const result = orientByLocalSearch(segments, occupancy, size, size, rng, { maxIterations: 0 });
     expect(result.iterations).toBe(0);
     expect(result.flips).toBe(0);
+    // "unless already acyclic": with zero flips, converged can only be true
+    // if the very first random orientation happened to have no cyclic
+    // component to begin with.
+    expect(result.converged).toBe(result.initialSccCount === 0);
   });
 });

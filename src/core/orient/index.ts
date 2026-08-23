@@ -34,14 +34,18 @@ export interface OrientationResult {
   readonly segReversed: Uint8Array;
 }
 
-/** Reverse construction succeeded: every segment got a head. */
+/**
+ * The result shape reverse construction (issue #11, `reverseConstruct.ts`)
+ * produces. That module, not this one, is the source of truth for this
+ * shape - it is declared here only so this file can type-check the injected
+ * fallback without importing across the branch boundary; keep it in sync
+ * with #11's actual export rather than the other way around.
+ */
 export interface ReverseConstructOk extends OrientationResult {
   readonly ok: true;
-  /** The order segments were slid in from the edge, reversed by construction gives a valid removal order. */
+  /** Insertion order, reversed, gives a valid removal order by construction. */
   readonly peelOrder: Uint32Array;
 }
-// `ReverseConstructOk`'s `segReversed` comes from `OrientationResult` above,
-// so both orienters report it under the same name and shape.
 
 /** Reverse construction could not place every segment (geometry-dependent; see #11). */
 export interface ReverseConstructStuck {
@@ -51,11 +55,7 @@ export interface ReverseConstructStuck {
 
 export type ReverseConstructResult = ReverseConstructOk | ReverseConstructStuck;
 
-/**
- * The shape issue #11's `reverseConstruct` exports (`src/core/orient/reverseConstruct.ts`,
- * not on this branch). Same argument order as `orientSegments` itself, minus
- * the options bag - reverse construction has no iteration box to configure.
- */
+/** Same argument order as `orientSegments` itself, minus the options bag - reverse construction has no iteration box to configure. */
 export type ReverseConstructOrienter = (
   segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
   occupancy: Uint16Array,
@@ -68,12 +68,15 @@ export interface OrientSegmentsOptions {
   /** Overrides `localSearch.ts`'s `DEFAULT_MAX_ITERATIONS`. */
   readonly maxIterations?: number;
   /**
-   * Reverse construction, injected. Required for a board that local search
-   * might fail to converge on; omitting it is only safe when the caller is
-   * prepared for `orientSegments` to throw on non-convergence (tests, or a
-   * caller that wants to observe the failure itself).
+   * Reverse construction (issue #11), injected. Required, not optional: AC #4
+   * says the fallback is automatic, and on real board geometry local search
+   * fails to converge often enough (see this issue's report) that a forgotten
+   * injection would surface as a thrown error out of the generator, not a
+   * rare edge case. A caller that genuinely wants to see local search's raw
+   * failure (tests exercising that path) can still pass a stub that itself
+   * throws or reports `{ ok: false, ... }`.
    */
-  readonly fallback?: ReverseConstructOrienter;
+  readonly fallback: ReverseConstructOrienter;
 }
 
 export interface OrientSegmentsResult extends OrientationResult {
@@ -96,7 +99,7 @@ export function orientSegments(
   width: number,
   height: number,
   rng: Rng,
-  options: OrientSegmentsOptions = {},
+  options: OrientSegmentsOptions,
 ): OrientSegmentsResult {
   const searched = orientByLocalSearch(segments, occupancy, width, height, rng, {
     maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -117,14 +120,6 @@ export function orientSegments(
       usedFallback: false,
       localSearch,
     };
-  }
-
-  if (options.fallback === undefined) {
-    throw new Error(
-      `orientSegments: local search did not reach an acyclic assignment within ` +
-        `${String(searched.iterations)} iterations, and no fallback orienter was supplied. ` +
-        'Reverse construction (issue #11) is the designated fallback - pass it as options.fallback.',
-    );
   }
 
   const fallback = options.fallback(segments, occupancy, width, height, rng);

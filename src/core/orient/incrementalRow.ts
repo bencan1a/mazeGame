@@ -1,27 +1,26 @@
 /**
  * Recompute exactly one segment's outgoing blocking row.
  *
- * `occupancy` - which cells belong to which segment - never changes when a
- * segment moves between its two legal heads; only where its ray starts and
- * which way it points does. So flipping segment `id` can only change `id`'s
- * own row: every other segment's own head/dir and the shared occupancy are
- * unchanged, so no other ray crosses a different set of cells than before.
- * That is the whole justification for recomputing one row per flip instead
- * of calling `buildBlockingGraph` (this issue's report has the measurement:
- * ~1.3ms per full rebuild at ~700 segments on a 100x100 board, dominated by
- * exactly the n-1 rows that a flip cannot have changed).
+ * Occupancy (which cells belong to which segment) never changes when a
+ * segment flips between its two legal heads - only where its own ray starts
+ * and which way it points does - so flipping segment `id` can only change
+ * `id`'s own row. That is the whole justification for recomputing one row
+ * instead of calling `buildBlockingGraph` for every flip.
  *
- * This has to reproduce `buildBlockingGraph`'s per-segment loop body exactly
- * - own cells never block, a ray crossing another segment twice still yields
- * one edge, output sorted - because a silent divergence here is a board that
- * looks acyclic to the search but isn't really (docs/CONTRACTS.md "blocking
- * digraph"). `incrementalRow.test.ts` is the actual guarantee: it diffs this
- * against a from-scratch `buildBlockingGraph` call after every step of long
- * random flip sequences, not just this comment.
+ * Must reproduce that function's per-segment loop body exactly (own cells
+ * never block, a doubly-crossed ray is one edge, output sorted); a silent
+ * divergence here is a board that looks acyclic but isn't.
+ * `incrementalRow.test.ts` is the actual guarantee, diffing this against a
+ * from-scratch rebuild after every step of long random flip sequences.
  */
 
 import { NO_CELL, step } from '../grid.js';
 import type { Direction } from '../types.js';
+
+/** `blocking.ts` has its own copy of this same one-line check, for the same reason: see the throw below. */
+function isDirection(dir: number): dir is Direction {
+  return dir === 0 || dir === 1 || dir === 2 || dir === 3;
+}
 
 export function recomputeRow(
   id: number,
@@ -31,6 +30,15 @@ export function recomputeRow(
   width: number,
   height: number,
 ): Uint32Array {
+  // buildBlockingGraph throws here rather than silently walking a ray from a
+  // corrupt direction (segDir is a Uint8Array; a stray write arrives as some
+  // byte outside 0..3, not a type error) - matching that means a bug
+  // upstream surfaces as a loud, attributable error in either function, not
+  // as an empty row in this one and a thrown one in that one.
+  if (!isDirection(dir)) {
+    throw new Error(`segment ${id} has direction ${String(dir)}, expected 0..3`);
+  }
+
   const seen = new Set<number>();
   const blockers: number[] = [];
   let cell = step(head, dir, width, height);

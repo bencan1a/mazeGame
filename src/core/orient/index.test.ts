@@ -71,11 +71,12 @@ describe('orientSegments: local search does not converge inside its iteration bo
     expect(Array.from(result.segReversed)).toEqual(Array.from(stubResult.segReversed));
   });
 
-  it('throws, naming issue #11, when no fallback is supplied', () => {
+  it('fallback is required by the type system (AC #4: automatic, not opt-in), not merely documented', () => {
     const rng = createRng(NON_CONVERGING_SEED);
     expect(() =>
+      // @ts-expect-error omitting `fallback` must fail to compile - that is what makes it impossible to forget.
       orientSegments(SEGMENTS, OCCUPANCY, WIDTH, HEIGHT, rng, { maxIterations: 0 }),
-    ).toThrow(/did not reach an acyclic assignment.*#11/s);
+    ).toThrow(); // and, since JS ignores the type error, still fails loudly at runtime too
   });
 
   it('throws, naming issue #11, when the fallback itself reports it could not place every segment', () => {

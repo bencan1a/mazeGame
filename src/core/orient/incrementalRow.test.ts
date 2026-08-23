@@ -113,3 +113,12 @@ describe('recomputeRow: the ground-truth equivalence this optimisation depends o
     );
   }, 30_000);
 });
+
+describe('recomputeRow: the step() NaN hazard (matches blocking.ts, issue #38)', () => {
+  it('throws instead of silently returning an empty row when dir is out of range', () => {
+    const occupancy = Uint16Array.from([1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(() => recomputeRow(1, 0, 255 as unknown as Direction, occupancy, 3, 3)).toThrow(
+      /segment 1 has direction 255, expected 0..3/,
+    );
+  });
+});

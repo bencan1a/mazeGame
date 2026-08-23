@@ -13,6 +13,13 @@
  * nothing about segments or blocking, only about a CSR graph, so it is
  * testable (and reusable) on its own. The orientation search adapts a
  * `BlockingGraph` (1-based ids) into this shape.
+ *
+ * The local search (localSearch.ts) calls this tens of thousands of times
+ * per board - once per candidate flip, because acyclicity is a global
+ * property that a single flip can only be *checked* against globally, not
+ * updated incrementally. `TarjanScratch` lets that caller reuse its working
+ * arrays across calls instead of paying a fresh O(n) allocation every time;
+ * ordinary callers (tests, one-off use) can ignore it entirely.
  */
 
 export interface CsrGraph {
@@ -21,6 +28,15 @@ export interface CsrGraph {
   readonly edgeStart: Uint32Array;
   /** 0-based node indices. */
   readonly edgeTarget: Uint32Array;
+  /**
+   * Optional per-node used-length, for a caller that reserves slack in
+   * `edgeTarget` so it can overwrite one node's row in place instead of
+   * re-flattening the whole graph. When present, node `v`'s edges are
+   * `edgeTarget[edgeStart[v] .. edgeStart[v] + edgeCount[v])` instead of
+   * `edgeTarget[edgeStart[v] .. edgeStart[v + 1])`. Absent means tight CSR,
+   * the ordinary case.
+   */
+  readonly edgeCount?: Uint32Array;
 }
 
 export interface TarjanResult {
@@ -31,26 +47,67 @@ export interface TarjanResult {
   readonly componentSize: Uint32Array;
 }
 
+/** Reusable working arrays for `tarjanSCC`, sized once per `nodeCount` and reset (not reallocated) on every call. */
+export interface TarjanScratch {
+  readonly nodeCount: number;
+  readonly index: Int32Array;
+  readonly lowlink: Int32Array;
+  readonly onStack: Uint8Array;
+  readonly comp: Int32Array;
+  /** Tarjan's "S": every node pushed at most once, so capacity `nodeCount` always suffices. */
+  readonly nodeStack: Uint32Array;
+  /** Explicit DFS call stack: depth is bounded by `nodeCount` (one frame per node). */
+  readonly frameNode: Uint32Array;
+  readonly frameEdgePos: Uint32Array;
+  readonly componentSize: Uint32Array;
+}
+
+export function createTarjanScratch(nodeCount: number): TarjanScratch {
+  return {
+    nodeCount,
+    index: new Int32Array(nodeCount),
+    lowlink: new Int32Array(nodeCount),
+    onStack: new Uint8Array(nodeCount),
+    comp: new Int32Array(nodeCount),
+    nodeStack: new Uint32Array(nodeCount),
+    frameNode: new Uint32Array(nodeCount),
+    frameEdgePos: new Uint32Array(nodeCount),
+    componentSize: new Uint32Array(nodeCount),
+  };
+}
+
+function rowEnd(graph: CsrGraph, v: number): number {
+  return graph.edgeCount !== undefined
+    ? (graph.edgeStart[v] as number) + (graph.edgeCount[v] as number)
+    : (graph.edgeStart[v + 1] as number);
+}
+
 /**
  * Standard Tarjan, run iteratively. Component ids are assigned in the order
  * each SCC finishes, which is a reverse topological order of the condensation:
  * for any edge `u -> v` with `comp[u] !== comp[v]`, `comp[u] > comp[v]`.
+ *
+ * `scratch` (from `createTarjanScratch`) lets a hot-loop caller skip the
+ * per-call allocation of `index`/`lowlink`/`onStack`/the two DFS stacks; the
+ * returned `TarjanResult` is always a fresh, independent snapshot regardless
+ * (a small O(n) copy) so it stays safe to hold onto after the next call
+ * reuses and overwrites the scratch.
  */
-export function tarjanSCC(graph: CsrGraph): TarjanResult {
+export function tarjanSCC(graph: CsrGraph, scratch?: TarjanScratch): TarjanResult {
   const n = graph.nodeCount;
-  const index = new Int32Array(n).fill(-1);
-  const lowlink = new Int32Array(n);
-  const onStack = new Uint8Array(n);
-  const comp = new Int32Array(n).fill(-1);
-  const componentSize: number[] = [];
-  const nodeStack: number[] = [];
+  const s = scratch ?? createTarjanScratch(n);
+  if (s.nodeCount !== n) {
+    throw new Error(`tarjan scratch is sized for ${s.nodeCount} nodes, graph has ${n}`);
+  }
+
+  const { index, lowlink, onStack, comp, nodeStack, frameNode, frameEdgePos, componentSize } = s;
+  index.fill(-1);
+  comp.fill(-1);
+  onStack.fill(0);
+  let nodeStackTop = 0;
+  let frameTop = 0;
   let nextIndex = 0;
   let componentCount = 0;
-
-  // Explicit DFS call stack: for each open frame, the node and the position
-  // in its edge list to resume scanning from.
-  const frameNode: number[] = [];
-  const frameEdgePos: number[] = [];
 
   for (let root = 0; root < n; root++) {
     if (index[root] !== -1) continue;
@@ -58,27 +115,31 @@ export function tarjanSCC(graph: CsrGraph): TarjanResult {
     index[root] = nextIndex;
     lowlink[root] = nextIndex;
     nextIndex++;
-    nodeStack.push(root);
+    nodeStack[nodeStackTop] = root;
+    nodeStackTop++;
     onStack[root] = 1;
-    frameNode.push(root);
-    frameEdgePos.push(graph.edgeStart[root] as number);
+    frameNode[frameTop] = root;
+    frameEdgePos[frameTop] = graph.edgeStart[root] as number;
+    frameTop++;
 
-    while (frameNode.length > 0) {
-      const v = frameNode[frameNode.length - 1] as number;
-      const pos = frameEdgePos[frameEdgePos.length - 1] as number;
-      const end = graph.edgeStart[v + 1] as number;
+    while (frameTop > 0) {
+      const v = frameNode[frameTop - 1] as number;
+      const pos = frameEdgePos[frameTop - 1] as number;
+      const end = rowEnd(graph, v);
 
       if (pos < end) {
-        frameEdgePos[frameEdgePos.length - 1] = pos + 1;
+        frameEdgePos[frameTop - 1] = pos + 1;
         const w = graph.edgeTarget[pos] as number;
         if (index[w] === -1) {
           index[w] = nextIndex;
           lowlink[w] = nextIndex;
           nextIndex++;
-          nodeStack.push(w);
+          nodeStack[nodeStackTop] = w;
+          nodeStackTop++;
           onStack[w] = 1;
-          frameNode.push(w);
-          frameEdgePos.push(graph.edgeStart[w] as number);
+          frameNode[frameTop] = w;
+          frameEdgePos[frameTop] = graph.edgeStart[w] as number;
+          frameTop++;
         } else if (onStack[w] === 1) {
           if ((index[w] as number) < (lowlink[v] as number)) lowlink[v] = index[w] as number;
         }
@@ -88,10 +149,9 @@ export function tarjanSCC(graph: CsrGraph): TarjanResult {
       // v's edges are exhausted: pop its frame and, for a tree edge, fold its
       // lowlink into the parent that pushed it - the step a recursive
       // implementation takes right after the recursive call returns.
-      frameNode.pop();
-      frameEdgePos.pop();
-      if (frameNode.length > 0) {
-        const parent = frameNode[frameNode.length - 1] as number;
+      frameTop--;
+      if (frameTop > 0) {
+        const parent = frameNode[frameTop - 1] as number;
         if ((lowlink[v] as number) < (lowlink[parent] as number))
           lowlink[parent] = lowlink[v] as number;
       }
@@ -99,23 +159,38 @@ export function tarjanSCC(graph: CsrGraph): TarjanResult {
       if (lowlink[v] === index[v]) {
         let size = 0;
         for (;;) {
-          const w = nodeStack.pop() as number;
+          nodeStackTop--;
+          const w = nodeStack[nodeStackTop] as number;
           onStack[w] = 0;
           comp[w] = componentCount;
           size++;
           if (w === v) break;
         }
-        componentSize.push(size);
+        componentSize[componentCount] = size;
         componentCount++;
       }
     }
   }
 
   return {
-    comp: Uint32Array.from(comp),
+    comp: Uint32Array.from(comp.subarray(0, n)),
     componentCount,
-    componentSize: Uint32Array.from(componentSize),
+    componentSize: Uint32Array.from(componentSize.subarray(0, componentCount)),
   };
+}
+
+export interface CyclicNodesOptions {
+  /**
+   * Skip the self-loop scan (an O(edges) pass) when the caller already knows
+   * `graph` cannot contain a self-edge - true of every blocking digraph this
+   * module is used with (`buildBlockingGraph`'s own doc comment: a segment's
+   * body never blocks itself). Defaults to false (always scan), which is
+   * always correct; set true only when self-loop-freedom is a property of
+   * how `graph` was built, not merely observed to hold on some inputs.
+   */
+  readonly skipSelfLoopScan?: boolean;
+  /** Reuse this buffer for the output instead of allocating a new `Uint8Array(nodeCount)`. */
+  readonly out?: Uint8Array;
 }
 
 /**
@@ -124,14 +199,20 @@ export function tarjanSCC(graph: CsrGraph): TarjanResult {
  * size-1 component - a self-loop never merges with anything else, so it is
  * cyclic without being "non-trivial" by size alone).
  */
-export function cyclicNodes(graph: CsrGraph, result: TarjanResult): Uint8Array {
-  const flag = new Uint8Array(graph.nodeCount);
+export function cyclicNodes(
+  graph: CsrGraph,
+  result: TarjanResult,
+  options: CyclicNodesOptions = {},
+): Uint8Array {
+  const flag = options.out ?? new Uint8Array(graph.nodeCount);
+  flag.fill(0);
   for (let v = 0; v < graph.nodeCount; v++) {
     if ((result.componentSize[result.comp[v] as number] as number) > 1) flag[v] = 1;
   }
+  if (options.skipSelfLoopScan === true) return flag;
   for (let v = 0; v < graph.nodeCount; v++) {
     const from = graph.edgeStart[v] as number;
-    const to = graph.edgeStart[v + 1] as number;
+    const to = rowEnd(graph, v);
     for (let k = from; k < to; k++) {
       if (graph.edgeTarget[k] === v) {
         flag[v] = 1;

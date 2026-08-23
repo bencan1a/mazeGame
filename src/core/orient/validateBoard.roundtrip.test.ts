@@ -34,6 +34,7 @@ function paramsFor(size: number, seed: number): GenParams {
 describe('a Board assembled from orientByLocalSearch passes validateBoard', () => {
   it('over a range of small boards where local search reliably converges', () => {
     let converged = 0;
+    let reversedSeen = 0;
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 1_000_000 }),
@@ -51,6 +52,7 @@ describe('a Board assembled from orientByLocalSearch passes validateBoard', () =
           if (!result.converged) return; // the fallback's own contract is covered by index.test.ts's mock
           converged++;
 
+          for (const flag of result.segReversed) if (flag === 1) reversedSeen++;
           const segCells = assembleSegCells(segments, result.segReversed);
           const blocking = buildBlockingGraph({
             width: size,
@@ -84,5 +86,10 @@ describe('a Board assembled from orientByLocalSearch passes validateBoard', () =
       { numRuns: 60 },
     );
     expect(converged).toBeGreaterThan(0);
+    // The reversal case is the one this file exists to prove: without it, a
+    // change that stopped producing reversed heads (or broke assembleSegCells
+    // silently for that case) would leave this file green while covering
+    // only the already-in-order case.
+    expect(reversedSeen).toBeGreaterThan(0);
   }, 20_000);
 });

@@ -13,11 +13,18 @@
  * `Date.now`/`performance.now` are lint errors in this directory for the same
  * reason. `maxIterations` is the whole budget.
  *
- * Each flip only ever invalidates the flipped segment's own outgoing row
- * (see incrementalRow.ts for why), so the digraph is kept as one row per
- * segment and only the flipped row is recomputed each iteration, flattening
- * to CSR for Tarjan afterwards. A full `buildBlockingGraph` call is only
- * paid once, for the starting orientation.
+ * Every flip requires a genuinely global recheck - acyclicity is a property
+ * of the whole graph, not of the flipped node alone - so Tarjan runs in
+ * full every iteration; there is no way to check "did this flip fix it"
+ * more cheaply than that. What *is* local to the flip is which row of the
+ * blocking digraph can have changed: occupancy (which cells belong to which
+ * segment) never changes, only where the flipped segment's own ray starts
+ * and which way it points, so only that segment's own row can differ (see
+ * incrementalRow.ts). The graph is therefore kept as one CSR buffer with
+ * slack reserved per row, so a flip overwrites its own row's slot in place
+ * (`tryUpdateRow` below) instead of re-flattening every row's content into a
+ * fresh array on every iteration - `Tarjan`'s own working arrays are reused
+ * across calls the same way, via `TarjanScratch`.
  */
 
 import type { Rng } from '../rng.js';
@@ -28,26 +35,23 @@ import type { BlockingGraph, BlockingGraphInput } from './blocking.js';
 import { computeHeadCandidates } from './headOptions.js';
 import type { HeadCandidates } from './headOptions.js';
 import { recomputeRow } from './incrementalRow.js';
-import { countCyclicComponents, cyclicNodes, tarjanSCC } from './tarjan.js';
-import type { CsrGraph } from './tarjan.js';
+import { createTarjanScratch, cyclicNodes, tarjanSCC } from './tarjan.js';
+import type { CsrGraph, TarjanResult, TarjanScratch } from './tarjan.js';
 
 /**
- * A time budget in disguise, not a convergence target: at ~0.1ms/iteration
- * (measured; incremental row updates dominate the cost, see
- * incrementalRow.ts), 2000 iterations costs on the order of 100-250ms even
- * on a dense 100x100 board, leaving headroom in PRD's 1s generation budget
- * for the rest of the pipeline.
- *
- * It is not high enough to make local search converge reliably at every
- * size - this issue's report has the numbers: at 40x40 it converges on
- * essentially every board tried, comfortably inside this box, but at
- * 100x100 with default `GenParams` it very rarely does. That is not a bug
- * in the search; a random-flip search over 2^n orientations without a
- * smarter move rule needs tens of thousands of flips at ~700 segments, and
- * spending seconds chasing that would blow the generation budget on its
- * own. Reverse construction (#11) exists precisely so this box can stay
- * time-conscious instead of convergence-chasing - see the report for why
- * that makes the fallback the *normal* path at large sizes, not a rare one.
+ * A time budget, not a convergence target - and an unresolved one. On the
+ * trivial boustrophedon fixture (`makePath`) this converges reliably even
+ * at 100x100; on a real spanning-tree contour path (`buildContourPath`,
+ * landed since this issue's brief was written) it very rarely does at any
+ * size this issue measured, because a bendy real path packs segments into a
+ * far denser blocking graph - which also makes each iteration itself
+ * costlier, not just convergence rarer. Growing this box does not fix that
+ * within a 1s generation budget: this issue's report has the numbers for
+ * both path sources, and picking a properly-tuned value (likely
+ * segmentCount- or density-aware, not a flat constant) needs the real
+ * generator pipeline and harness this issue does not have access to. Until
+ * then, reverse construction (#11) is not a rare fallback - on real
+ * geometry it is close to the default outcome.
  */
 export const DEFAULT_MAX_ITERATIONS = 2000;
 
@@ -73,6 +77,66 @@ export interface LocalSearchOptions {
   readonly maxIterations?: number;
 }
 
+/**
+ * A blocking digraph stored with slack: `capacity[k]` slots are reserved for
+ * segment `k`'s row starting at `edgeStart[k]`, of which `edgeCount[k]` are
+ * currently used (0-based ids, matching `CsrGraph`). A flip that does not
+ * grow its row past its reserved capacity is a plain in-place overwrite of
+ * that row's slots - every other row's bytes are untouched, so no
+ * whole-graph flatten is needed to keep `edgeTarget` valid.
+ */
+interface SlackCsr {
+  edgeStart: Uint32Array;
+  edgeTarget: Uint32Array;
+  edgeCount: Uint32Array;
+  capacity: Uint32Array;
+}
+
+/** Extra room reserved per row so an ordinary flip (row shrinks or grows a little) never forces a rebuild. */
+function reserveCapacity(len: number): number {
+  return Math.max(8, len * 2);
+}
+
+function buildSlackCsr(blocking: BlockingGraph, segmentCount: number): SlackCsr {
+  const capacity = new Uint32Array(segmentCount);
+  const edgeStart = new Uint32Array(segmentCount + 1);
+  const edgeCount = new Uint32Array(segmentCount);
+  let total = 0;
+  for (let id = 1; id <= segmentCount; id++) {
+    const len = (blocking.edgeStart[id] as number) - (blocking.edgeStart[id - 1] as number);
+    const cap = reserveCapacity(len);
+    capacity[id - 1] = cap;
+    edgeStart[id - 1] = total;
+    edgeCount[id - 1] = len;
+    total += cap;
+  }
+  edgeStart[segmentCount] = total;
+
+  const edgeTarget = new Uint32Array(total);
+  for (let id = 1; id <= segmentCount; id++) {
+    const from = blocking.edgeStart[id - 1] as number;
+    const len = edgeCount[id - 1] as number;
+    const dst = edgeStart[id - 1] as number;
+    for (let i = 0; i < len; i++)
+      edgeTarget[dst + i] = (blocking.edgeTarget[from + i] as number) - 1;
+  }
+  return { edgeStart, edgeTarget, edgeCount, capacity };
+}
+
+/**
+ * Overwrite segment `pick`'s row (0-based `k = pick`) with `row` (1-based
+ * ids, sorted, from `recomputeRow`). Returns false without touching
+ * anything when `row` no longer fits the reserved slot - the caller falls
+ * back to a full rebuild in that (rare) case.
+ */
+function tryUpdateRow(slack: SlackCsr, k: number, row: Uint32Array): boolean {
+  if (row.length > (slack.capacity[k] as number)) return false;
+  const dst = slack.edgeStart[k] as number;
+  for (let i = 0; i < row.length; i++) slack.edgeTarget[dst + i] = (row[i] as number) - 1;
+  slack.edgeCount[k] = row.length;
+  return true;
+}
+
 export function orientByLocalSearch(
   segments: SegmentedPath,
   occupancy: Uint16Array,
@@ -85,10 +149,10 @@ export function orientByLocalSearch(
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const candidates = computeHeadCandidates(segments, width);
 
-  // `choice[k]` is the index into `candidates.head`/`dir` (not segment-local)
-  // currently selected for segment k. Randomized rather than always the
-  // first candidate, so a re-run with a fresh rng draw is not stuck
-  // re-exploring the same starting point.
+  // Orientation bit per segment: index into `candidates.head`/`dir`/`reversed`
+  // (not segment-local). Randomized rather than always the first candidate,
+  // so a re-run with a fresh rng draw is not stuck re-exploring the same
+  // starting point.
   const choice = new Uint32Array(segmentCount);
   for (let k = 0; k < segmentCount; k++) {
     const from = candidates.candStart[k] as number;
@@ -111,22 +175,36 @@ export function orientByLocalSearch(
     segDir,
   };
 
-  const rows = toRows(buildBlockingGraph(graphInput), segmentCount);
-  let csr = rowsToCsr(rows, segmentCount);
-  let tarjan = tarjanSCC(csr);
-  const initialSccCount = countCyclicComponents(csr, tarjan);
+  let slack = buildSlackCsr(buildBlockingGraph(graphInput), segmentCount);
+  const tarjanScratch: TarjanScratch = createTarjanScratch(segmentCount);
+  const cyclicFlags = new Uint8Array(segmentCount);
+  const cyclicList = new Uint32Array(segmentCount);
 
-  let cyclic = collectCyclic(csr, tarjan);
+  const runTarjan = (): TarjanResult => tarjanSCC(asCsrGraph(slack, segmentCount), tarjanScratch);
+  const collectCyclicCount = (graph: CsrGraph, result: TarjanResult): number => {
+    cyclicNodes(graph, result, { skipSelfLoopScan: true, out: cyclicFlags });
+    let count = 0;
+    for (let v = 0; v < segmentCount; v++) if (cyclicFlags[v] === 1) cyclicList[count++] = v;
+    return count;
+  };
+
+  let tarjan = runTarjan();
+  let cyclicCount = collectCyclicCount(asCsrGraph(slack, segmentCount), tarjan);
+  // cyclicFlags is only valid to read *after* collectCyclicCount has populated
+  // it for the current tarjan result - computing this before that call (as an
+  // earlier version of this function did) always reads a stale, freshly
+  // zeroed buffer and silently reports 0.
+  const initialSccCount = countDistinctCyclicComponents(cyclicFlags, tarjan, segmentCount);
   let iterations = 0;
 
-  while (cyclic.length > 0 && iterations < maxIterations) {
-    const pick = cyclic[rng.int(cyclic.length)] as number;
+  while (cyclicCount > 0 && iterations < maxIterations) {
+    const pick = cyclicList[rng.int(cyclicCount)] as number;
     flipCandidate(rng, candidates.candStart, choice, pick);
     iterations++;
 
     applyOne(pick, choice, candidates, segHead, segDir, segReversed);
     // Only `pick`'s own ray can have changed - see incrementalRow.ts.
-    rows[pick] = recomputeRow(
+    const row = recomputeRow(
       pick + 1,
       segHead[pick] as number,
       segDir[pick] as Direction,
@@ -134,12 +212,19 @@ export function orientByLocalSearch(
       width,
       height,
     );
-    csr = rowsToCsr(rows, segmentCount);
-    tarjan = tarjanSCC(csr);
-    cyclic = collectCyclic(csr, tarjan);
+    if (!tryUpdateRow(slack, pick, row)) {
+      // Rare: pick's blocker count outgrew its reserved slack. Rebuilding
+      // from a fresh full scan is correctness-safe and self-healing - the
+      // new reservation is sized off the row that just overflowed, so the
+      // same segment does not repeatedly force this path.
+      slack = buildSlackCsr(buildBlockingGraph(graphInput), segmentCount);
+    }
+
+    tarjan = runTarjan();
+    cyclicCount = collectCyclicCount(asCsrGraph(slack, segmentCount), tarjan);
   }
 
-  const converged = cyclic.length === 0;
+  const converged = cyclicCount === 0;
   return {
     segHead,
     segDir,
@@ -148,8 +233,30 @@ export function orientByLocalSearch(
     iterations,
     flips: iterations,
     initialSccCount,
-    finalSccCount: converged ? 0 : countCyclicComponents(csr, tarjan),
+    finalSccCount: converged ? 0 : countDistinctCyclicComponents(cyclicFlags, tarjan, segmentCount),
   };
+}
+
+function asCsrGraph(slack: SlackCsr, segmentCount: number): CsrGraph {
+  return {
+    nodeCount: segmentCount,
+    edgeStart: slack.edgeStart,
+    edgeTarget: slack.edgeTarget,
+    edgeCount: slack.edgeCount,
+  };
+}
+
+/** `cyclicFlags` must already be `cyclicNodes`'s output for `result`. */
+function countDistinctCyclicComponents(
+  cyclicFlags: Uint8Array,
+  result: TarjanResult,
+  segmentCount: number,
+): number {
+  const seen = new Set<number>();
+  for (let v = 0; v < segmentCount; v++) {
+    if (cyclicFlags[v] === 1) seen.add(result.comp[v] as number);
+  }
+  return seen.size;
 }
 
 function applyOne(
@@ -180,37 +287,4 @@ function flipCandidate(rng: Rng, candStart: Uint32Array, choice: Uint32Array, k:
   let nextLocal = rng.int(arity - 1);
   if (nextLocal >= currentLocal) nextLocal++;
   choice[k] = from + nextLocal;
-}
-
-/** Per-segment blocker lists (0-based array index, 1-based ids inside), read off a fresh CSR build. */
-function toRows(graph: BlockingGraph, segmentCount: number): Uint32Array[] {
-  const rows: Uint32Array[] = new Array<Uint32Array>(segmentCount);
-  for (let id = 1; id <= segmentCount; id++) {
-    const from = graph.edgeStart[id - 1] as number;
-    const to = graph.edgeStart[id] as number;
-    rows[id - 1] = graph.edgeTarget.slice(from, to);
-  }
-  return rows;
-}
-
-/** Flatten per-segment rows (1-based ids) into the 0-based CSR Tarjan expects. */
-function rowsToCsr(rows: readonly Uint32Array[], segmentCount: number): CsrGraph {
-  const edgeStart = new Uint32Array(segmentCount + 1);
-  let total = 0;
-  for (const row of rows) total += row.length;
-  const edgeTarget = new Uint32Array(total);
-  let at = 0;
-  for (let k = 0; k < segmentCount; k++) {
-    edgeStart[k] = at;
-    for (const target of rows[k] as Uint32Array) edgeTarget[at++] = target - 1;
-  }
-  edgeStart[segmentCount] = at;
-  return { nodeCount: segmentCount, edgeStart, edgeTarget };
-}
-
-function collectCyclic(graph: CsrGraph, result: ReturnType<typeof tarjanSCC>): number[] {
-  const flags = cyclicNodes(graph, result);
-  const list: number[] = [];
-  for (let v = 0; v < graph.nodeCount; v++) if (flags[v] === 1) list.push(v);
-  return list;
 }
