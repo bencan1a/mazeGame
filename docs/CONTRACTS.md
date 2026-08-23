@@ -197,6 +197,55 @@ DAG depth and mean free-set size both fall out of the topological sort that
 validation already runs — compute them there rather than walking the graph
 twice. See [METRICS.md](./METRICS.md).
 
+### generateBoard (S4)
+
+```ts
+generateBoard(params: GenParams): Board
+generateBoardWithDiagnostics(params: GenParams, options?: GenerateBoardOptions): GenerateBoardResult
+```
+
+The single public entry point: mask -> path -> segmentation -> orientation ->
+validation -> colors, pure in `(seed, params)` per ADR-0004. `generateBoard` is
+the exact `GenerateBoard` shape declared in `types.ts`; `generateBoardWithDiagnostics`
+is the same pipeline with the retry count and per-attempt failure reasons
+attached, for a caller (the tuning harness) that needs to see why a board took
+more than one attempt.
+
+**Validation runs by default.** `GenerateBoardOptions.validate` defaults to
+`true` and there is no environment-based branching — an explicit `false` is
+the only way to skip it. There is no meaningful performance case for skipping
+it: `validateBoard` costs low single-digit milliseconds even on a board with
+several hundred segments, negligible next to orientation's own cost.
+
+**Retry.** A generation attempt can fail as data (`ok: false` from path
+building) or as a typed throw (`MaskRepairError`, `BoardInvariantError`, or
+the specific "local search did not converge, and reverse construction ...
+There is no further fallback" throw `orientSegments` uses once every fallback
+is exhausted). All three are retried: a new internal seed is derived
+deterministically from `(params.seed, attempt)` — attempt 0 is the seed
+itself unmodified — and the whole pipeline reruns from mask generation, up to
+`GenerateBoardOptions.maxAttempts` (default 8, `DEFAULT_MAX_ATTEMPTS`).
+Re-running the whole pipeline, not just orientation, matters for a stuck
+orientation specifically: the peel is complete over its candidate set, so a
+"stuck" result proves no acyclic orientation exists for that exact
+segmentation, and only a new segmentation — which only a new seed produces —
+can change the outcome.
+
+Any other thrown error (a malformed segment, a corrupt CSR offset — upstream
+corruption rather than a proven cycle) is deliberately **not** caught as
+retryable and propagates immediately, so a real bug surfaces as itself rather
+than as eight identical retries disguised as an unsolvable board.
+
+**Exhaustion.** When every attempt fails, `generateBoard` throws
+`GenerationFailedError` with every attempt's failure reason attached
+(`detail.attemptFailures`). This is a real outcome at ordinary sizes today,
+not only at pathological parameter combinations: most of the failure comes
+from orientation finding no acyclic assignment for the segmentation a given
+seed happens to produce, which is far more common at gridSize 40+ than the
+mask-repair floor at very small gridSize with very low fillFraction. Retrying
+further does not reliably help either failure mode, because every stage here
+is deterministic in its seed.
+
 ### rendering (S5) and game (S6)
 
 Both consume a finished `Board` and nothing else. Neither may reach into the

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import fc from 'fast-check';
 import { assertDeterministic, checkStructure, greedyClear } from './validate/index.js';
 import * as validateModule from './validate/index.js';
-import { DEFAULT_GEN_PARAMS } from './types.js';
+import * as pathModule from './path/index.js';
+import * as orientModule from './orient/index.js';
+import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
 import {
   DEFAULT_MAX_ATTEMPTS,
@@ -38,6 +41,37 @@ describe('deriveAttemptSeed', () => {
   it('gives different base seeds different internal seeds at the same attempt', () => {
     expect(deriveAttemptSeed(1, 2)).not.toBe(deriveAttemptSeed(2, 2));
   });
+
+  describe('property tests', () => {
+    const seedArb = fc.integer({ min: 0, max: 0xffffffff });
+    const attemptArb = fc.integer({ min: 0, max: 50 });
+
+    it('is a deterministic function of (seed, attempt), over arbitrary inputs', () => {
+      fc.assert(
+        fc.property(seedArb, attemptArb, (seed, attempt) => {
+          expect(deriveAttemptSeed(seed, attempt)).toBe(deriveAttemptSeed(seed, attempt));
+        }),
+      );
+    });
+
+    it('gives distinct attempts of the same seed distinct internal seeds', () => {
+      fc.assert(
+        fc.property(seedArb, attemptArb, attemptArb, (seed, a, b) => {
+          fc.pre(a !== b);
+          expect(deriveAttemptSeed(seed, a)).not.toBe(deriveAttemptSeed(seed, b));
+        }),
+      );
+    });
+
+    it('gives distinct base seeds distinct internal seeds at the same attempt', () => {
+      fc.assert(
+        fc.property(attemptArb, seedArb, seedArb, (attempt, s1, s2) => {
+          fc.pre(s1 !== s2);
+          expect(deriveAttemptSeed(s1, attempt)).not.toBe(deriveAttemptSeed(s2, attempt));
+        }),
+      );
+    });
+  });
 });
 
 describe('generateBoard determinism', () => {
@@ -58,10 +92,33 @@ describe('generateBoard determinism', () => {
     expect(a.diagnostics.attempts).toBe(b.diagnostics.attempts);
     expect(() => assertDeterministic(a.board, b.board)).not.toThrow();
   });
+
+  it('needs exactly 4 attempts for seed 34, pinning the attempt count itself', () => {
+    // Distinct from the test above: `attempts: attempt + 1` mutated to
+    // `attempt + 2` still satisfies "> 1" and "equal across two runs", so
+    // this pins the exact value on a seed whose attempt count is known.
+    const result = generateBoardWithDiagnostics(
+      paramsAt({ gridSize: 20, fillFraction: 0.05, seed: 34 }),
+    );
+    expect(result.diagnostics.attempts).toBe(4);
+  });
 });
 
-describe('generateBoard: 20x20 (a size clear of the mask-repair floor and the orientation cliff)', () => {
-  it('succeeds and validates externally for every one of 30 consecutive seeds', () => {
+describe('generateBoard: 20x20 is on the orientation slope, not clear of it', () => {
+  it('only 19 of 30 seeds succeed on their first internal attempt, and retries rescue the rest', () => {
+    let firstAttemptSuccesses = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      try {
+        generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed }), { maxAttempts: 1 });
+        firstAttemptSuccesses++;
+      } catch {
+        // expected: a first-attempt failure here is exactly what this test measures
+      }
+    }
+    expect(firstAttemptSuccesses).toBe(19);
+  });
+
+  it('succeeds and validates externally for every one of 30 consecutive seeds, given the default retry budget', () => {
     for (let seed = 1; seed <= 30; seed++) {
       const board = generateBoard(paramsAt({ gridSize: 20, seed }));
       assertExternallySound(board);
@@ -114,9 +171,16 @@ describe('generateBoard: exhausting every attempt throws GenerationFailedError',
 });
 
 describe('generateBoard: validate option', () => {
-  it('defaults to validating (an internally-inconsistent board is impossible to observe)', () => {
-    const board = generateBoard(paramsAt({ gridSize: 20, seed: 5 }));
-    assertExternallySound(board);
+  it('validates by default when no options object is passed at all', () => {
+    // Mutating the `validate` default to `false` leaves every other test in
+    // this describe green, because they all pass `validate` explicitly.
+    const spy = vi.spyOn(validateModule, 'validateBoard');
+    spy.mockClear();
+
+    generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
   });
 
   it('validate: false skips validateBoard but still returns a structurally assembled board', () => {
@@ -141,63 +205,161 @@ describe('generateBoard: validate option', () => {
 
     spy.mockRestore();
   });
+
+  it('retries after validateBoard throws once, and the recovered attempt is genuinely sound', () => {
+    // AC3 covers validation failure too, not only mask/orientation failure.
+    // Without this, deleting the BoardInvariantError branch in generate.ts's
+    // validation catch leaves every other test in this file green.
+    const spy = vi.spyOn(validateModule, 'validateBoard').mockImplementationOnce(() => {
+      throw new BoardInvariantError('forced failure to exercise the validation retry path');
+    });
+
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(result.diagnostics.attempts).toBeGreaterThan(1);
+    expect(result.diagnostics.attemptFailures[0]).toMatch(
+      /^validation: forced failure to exercise/,
+    );
+    assertExternallySound(result.board);
+
+    spy.mockRestore();
+  });
 });
 
-describe('generateBoard: retry recovers from an orientation that cannot be made acyclic', () => {
-  // v8 coverage instrumentation slows this well past vitest's 5s default;
-  // uninstrumented it runs in under 2s (see localSearch.convergence.test.ts
-  // for the same tradeoff on a related check).
-  const TIMEOUT_MS = 30_000;
-
-  it(
-    'gridSize 30 needs more than one attempt on several seeds, and diagnostics record why',
-    () => {
-      let sawMultiAttemptSuccess = false;
-      let sawOrientationFailureReason = false;
-      for (let seed = 1; seed <= 40; seed++) {
-        const params = paramsAt({ gridSize: 30, seed });
-        let result;
-        try {
-          result = generateBoardWithDiagnostics(params);
-        } catch {
-          continue;
-        }
-        if (result.diagnostics.attempts > 1) sawMultiAttemptSuccess = true;
-        if (
-          result.diagnostics.attemptFailures.some((reason) => reason.startsWith('orientation:'))
-        ) {
-          sawOrientationFailureReason = true;
-        }
-        assertExternallySound(result.board);
+describe('generateBoard: orientation failure classification', () => {
+  it('gridSize 30 needs more than one attempt on several seeds, and diagnostics record why', () => {
+    let sawMultiAttemptSuccess = false;
+    let sawOrientationFailureReason = false;
+    for (let seed = 1; seed <= 40; seed++) {
+      const params = paramsAt({ gridSize: 30, seed });
+      let result;
+      try {
+        result = generateBoardWithDiagnostics(params);
+      } catch {
+        continue;
       }
-      expect(sawMultiAttemptSuccess).toBe(true);
-      expect(sawOrientationFailureReason).toBe(true);
-    },
-    TIMEOUT_MS,
-  );
+      if (result.diagnostics.attempts > 1) sawMultiAttemptSuccess = true;
+      if (result.diagnostics.attemptFailures.some((reason) => reason.startsWith('orientation:'))) {
+        sawOrientationFailureReason = true;
+      }
+      assertExternallySound(result.board);
+    }
+    expect(sawMultiAttemptSuccess).toBe(true);
+    expect(sawOrientationFailureReason).toBe(true);
+  }, 30_000); // for the same tradeoff on a related check). // uninstrumented it runs in under 2s (see localSearch.convergence.test.ts // v8 coverage instrumentation slows this well past vitest's 5s default;
+
+  it('an orientation error other than "no further fallback" is not retried and propagates directly', () => {
+    // Only the "local search did not converge, and reverse construction
+    // ... There is no further fallback" throw is a proven cycle. Anything
+    // else (a malformed segment, a corrupt CSR offset) is upstream
+    // corruption; catching it broadly would retry it 8 times and surface it
+    // as an indistinguishable GenerationFailedError instead of the real bug.
+    const spy = vi.spyOn(orientModule, 'orientSegments').mockImplementationOnce(() => {
+      throw new Error('segment 3 is not a walk of 4-neighbours (forced for this test)');
+    });
+
+    expect(() => generateBoard(paramsAt({ gridSize: 20, seed: 5 }))).toThrowError(
+      /not a walk of 4-neighbours/,
+    );
+
+    spy.mockRestore();
+  });
+});
+
+describe('generateBoard: usedFallbackOrientation', () => {
+  it('reflects a true usedFallback from orientSegments on the winning attempt', () => {
+    // A broad search (gridSize 15-28, meanPieceLength 4-20, well over a
+    // thousand seeds through the real pipeline) never found a seed where
+    // reverse construction succeeds after local search fails to converge —
+    // every real success in this file converges via local search alone. That
+    // is a fact about the current contour/orient pipeline, not something
+    // generate.ts controls, so the plumbing is exercised directly here
+    // instead of waiting for a natural seed to exist.
+    const realOrientSegments = orientModule.orientSegments;
+    const spy = vi
+      .spyOn(orientModule, 'orientSegments')
+      .mockImplementationOnce((...args: Parameters<typeof realOrientSegments>) => ({
+        ...realOrientSegments(...args),
+        usedFallback: true,
+      }));
+
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(result.diagnostics.usedFallbackOrientation).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it('is false for a real success in this file, because local search converges on its own here', () => {
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(result.diagnostics.usedFallbackOrientation).toBe(false);
+  });
+});
+
+describe('generateBoard: path stage failure and fallback', () => {
+  it('falls through to backbite when contour declines, and a real backbite success still validates', () => {
+    // Without this, deleting the backbite fallback entirely (contour-only)
+    // leaves every other test in this file green, because contour never
+    // actually declines on real generated masks at the sizes exercised
+    // elsewhere in this file.
+    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+      ok: false,
+      reason: 'forced decline to exercise the backbite fallback',
+    });
+
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    assertExternallySound(result.board);
+
+    contourSpy.mockRestore();
+  });
+
+  it('reports a "path:" failure, retried, when both contour and backbite decline', () => {
+    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+      ok: false,
+      reason: 'forced contour decline for this test',
+    });
+    const backbiteSpy = vi.spyOn(pathModule, 'buildBackbitePath').mockReturnValue({
+      ok: false,
+      reason: 'forced backbite failure for this test',
+    });
+
+    let caught: unknown;
+    try {
+      generateBoard(paramsAt({ gridSize: 20, seed: 5 }));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(GenerationFailedError);
+    const failure = (caught as GenerationFailedError).detail as { attemptFailures: string[] };
+    expect(failure.attemptFailures).toHaveLength(DEFAULT_MAX_ATTEMPTS);
+    expect(failure.attemptFailures.every((reason) => reason.startsWith('path:'))).toBe(true);
+
+    contourSpy.mockRestore();
+    backbiteSpy.mockRestore();
+  });
 });
 
 describe('generateBoard: 40x40 and 100x100 either produce a valid board or fail loudly', () => {
   /**
    * These sizes are past a cliff in how often the contour path's segmentation
-   * admits any acyclic orientation at all: most seeds exhaust every retry.
-   * This test does not assert success, because asserting something this
-   * consistently false would be exactly the kind of test that cannot fail
-   * honestly. What it does assert, and what has to remain true regardless of
-   * how that upstream problem gets fixed, is that the pipeline never returns
-   * an unsound board and never throws anything other than the documented
-   * failure.
+   * admits any acyclic orientation at all: at the default gridSize 40, well
+   * under half of seeds succeed even with the full retry budget, and at
+   * 100x100 essentially none do in a sample this small. So the success branch
+   * below rarely runs here — the dedicated gridSize 40 test right after this
+   * one pins a seed known to succeed, to check that a board that does escape
+   * is genuinely sound at a size past the cliff, not only at 20x20. What this
+   * test can be relied on to actually exercise is the failure branch: the
+   * pipeline never throws anything other than the documented
+   * `GenerationFailedError`.
    */
   it.each([40, 100])(
     'gridSize %i: every seed ends in a sound board or GenerationFailedError',
     (gridSize) => {
       let successes = 0;
-      const seedCount = 3;
-      // A capped maxAttempts keeps this fast-tier check well under a second
-      // per seed even at 100x100, where exhausting the full default budget
-      // costs multiple seconds; the full default budget is exercised by the
-      // determinism and mask-repair-floor tests above.
-      const maxAttempts = 3;
+      // Both kept small: this file already spends real time confirming
+      // failures rather than successes at these sizes, and the full retry
+      // budget is exercised elsewhere (the determinism, mask-repair-floor,
+      // and dedicated gridSize 40 success tests all use the real default).
+      const seedCount = 2;
+      const maxAttempts = 2;
       for (let seed = 1; seed <= seedCount; seed++) {
         try {
           const { board } = generateBoardWithDiagnostics(paramsAt({ gridSize, seed }), {
@@ -211,9 +373,14 @@ describe('generateBoard: 40x40 and 100x100 either produce a valid board or fail 
       }
       console.log(`gridSize ${gridSize}: ${successes}/${seedCount} seeds produced a valid board`);
     },
-    // Coverage instrumentation roughly doubles the 100x100 orientation cost
-    // measured elsewhere in this suite, and this covers a worst case where
-    // every one of 3 seeds exhausts 3 attempts.
+    // Coverage instrumentation measures at roughly 4x the uninstrumented cost
+    // at gridSize 100 (measured ~8.5s here with seedCount/maxAttempts at 2);
+    // 30s keeps comfortable margin without matching vitest's 5s default.
     30_000,
   );
+
+  it('gridSize 40 seed 5 succeeds within the default retry budget and is genuinely sound', () => {
+    const board = generateBoard(paramsAt({ gridSize: 40, seed: 5 }));
+    assertExternallySound(board);
+  });
 });

@@ -3,10 +3,14 @@
  * -> validation -> colors, pure in `(seed, params)`.
  *
  * A generation attempt can fail for reasons upstream stages already model as
- * data (`ok: false`) or as a thrown error (`MaskRepairError`, the "no acyclic
- * orientation exists" throw from `orientSegments`, `BoardInvariantError` from
- * validation). All four are treated as retryable: derive a new internal seed
- * and rerun the whole pipeline, deterministically, up to `maxAttempts`.
+ * data (`ok: false`) or as a thrown error (`MaskRepairError`, the specific "no
+ * further fallback" throw `orientSegments` uses once local search and reverse
+ * construction have both failed, `BoardInvariantError` from validation). All
+ * four are treated as retryable: derive a new internal seed and rerun the
+ * whole pipeline, deterministically, up to `maxAttempts`. Anything else
+ * thrown out of the orientation stage is upstream corruption, not a proven
+ * cycle, and is left to propagate rather than be retried into a
+ * `GenerationFailedError` indistinguishable from an honest one.
  *
  * A whole-pipeline retry is the only lever available even for a stuck
  * orientation, where retrying orientation alone provably cannot help: a
@@ -43,20 +47,31 @@ export class GenerationFailedError extends Error {
 }
 
 /**
- * Retries observed empirically to clear the vast majority of seeds at every
- * documented gridSize/fillFraction combination except a mask-repair floor at
- * very small gridSize with very low fillFraction, which more retries do not
- * fix because it is geometric, not chance.
+ * Retries clear the vast majority of seeds at small grid sizes (20x20 and
+ * below, and even there imperfectly — see the 20x20 test in generate.test.ts
+ * for the measured first-attempt rate). At the sizes generation actually
+ * targets they do far less: at the default gridSize 40, 8 retries clear
+ * roughly 1 seed in 40; at 100x100, effectively none. That failure is not the
+ * mask-repair floor — it is orientation finding no acyclic assignment for the
+ * segmentation a given seed happens to produce, and no fixed retry budget
+ * reliably clears it, because every stage here is deterministic in its seed:
+ * a segmentation with no acyclic orientation stays that way no matter how
+ * many more attempts follow.
  */
 export const DEFAULT_MAX_ATTEMPTS = 8;
 
 export interface GenerateBoardOptions {
   /**
-   * Run `validateBoard` after assembly. Defaults to true — its cost is a
-   * small fraction of end-to-end generation time even at 100x100, so there is
-   * no performance case for skipping it in production. An explicit `false` is
-   * how a caller opts out, rather than `src/core/` branching on an
-   * environment.
+   * Run `validateBoard` after assembly. Defaults to true. `validateBoard`
+   * itself measures in the low single-digit milliseconds on a same-size board
+   * with several hundred segments — negligible next to orientation, which
+   * dominates end-to-end cost. That figure comes from a synthetic full board
+   * of that size, not from a completed 100x100 `generateBoard` call: at that
+   * size orientation itself rarely succeeds today, so validation is rarely
+   * reached in practice, and its cost there is an extrapolation, not a
+   * measurement of this call site. Either way there is no performance case
+   * for skipping it in production; an explicit `false` is how a caller opts
+   * out, rather than `src/core/` branching on an environment.
    */
   readonly validate?: boolean;
   /** Overrides `DEFAULT_MAX_ATTEMPTS`. */
@@ -127,15 +142,34 @@ export const generateBoard: GenerateBoard = (params) => generateBoardWithDiagnos
 
 /**
  * Mixes `attempt` into `seed` through the same rng primitives the rest of the
- * codebase uses, rather than a plain offset, so adjacent attempts decorrelate
- * the way adjacent seeds already do (see rng.ts). Attempt 0 uses the seed
- * unmodified, so the common no-retry case is exactly `createRng(params.seed)`
- * with no extra layer to reason about.
+ * codebase uses, rather than a plain `seed + attempt` offset, because a plain
+ * offset collides across base seeds: seed 1 attempt 1 would be byte-identical
+ * to seed 2 attempt 0, so two different boards' retry sequences would overlap.
+ * `createRng` already makes adjacent *seeds* decorrelate (see rng.ts); this
+ * is the analogous guarantee across attempts of the same seed. Attempt 0 uses
+ * the seed unmodified, so the common no-retry case is exactly
+ * `createRng(params.seed)` with no extra layer to reason about.
  */
 export function deriveAttemptSeed(seed: Seed, attempt: number): Seed {
   if (attempt === 0) return seed >>> 0;
   const mixed = ((seed >>> 0) ^ Math.imul(attempt, 0x9e3779b1)) >>> 0;
   return createRng(mixed).int(0x100000000);
+}
+
+/**
+ * `orientSegments` throws a plain `Error` in exactly one case: local search
+ * did not converge and reverse construction also could not place every
+ * segment, which is a proof that no acyclic orientation exists for that
+ * segmentation — the one case a whole-pipeline retry can plausibly fix.
+ * `orientSegments` does not export a type for that specific throw, so this
+ * narrows on the fixed message text it uses only for that case. Anything else
+ * thrown out of the orientation stage (a malformed segment, a corrupt CSR
+ * offset surfacing from deeper in `reverseConstruct` or `localSearch`) is
+ * upstream corruption a retry would only hide behind repeated identical
+ * throws, so it is deliberately not matched here and is left to propagate.
+ */
+function isOrientationExhausted(err: unknown): err is Error {
+  return err instanceof Error && err.message.includes('There is no further fallback.');
 }
 
 function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): AttemptOutcome {
@@ -188,7 +222,7 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
       createRng(orientSeed),
     );
   } catch (err) {
-    if (err instanceof Error) return { ok: false, reason: `orientation: ${err.message}` };
+    if (isOrientationExhausted(err)) return { ok: false, reason: `orientation: ${err.message}` };
     throw err;
   }
 
