@@ -60,7 +60,8 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
     runEnd[e] = e === edgeCount - 1 || dirs[e] !== dirs[e + 1] ? e : (runEnd[e + 1] as number);
   }
 
-  // Below 1 every position would be "roomless".
+  // Below 1 the constraint is vacuous: validLo/validHi widen past the run, so
+  // every cut satisfies it and the absorb branch never fires.
   const minStraightRun = Math.max(1, params.minStraightRun);
 
   /**

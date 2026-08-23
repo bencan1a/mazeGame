@@ -35,7 +35,8 @@ export const noCommentCrossReferences = {
     },
   },
   create(context) {
-    const source = context.sourceCode;
+    // `context.sourceCode` is current; `getSourceCode()` is the older spelling.
+    const source = context.sourceCode ?? context.getSourceCode();
     return {
       Program() {
         for (const comment of source.getAllComments()) {
