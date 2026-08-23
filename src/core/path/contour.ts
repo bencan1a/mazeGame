@@ -53,6 +53,8 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
       next[se] = sw;
       next[sw] = nw;
 
+      // No bounds check: tiling guarantees any neighbour a tree edge points at
+      // is itself a full block within bounds.
       if (tree.open[block * 4 + EAST] === 1) next[ne] = toIndex(x0 + 2, y0, width);
       if (tree.open[block * 4 + SOUTH] === 1) next[se] = toIndex(x0 + 1, y0 + 2, width);
       if (tree.open[block * 4 + WEST] === 1) next[sw] = toIndex(x0 - 1, y0 + 1, width);

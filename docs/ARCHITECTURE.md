@@ -75,6 +75,11 @@ checkerboard parity. A Hamiltonian path needs `|black| − |white| ∈ {0, ±1}`
 any mismatch is absorbed by marking 1–3 cells `unvisited` rather than by editing
 the silhouette, which is visually invisible and removes the feasibility problem.
 
+The blob itself is drawn at half resolution and upscaled 2×, so that every
+region tiles into the 2×2 blocks the contour path fill needs. A side effect is
+that the parity step absorbs nothing on a procedurally generated silhouette. See
+[adr/0009](./adr/0009-half-resolution-silhouette.md).
+
 **Path.** Primary is the spanning-tree contour: a random spanning tree on a
 half-resolution grid, its outline traced at full resolution. The contour walk
 _is_ a Hamiltonian cycle, guaranteed, in linear time — but it requires the
