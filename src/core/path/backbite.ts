@@ -224,8 +224,9 @@ export function buildBackbitePath(
         ok: false,
         reason:
           `backbite did not grow to a Hamiltonian path within ${maxGrowthMoves} moves ` +
-          `(reached ${length} of ${target} cells) — the region may not be one 4-connected ` +
-          'piece under the path-cell rule, or a path cell may have no path-cell neighbour',
+          `(reached ${length} of ${target} cells) — findInfeasibility already ruled out a ` +
+          'disconnected region, a zero-degree path cell and an impossible parity, so either ' +
+          'growth trapped itself repeatedly or the budget is too tight for this shape',
       };
     }
     if (movesSinceGrowth >= stallLimit) {
