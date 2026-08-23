@@ -22,6 +22,9 @@ function paramsAt(overrides: Partial<GenParams>): GenParams {
 function assertExternallySound(board: ReturnType<typeof generateBoard>): void {
   expect(() => checkStructure(board)).not.toThrow();
   expect(greedyClear(board).stuck.length).toBe(0);
+}
+
+function shortestSegment(board: ReturnType<typeof generateBoard>): number {
   let shortest = Infinity;
   for (let k = 0; k < board.segmentCount; k++) {
     shortest = Math.min(
@@ -29,7 +32,7 @@ function assertExternallySound(board: ReturnType<typeof generateBoard>): void {
       (board.segStart[k + 1] as number) - (board.segStart[k] as number),
     );
   }
-  expect(shortest).toBeGreaterThanOrEqual(board.params.minPieceLength);
+  return shortest;
 }
 
 describe('deriveAttemptSeed', () => {
@@ -127,6 +130,13 @@ describe('generateBoard: the first internal attempt is enough at every size', ()
           maxAttempts: 1,
         });
         assertExternallySound(result.board);
+        // The floor is a target the peel maintains rather than a guarantee, so
+        // it is checked against what the peel says it achieved, not asserted
+        // blind. At the default floor of 2 it has never had to give any up.
+        expect(result.diagnostics.peel.belowMinimum).toBe(0);
+        expect(shortestSegment(result.board)).toBeGreaterThanOrEqual(
+          result.board.params.minPieceLength,
+        );
         successes++;
       }
       expect(successes).toBe(seeds);
@@ -371,4 +381,47 @@ describe('generateBoardWithDiagnostics: caller errors', () => {
     const again = generateBoardWithDiagnostics({ ...DEFAULT_GEN_PARAMS, gridSize: 20, seed: 1 });
     expect(again.diagnostics.attemptFailures.length).toBe(before);
   });
+});
+
+describe('generateBoard: what the piece-length parameters actually deliver', () => {
+  // meanPieceLength is the sampler's mean, and the floor truncates the
+  // distribution's left tail, so the achieved mean sits above the requested
+  // one by however much of the tail the floor cuts off. Nothing else in the
+  // suite would notice that drifting.
+  it.each([
+    { meanPieceLength: 6, low: 6, high: 8.5 },
+    { meanPieceLength: 14, low: 12.5, high: 15.5 },
+  ])(
+    'requesting $meanPieceLength cells lands between $low and $high',
+    ({ meanPieceLength, low, high }) => {
+      let segments = 0;
+      let cells = 0;
+      for (let seed = 1; seed <= 25; seed++) {
+        const board = generateBoard(paramsAt({ gridSize: 40, seed, meanPieceLength }));
+        segments += board.segmentCount;
+        cells += board.segStart[board.segmentCount] as number;
+      }
+      const achieved = cells / segments;
+      expect(achieved).toBeGreaterThanOrEqual(low);
+      expect(achieved).toBeLessThanOrEqual(high);
+    },
+    60_000,
+  );
+
+  it('reports the pieces it could not keep above the floor rather than hiding them', () => {
+    // A floor well above what the free runs can offer near the end of a peel.
+    // Generation still succeeds; the cost shows up in the diagnostics.
+    let belowMinimum = 0;
+    let shortest = Infinity;
+    for (let seed = 1; seed <= 20; seed++) {
+      const result = generateBoardWithDiagnostics(
+        paramsAt({ gridSize: 40, seed, minPieceLength: 8, meanPieceLength: 10 }),
+      );
+      assertExternallySound(result.board);
+      belowMinimum += result.diagnostics.peel.belowMinimum;
+      shortest = Math.min(shortest, shortestSegment(result.board));
+    }
+    expect(belowMinimum).toBeGreaterThan(0);
+    expect(shortest).toBeLessThan(8);
+  }, 60_000);
 });

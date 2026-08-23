@@ -24,13 +24,24 @@ export interface GenParams {
   /** Square board edge length. */
   readonly gridSize: number;
   readonly seed: Seed;
-  /** Target mean segment length in cells. */
+  /**
+   * Mean of the distribution segment lengths are sampled from, in cells.
+   *
+   * The achieved mean sits above this by however much of the distribution's
+   * left tail `minPieceLength` truncates — at the shipped spread, requesting 6
+   * lands around 7.5, while requesting 14 lands on 14. A sweep should read the
+   * achieved figure, not this one.
+   */
   readonly meanPieceLength: number;
-  /** Spread of the segment-length distribution, in cells (std-dev-like). */
+  /** Spread of that distribution, in cells (std-dev-like). */
   readonly pieceLengthVariance: number;
   /**
    * Floor on segment length in cells. At 1 a segment may be a lone arrowhead
    * with no body; at 2 or more every segment reads as a stroke.
+   *
+   * A target the generator maintains rather than a guarantee: read
+   * `PeelStats.belowMinimum` for what it had to give up. It gives up nothing
+   * at the default, and progressively more as the floor rises.
    */
   readonly minPieceLength: number;
   /** 0..1 target bend rate for the space-filling path. */

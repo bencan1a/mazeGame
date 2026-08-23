@@ -13,20 +13,25 @@
  *
  * The peel cannot stall. Take the topmost free cell and, among that row, the
  * leftmost — call it `c`. Nothing free lies above `c` in its column and
- * nothing free lies west of it in its row, so both those rays are clear, and
- * every free path-neighbour of `c` is either east of it or below it. A piece
- * ending at `c` therefore arrives travelling west or south, and exits north or
- * west: clear either way. `chooseCandidate` enumerates `c` twice, as the
- * north-exposed cell of its column and the west-exposed cell of its row.
+ * nothing free lies west of it in its row, so both those rays are clear. Every
+ * free path-neighbour of `c` is therefore east of it or below it, and a piece
+ * ending at `c` arrives from one of them: travelling west from the east
+ * neighbour, or north from the south one. `segDir` is that arrival direction,
+ * so the piece exits west or north — clear either way. `chooseCandidate`
+ * enumerates `c` twice, as the north-exposed cell of its column and the
+ * west-exposed cell of its row.
  *
- * `minPieceLength` narrows that. Writing `c`'s run as `[lo, hi]` at position
- * `p`, taking `[lo, p]` leaves only `[p + 1, hi]` and taking `[p, hi]` leaves
- * only `[lo, p - 1]`, so one of the two is short of the minimum exactly when
- * `p` sits one cell in from both ends — that is, when the run is three cells
- * and `c` is the middle one. `wholeRunEscape` covers that case where it can,
- * by committing a whole run against an exactly-checked ray. Where it cannot,
- * `relaxed` peeling runs anyway rather than failing, and `PeelStats.
- * belowMinimum` counts what it cost.
+ * `minPieceLength` is a target the peel maintains, not a second guarantee.
+ * Writing `c`'s run as `[lo, hi]` and its position as `p`, the two moves that
+ * leave no remnant behind are `[lo, p]` and `[p, hi]`, so both fall short of
+ * the floor only when the run holds fewer than `2 * minPieceLength - 1` cells
+ * with `p` away from both ends. At the default floor of 2 that is a three-cell
+ * run with `c` in the middle, plus the one-cell run where neither move exists;
+ * at larger floors it is a widening family of runs. `wholeRunEscape` covers
+ * what it can by committing a whole run against an exactly-checked ray, and
+ * where even that fails the peel relaxes rather than failing.
+ * `PeelStats.belowMinimum` counts every piece that cost, and is what a caller
+ * should read rather than assuming the floor held.
  *
  * What can degrade is piece quality, not feasibility: when the free set
  * fragments, the lengths on offer shrink. `PeelStats` reports how often that
@@ -413,8 +418,12 @@ export function peelSegments(
    * split anywhere is exempt, as the path itself offers nothing better.
    */
   function cutViolates(e: number): boolean {
-    if (e < 1 || e >= length - 1) return false;
-    if (stepDir[e - 1] !== stepDir[e]) return false;
+    if (e < 0 || e > length - 2) return false;
+    // Cell 0 has no stroke arriving at it, so it is not a corner; every other
+    // corner cut splits nothing straight and is free. Reading stepDir[-1] to
+    // decide that would answer undefined, which compares unequal and would
+    // wave the cut through.
+    if (e >= 1 && stepDir[e - 1] !== stepDir[e]) return false;
     const runFrom = straight.start[e] as number;
     const runTo = straight.end[e] as number;
     const validLo = runFrom + minStraightRun - 1;

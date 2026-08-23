@@ -98,24 +98,35 @@ Postconditions:
   terminal-stroke check for these, which is what makes that sound — and the
   one-cell piece is also what makes the peel unable to stall, since the topmost
   free cell always has a clear northward ray.
-- **No segment is shorter than `params.minPieceLength`** — at the default 2,
-  no segment is a lone arrowhead with no body. A piece is only cut when what it
-  leaves behind is itself long enough to be a legal piece, so the floor is
-  maintained rather than checked afterwards.
 - Mean segment length tracks `params.meanPieceLength`, with
   `params.pieceLengthVariance` as the spread; cuts avoid leaving a straight run
   shorter than `params.minStraightRun` where the path offers an alternative.
+- No segment is shorter than `params.minPieceLength` — at the default 2, no
+  segment is a lone arrowhead with no body. A piece is only cut when what it
+  leaves behind is itself long enough to be a legal piece, so the floor is
+  maintained rather than checked afterwards.
 
-The length floor is nearly, but not quite, a guarantee. Writing the corner
-cell's run as `[lo, hi]` and the cell's position as `p`, the two moves that
-leave nothing behind are `[lo, p]` and `[p, hi]`, so one of them is always
-long enough unless `p` sits one cell in from both ends — a three-cell run with
-the corner in the middle. `wholeRunEscape` covers that where a whole run has a
-clear ray; where it does not, the peel relaxes rather than failing.
-`PeelStats.belowMinimum` counts every piece that cost. Measured at the shipped
-defaults: **0 across 171,233 segments** over 700 boards at gridSizes 40 and
-100, with `wholeRunEscape` never reached on a real board. The heavy sweep
-asserts it per board across 6000 more.
+**The floor is a target, not a postcondition, and `PeelStats.belowMinimum` is
+how a caller tells.** Writing the corner cell's run as `[lo, hi]` and the cell's
+position as `p`, the two moves that leave nothing behind are `[lo, p]` and
+`[p, hi]`, so both fall short only when the run holds fewer than
+`2 * minPieceLength - 1` cells with `p` away from both ends. At the default
+floor of 2 that is a three-cell run with the corner in the middle, plus a
+one-cell run where neither move exists at all; at larger floors it is a
+widening family. `wholeRunEscape` covers what it can by committing a whole run
+against an exactly-checked ray; where even that fails the peel relaxes rather
+than failing. Measured over 40 boards at gridSize 40:
+
+| `minPieceLength` | 2   | 3   | 4   | 6   | 8   |
+| ---------------- | --- | --- | --- | --- | --- |
+| pieces below it  | 0   | 0   | 0   | 2   | 12  |
+
+Zero at the shipped default across 171,233 segments, and the heavy sweep
+asserts it per board across 6000 more. Do not assume it above 3.
+
+The achieved mean is not `meanPieceLength` either, for the same reason: the
+floor truncates the distribution's left tail, so at the shipped spread
+requesting 6 lands around 7.5 while requesting 14 lands on 14.
 
 Everything after the acyclicity postcondition is a preference, and that is the
 trade this design makes: the failure mode moves from "no board" to "an uglier
