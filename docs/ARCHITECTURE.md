@@ -89,7 +89,10 @@ segment has no terminal stroke, so all four directions are legal for it). Pick a
 assignment making the blocking digraph acyclic. This is _not_ 2-SAT — acyclicity
 is not a binary clause — so it is randomized local search over Tarjan SCCs, with
 reverse construction (slide segments in from the edge; reversed insertion order
-is a guaranteed-valid removal order) as the guaranteed fallback. Choosing the far
+is a guaranteed-valid removal order) as the fallback. That fallback is complete
+over the candidate set, so it fails only when the segmentation admits no acyclic
+orientation at all — at which point the recovery is re-segmenting or re-pathing,
+not retrying. See [CONTRACTS.md](./CONTRACTS.md). Choosing the far
 endpoint reverses the segment, which the orienter must report — see
 [CONTRACTS.md](./CONTRACTS.md).
 
