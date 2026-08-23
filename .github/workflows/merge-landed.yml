@@ -1,0 +1,30 @@
+name: Merge landed
+
+# Branch protection stops a merge from taking a stale head. This confirms it
+# did, after the fact and for free, instead of finding out the way #48 did.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Keyed per commit, not per workflow: a constant group holds one run plus one
+# pending, so a third merge in a burst evicts the queued one and that commit is
+# never checked — silently, as a cancelled run.
+concurrency:
+  group: merge-landed-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: node scripts/verify-merge-landed.mjs "${{ github.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

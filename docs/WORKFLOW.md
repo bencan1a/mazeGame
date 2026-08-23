@@ -48,6 +48,18 @@ Milestones map to M0–M5 in the plan.
    cleanly, and not compile together. That is how `main` broke in #62 — one PR
    made a field required while another added a literal that named every field.
 
+   Branch protection enforces this rather than leaving it to be remembered: the
+   branch must be up to date and its checks green, and a push during a merge
+   invalidates the check and greys the button out — which is the window that
+   lost `a6435f1` off #48. Nothing re-runs CI on your PR when `main` moves; that
+   is deliberate, and [ADR-0008](./adr/0008-pr-currency-is-branch-protection-not-ci.md)
+   has the numbers. With several PRs open, every merge makes the rest out of
+   date and it is on you to merge `main` in again.
+
+   After each merge, `.github/workflows/merge-landed.yml` checks that the merged
+   branch's tip is an ancestor of `main`, so a lost mid-merge push is caught
+   while the branch still exists to recover from.
+
 ## File ownership
 
 Concurrency works because streams do not share files. Stay in your lane.
@@ -75,9 +87,28 @@ Shared files are the one place where parallel work can genuinely break. So:
    affects.
 2. Wait for the human to accept it. This is the one place where blocking on a
    human is correct.
-3. Land the type change and the fixture updates in a **single small PR**, on its
+3. **Adding a required field to a shared type? Find every literal construction
+   of that type and fix them in the same PR.** A caller that spreads a defaults
+   object costs nothing; one that names every field instead stops compiling the
+   moment the field exists. That is not hypothetical — #52's own issue said so
+   in writing, nobody checked, and #53 plus #57 broke `main` in the same batch
+   of merges.
+
+   `npm run typecheck` is the check that actually finds them: TypeScript reports
+   every literal in the tree that is now missing a required property. Do not
+   grep for the type name — a literal passed as an argument infers its type from
+   the parameter and never has to mention it. `grep -rn 'BlobParams'` in this
+   repo returns two lines in `blob.ts` and misses all 22 literal calls in
+   `blob.test.ts`. If you grep, grep a **field name** (`grep -rn 'gridSize:'`).
+
+   Neither catches a literal on someone else's open branch, which is what broke
+   #62 — that is what the up-to-date branch requirement is for. The way to make
+   it impossible is an optional field with a default, or callers spreading
+   `DEFAULT_GEN_PARAMS`.
+
+4. Land the type change and the fixture updates in a **single small PR**, on its
    own, with no feature work attached.
-4. Say so in the issues of every stream affected.
+5. Say so in the issues of every stream affected.
 
 A contract PR that also contains feature work will be sent back, because it
 cannot be reviewed for the thing that actually matters.
