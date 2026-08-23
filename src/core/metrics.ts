@@ -1,13 +1,14 @@
 /**
  * Board metrics for the tuning harness.
  *
- * `dagDepth` and the free-set statistics are read off the greedy-clear result
- * that a topological sort of the blocking digraph already produces, rather
- * than walking that digraph a second time.
+ * `dagDepth` and the free-set statistics are read off one greedy clear, rather
+ * than walking the blocking digraph once per statistic. That clear is its own,
+ * not the one `validateBoard` runs — a `Board` carries no record of an earlier
+ * topological sort, so a caller that validates and then measures pays for two.
  */
 
 import { directionBetween } from './grid.js';
-import type { Board, BoardMetrics, Mask } from './types.js';
+import type { Board, BoardMetrics, HamiltonianPath, Mask } from './types.js';
 import { BoardInvariantError } from './types.js';
 import { greedyClear } from './validate/greedyClear.js';
 
@@ -18,7 +19,17 @@ import { greedyClear } from './validate/greedyClear.js';
  * `generateBoard`; `src/core` cannot read a clock itself (`Date.now` is a
  * lint error here), so the caller times the call and passes the reading in.
  */
-export function computeMetrics(board: Board, mask: Mask, generationMs: number): BoardMetrics {
+export interface MetricsContext {
+  /** The silhouette the board was cut from; `coverage` counts against its inside cells. */
+  readonly mask: Mask;
+  /** The walk the segments were cut from; `bendRate` counts corners along it. */
+  readonly path: HamiltonianPath;
+  /** Wall clock around `generateBoard`, timed by the caller. */
+  readonly generationMs: number;
+}
+
+export function computeMetrics(board: Board, context: MetricsContext): BoardMetrics {
+  const { mask, path, generationMs } = context;
   const n = board.segmentCount;
   const clear = greedyClear(board);
   if (clear.stuck.length > 0) {
@@ -55,7 +66,7 @@ export function computeMetrics(board: Board, mask: Mask, generationMs: number): 
     segmentCount: n,
     coverage: coverageOf(board, mask),
     meanSegmentLength: n > 0 ? board.segCells.length / n : 0,
-    bendRate: bendRateOf(board),
+    bendRate: bendRateOf(path, board.width),
     dagDepth,
     meanFreeSetSize: n > 0 ? freeSetTotal / n : 0,
     minFreeSetSize,
@@ -65,6 +76,15 @@ export function computeMetrics(board: Board, mask: Mask, generationMs: number): 
 }
 
 function coverageOf(board: Board, mask: Mask): number {
+  if (board.width !== mask.width || board.height !== mask.height) {
+    throw new BoardInvariantError(
+      `board is ${board.width}x${board.height}, mask is ${mask.width}x${mask.height}`,
+      {
+        board: { width: board.width, height: board.height },
+        mask: { width: mask.width, height: mask.height },
+      },
+    );
+  }
   const size = board.width * board.height;
   let insideCount = 0;
   let coveredCount = 0;
@@ -75,29 +95,15 @@ function coverageOf(board: Board, mask: Mask): number {
   return insideCount > 0 ? coveredCount / insideCount : 0;
 }
 
-/**
- * A segment's tail and head are where the original Hamiltonian path
- * continues into whichever segment was cut next to it, and a `Board` does
- * not record that path adjacency — only the geometry within each segment
- * survives. So "interior" here is interior to a *segment*: cells with both
- * neighbours inside that same segment's own run. A one- or two-cell segment
- * has none.
- */
-function bendRateOf(board: Board): number {
-  let interior = 0;
+/** Corners over interior cells, along the walk itself rather than per segment. */
+function bendRateOf(path: HamiltonianPath, width: number): number {
+  const cells = path.cells;
+  if (cells.length < 3) return 0;
   let corners = 0;
-  for (let id = 1; id <= board.segmentCount; id++) {
-    const from = board.segStart[id - 1] as number;
-    const to = board.segStart[id] as number;
-    for (let k = from + 1; k < to - 1; k++) {
-      const prev = board.segCells[k - 1] as number;
-      const cur = board.segCells[k] as number;
-      const next = board.segCells[k + 1] as number;
-      const dirIn = directionBetween(prev, cur, board.width);
-      const dirOut = directionBetween(cur, next, board.width);
-      interior++;
-      if (dirIn !== dirOut) corners++;
-    }
+  for (let i = 1; i + 1 < cells.length; i++) {
+    const dirIn = directionBetween(cells[i - 1] as number, cells[i] as number, width);
+    const dirOut = directionBetween(cells[i] as number, cells[i + 1] as number, width);
+    if (dirIn !== dirOut) corners++;
   }
-  return interior > 0 ? corners / interior : 0;
+  return corners / (cells.length - 2);
 }
