@@ -127,7 +127,8 @@ export interface Board {
   /**
    * Exit direction per segment. Length n.
    *
-   * Derived from the terminal stroke, not chosen independently. A one-cell
+   * For a segment of two cells or more this is derived from the terminal stroke
+   * rather than chosen independently: picking the head fixes it. A one-cell
    * segment has no terminal stroke, so all four directions are legal for it.
    */
   readonly segDir: Uint8Array;

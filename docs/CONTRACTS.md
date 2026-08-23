@@ -86,9 +86,15 @@ orientSegments(segments, occupancy, width, height, rng): { segHead: Uint32Array;
 ```
 
 The head is one of the segment's two endpoints; `segDir` is the direction of its
-terminal stroke, i.e. the direction it exits in. `segDir` is therefore _derived_,
-not chosen — picking the head fixes it. Orientation's entire search space is one
-bit per segment.
+terminal stroke, i.e. the direction it exits in. So for a segment of two cells or
+more, `segDir` is _derived_ rather than chosen — picking the head fixes it, and
+the segment contributes one bit to orientation's search space.
+
+**A one-cell segment is the exception**: it has no terminal stroke for that rule
+to read, so nothing constrains its direction and all four are legal. An orienter
+must offer all four as candidates for such a segment rather than two, and it
+contributes two bits rather than one. `checkStructure` skips the terminal-stroke
+check for these, which is what makes that sound.
 
 **`segCells` runs tail → head, so the head must be the _last_ cell of the
 segment's slice.** `checkStructure` enforces that. An orienter that picks the
@@ -101,11 +107,6 @@ Returning a head without the flag produces a board `validateBoard` rejects at
 the _structure_ gate, not the acyclicity one — the digraph is perfectly acyclic,
 the polyline just runs the wrong way. That is a quiet failure mode, which is why
 the flag is part of the contract rather than a convention.
-
-**A one-cell segment has no terminal stroke**, so nothing constrains its
-direction: all four are legal, and an orienter must offer all four as candidates
-rather than two. `checkStructure` skips the terminal-stroke check for these,
-which is what makes that sound.
 
 The only hard postcondition is that the resulting blocking digraph is **acyclic**.
 Everything else is a quality preference.
