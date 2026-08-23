@@ -16,7 +16,7 @@
  */
 
 import { createRng } from './rng.js';
-import type { GenParams, Board, GenerateBoard, Seed } from './types.js';
+import type { GenParams, Board, GenerateBoard, HamiltonianPath, Seed } from './types.js';
 import { BoardInvariantError } from './types.js';
 import { generateBlob, repairMask, MaskRepairError } from './mask/index.js';
 import type { Mask } from './types.js';
@@ -72,11 +72,23 @@ export interface GenerateBoardResult {
    * covered cells over *inside* cells, and a `Board` records only the former.
    */
   readonly mask: Mask;
+  /**
+   * The walk the segments were cut from. Carried out because a `Board` records
+   * each segment's own run but not where the walk continued between them, so
+   * a corner at a cut is invisible to anything reading the board alone.
+   */
+  readonly path: HamiltonianPath;
   readonly diagnostics: GenerateBoardDiagnostics;
 }
 
 type AttemptOutcome =
-  | { readonly ok: true; readonly board: Board; readonly mask: Mask; readonly peel: PeelStats }
+  | {
+      readonly ok: true;
+      readonly board: Board;
+      readonly mask: Mask;
+      readonly path: HamiltonianPath;
+      readonly peel: PeelStats;
+    }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -108,6 +120,7 @@ export function generateBoardWithDiagnostics(
       return {
         board: outcome.board,
         mask: outcome.mask,
+        path: outcome.path,
         diagnostics: {
           attempts: attempt + 1,
           attemptFailures: [...attemptFailures],
@@ -229,5 +242,5 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     }
   }
 
-  return { ok: true, board, mask, peel: segments.stats };
+  return { ok: true, board, mask, path, peel: segments.stats };
 }

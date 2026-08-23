@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import type { Board, GenParams, Mask } from './types.js';
+import type { Board, GenParams, HamiltonianPath, Mask } from './types.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import {
   ACYCLIC_BOARD_ART,
@@ -15,18 +15,30 @@ import { createRng, shuffle } from './rng.js';
 import { greedyClear } from './validate/greedyClear.js';
 import { GenerationFailedError, generateBoardWithDiagnostics } from './generate.js';
 import { computeMetrics } from './metrics.js';
+import type { MetricsContext } from './metrics.js';
 
 const { board: acyclicBoard, mask: acyclicMask } = makeBoardAndMask({
   art: ACYCLIC_BOARD_ART,
   walks: ACYCLIC_BOARD_WALKS,
 });
 
+/**
+ * A synthetic board's segments need not join into one walk — ACYCLIC_BOARD's
+ * do not — so bendRate gets an explicit path, and an empty one everywhere it
+ * is not the metric under test.
+ */
+const NO_PATH: HamiltonianPath = { cells: new Uint32Array(0) };
+
+function context(mask: Mask, generationMs = 0, path: HamiltonianPath = NO_PATH): MetricsContext {
+  return { mask, path, generationMs };
+}
+
 describe('computeMetrics on ACYCLIC_BOARD', () => {
   // aaaa   a = {0,1,2,3,7}, b = {9,8,4,5,6} (tail -> head), c = {10,11,15,14,13,12}
   // bbBA   Every one of the 16 cells is inside and covered, so coverage is 1.
   // bbcc   The greedy clear order is c, a, b (see greedyClear.test.ts), with
   // Cccc   depth [a=2, b=3, c=1] and a free set of size 1 at every step.
-  const metrics = computeMetrics(acyclicBoard, acyclicMask, 12.5);
+  const metrics = computeMetrics(acyclicBoard, context(acyclicMask, 12.5));
 
   it('reports segment count and coverage', () => {
     expect(metrics.segmentCount).toBe(3);
@@ -37,15 +49,12 @@ describe('computeMetrics on ACYCLIC_BOARD', () => {
     expect(metrics.meanSegmentLength).toBeCloseTo(16 / 3);
   });
 
-  it('reports bend rate as corners over interior cells across all segments', () => {
-    // a: East,East,East,South at 0->1->2->3->7 — one corner (at cell 3) of 3
-    //    interior cells (1,2,3).
-    // b: West,North,East,East at 9->8->4->5->6 — two corners (8,4) of 3
-    //    interior cells (8,4,5).
-    // c: East,South,West,West,West at 10->11->15->14->13->12 — two corners
-    //    (11,15) of 4 interior cells (11,15,14,13).
-    // 5 corners of 10 interior cells total.
-    expect(metrics.bendRate).toBeCloseTo(0.5);
+  it('reports bend rate as corners over the interior cells of the walk', () => {
+    // 0 -> 1 -> 2 -> 3 -> 7 -> 6 on a 4-wide grid: East, East, East, South,
+    // West. Corners at cells 3 and 7, of 4 interior cells (1, 2, 3, 7).
+    const walk: HamiltonianPath = { cells: Uint32Array.from([0, 1, 2, 3, 7, 6]) };
+    const withWalk = computeMetrics(acyclicBoard, context(acyclicMask, 0, walk));
+    expect(withWalk.bendRate).toBeCloseTo(0.5);
   });
 
   it('reads dagDepth off the longest chain the greedy clear reports', () => {
@@ -72,12 +81,12 @@ describe('computeMetrics on a board with an unvisited cell', () => {
   const { board, mask } = makeBoardAndMask({ art: 'Ao', dirs: { a: 'N' } });
 
   it('excludes the unvisited cell from coverage', () => {
-    const metrics = computeMetrics(board, mask, 0);
+    const metrics = computeMetrics(board, context(mask, 0));
     expect(metrics.coverage).toBeCloseTo(0.5);
   });
 
   it('reports minFreeSetSize as the segment count when nothing ever blocks', () => {
-    const metrics = computeMetrics(board, mask, 0);
+    const metrics = computeMetrics(board, context(mask, 0));
     expect(metrics.minFreeSetSize).toBe(metrics.segmentCount);
     expect(metrics.edgeCount).toBe(0);
   });
@@ -107,7 +116,7 @@ describe('computeMetrics on a board with no segments and a mask with no inside c
       pathCellCount: 0,
     };
 
-    const metrics = computeMetrics(board, mask, 0);
+    const metrics = computeMetrics(board, context(mask, 0));
     expect(metrics.segmentCount).toBe(0);
     expect(metrics.coverage).toBe(0);
     expect(metrics.meanSegmentLength).toBe(0);
@@ -125,9 +134,9 @@ describe('computeMetrics on an unsolvable board', () => {
     ['THREE_CYCLE_BOARD', THREE_CYCLE_BOARD, THREE_CYCLE_BOARD_ART, [1, 2, 3]],
   ])('throws BoardInvariantError naming the stuck segments of %s', (_name, cyclic, art, stuck) => {
     const { mask } = makeBoardAndMask({ art });
-    expect(() => computeMetrics(cyclic, mask, 0)).toThrow(BoardInvariantError);
+    expect(() => computeMetrics(cyclic, context(mask, 0))).toThrow(BoardInvariantError);
     for (const id of stuck) {
-      expect(() => computeMetrics(cyclic, mask, 0)).toThrow(new RegExp(String(id)));
+      expect(() => computeMetrics(cyclic, context(mask, 0))).toThrow(new RegExp(String(id)));
     }
   });
 });
@@ -170,7 +179,7 @@ describe('computeMetrics free-set statistics, cross-checked against greedyClear 
             if (blocked > 0 && freeSize < expectedMin) expectedMin = freeSize;
           }
 
-          const metrics = computeMetrics(board, mask, 0);
+          const metrics = computeMetrics(board, context(mask, 0));
           expect(metrics.dagDepth).toBe(expectedDepth);
           expect(metrics.meanFreeSetSize).toBeCloseTo(expectedTotal / n);
           expect(metrics.minFreeSetSize).toBe(expectedMin);
@@ -191,7 +200,7 @@ describe('computeMetrics free-set statistics, cross-checked against greedyClear 
           unvisited: new Uint8Array(board.width * board.height),
           pathCellCount: board.width * board.height,
         };
-        const metrics = computeMetrics(board, mask, 0);
+        const metrics = computeMetrics(board, context(mask, 0));
         expect(metrics.minFreeSetSize).toBe(n);
       }),
     );
@@ -199,10 +208,12 @@ describe('computeMetrics free-set statistics, cross-checked against greedyClear 
 });
 
 describe('computeMetrics on real generated boards', () => {
-  function boardAndMask(params: GenParams): { board: Board; mask: Mask } | null {
+  function generated(
+    params: GenParams,
+  ): { board: Board; mask: Mask; path: HamiltonianPath } | null {
     try {
-      const { board, mask } = generateBoardWithDiagnostics(params);
-      return { board, mask };
+      const { board, mask, path } = generateBoardWithDiagnostics(params);
+      return { board, mask, path };
     } catch (err) {
       // Below roughly gridSize 12 the mask stage runs out of region to repair
       // and declines for every internal seed. That is its business, not this
@@ -219,10 +230,10 @@ describe('computeMetrics on real generated boards', () => {
         fc.integer({ min: 8, max: 24 }),
         (seed, gridSize) => {
           const params: GenParams = { ...DEFAULT_GEN_PARAMS, seed, gridSize };
-          const generated = boardAndMask(params);
-          fc.pre(generated !== null);
-          const { board, mask } = generated;
-          const metrics = computeMetrics(board, mask, 1);
+          const real = generated(params);
+          fc.pre(real !== null);
+          const { board, mask, path } = real;
+          const metrics = computeMetrics(board, { mask, path, generationMs: 1 });
 
           expect(metrics.segmentCount).toBe(board.segmentCount);
           expect(metrics.coverage).toBeGreaterThanOrEqual(0.99);
@@ -243,13 +254,28 @@ describe('computeMetrics on real generated boards', () => {
     );
   });
 
+  it('reads bendRate off the walk, so cutting the same path differently cannot move it', () => {
+    // The metric exists as ground truth for how bendy the path generator makes
+    // its walks. Measuring it per segment instead drops every cell at a cut,
+    // which made it drift with meanPieceLength on an identical path.
+    const base = { ...DEFAULT_GEN_PARAMS, gridSize: 40, seed: 11 };
+    const rates = [3, 8, 25].map((meanPieceLength) => {
+      const real = generated({ ...base, meanPieceLength });
+      expect(real).not.toBeNull();
+      const { board, mask, path } = real as { board: Board; mask: Mask; path: HamiltonianPath };
+      return computeMetrics(board, { mask, path, generationMs: 0 }).bendRate;
+    });
+    expect(rates[1]).toBeCloseTo(rates[0] as number, 10);
+    expect(rates[2]).toBeCloseTo(rates[0] as number, 10);
+  });
+
   it('is deterministic: the same board and mask produce identical metrics', () => {
     const params: GenParams = { ...DEFAULT_GEN_PARAMS, seed: 42, gridSize: 16 };
-    const generated = boardAndMask(params);
-    expect(generated).not.toBeNull();
-    const { board, mask } = generated as { board: Board; mask: Mask };
-    const first = computeMetrics(board, mask, 3);
-    const second = computeMetrics(board, mask, 3);
+    const real = generated(params);
+    expect(real).not.toBeNull();
+    const { board, mask, path } = real as { board: Board; mask: Mask; path: HamiltonianPath };
+    const first = computeMetrics(board, { mask, path, generationMs: 3 });
+    const second = computeMetrics(board, { mask, path, generationMs: 3 });
     expect(second).toEqual(first);
   });
 });
