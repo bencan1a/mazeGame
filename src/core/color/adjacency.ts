@@ -1,18 +1,6 @@
-/**
- * Segment adjacency: an undirected edge whenever cells of two different
- * segments touch across a 4-neighbour boundary.
- *
- * Not the blocking digraph in `src/core/orient/`, which is directed ("must
- * this be removed before that"). Both are CSR `{start, target}` pairs and are
- * not interchangeable.
- */
 import { EAST, NO_CELL, SOUTH, step, toIndex } from '../grid.js';
 import type { AdjacencyGraph } from './types.js';
 
-/**
- * Takes `occupancy` and dimensions rather than a `Board` so coloring builds and
- * tests without depending on the segmentation stream.
- */
 export function buildAdjacencyGraph(
   occupancy: Uint16Array,
   width: number,
@@ -59,8 +47,8 @@ export function buildAdjacencyGraph(
   let at = 0;
   for (let id = 1; id <= segmentCount; id++) {
     adjStart[id - 1] = at;
-    // Sorted so the CSR slice is byte-identical run to run, not merely correct
-    // as an unordered set (ADR-0004).
+    // Sorted so the slice is byte-identical run to run, not merely correct as
+    // an unordered set.
     const sorted = Array.from(neighbours[id] as Set<number>).sort((a, b) => a - b);
     for (const target of sorted) adjTarget[at++] = target;
   }

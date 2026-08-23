@@ -1,16 +1,6 @@
 /**
- * The validation gate (CONTRACTS.md "validation", PRD §4.2 step 5): a board
- * that has passed this function is the one guarantee PoC goal 1 rests on —
- * never ship an unsolvable board. Runs every check, every time, in dev and in
- * tests; throws `BoardInvariantError` naming the offending segment or cell
- * rather than a bare "invalid board", because the next agent debugging a
- * generator bug needs a place to start looking.
- *
- * Call order matters: each stage assumes the previous one held, so a failure
- * is attributed to the earliest thing actually wrong rather than a symptom.
- *
- * Determinism (the fifth CONTRACTS.md check) is deliberately not here — see
- * determinism.ts for why the signature below cannot carry it.
+ * Call order matters: each check assumes the previous one held, so a failure is
+ * attributed to the earliest thing actually wrong rather than to a symptom.
  */
 
 import type { Board, Mask } from '../types.js';

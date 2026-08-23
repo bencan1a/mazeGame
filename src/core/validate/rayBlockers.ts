@@ -1,15 +1,13 @@
 /**
- * Ground-truth ray walk, deliberately independent of the declared
- * `edgeStart`/`edgeTarget` CSR that `buildBlockingGraph` derives (CONTRACTS.md
- * "blocking digraph"). A bug in that derivation is what validation exists to
- * catch, so "the CSR says X" is not evidence about the board's geometry.
+ * Walks the ray itself rather than reading the declared
+ * `edgeStart`/`edgeTarget` CSR, so the two can be compared.
  */
 
 import { NO_CELL, step } from '../grid.js';
 import type { Board, Direction, SegmentId } from '../types.js';
 import { BoardInvariantError } from '../types.js';
 
-/** Narrow a raw direction value. `segDir` is a `Uint8Array`, so a corrupt board can carry any byte. */
+/** `segDir` is a Uint8Array, so a corrupt board can carry any byte. */
 export function isDirection(dir: number): dir is Direction {
   return dir === 0 || dir === 1 || dir === 2 || dir === 3;
 }
@@ -17,8 +15,8 @@ export function isDirection(dir: number): dir is Direction {
 /**
  * The distinct other segments on segment `id`'s exit ray, in ray order.
  *
- * The direction is checked before the first step. `step()` answers NO_CELL for
- * an out-of-range one (#38), so the walk would find nothing and the segment
+ * The direction is checked before the first step: `step()` answers NO_CELL for
+ * an out-of-range one, so an unchecked walk would find nothing and the segment
  * would read as free rather than as corrupt.
  */
 export function rayBlockers(board: Board, id: SegmentId): SegmentId[] {

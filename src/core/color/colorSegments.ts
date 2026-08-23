@@ -1,24 +1,8 @@
-/**
- * Greedy graph coloring over the segment adjacency graph (PRD §3.3, §4.2
- * step 6).
- *
- * Emits palette *indices*, not colours: which RGB a hue maps to is a render
- * concern, and `src/core` has no notion of what a hue looks like (ADR-0004).
- *
- * The PRD's "4-6 hues" is the planar degeneracy bound, not a taste call. A
- * segment adjacency graph built from a tiling of the plane is planar, every
- * planar graph has degeneracy <= 5, and colouring in reverse smallest-last
- * order therefore never needs more than 6 hues on a real board. A hand-built
- * or malformed graph can still exceed it; that throws rather than reusing a
- * hue, because a reused hue only ever surfaces as a player who cannot tell
- * two pieces apart.
- */
 import type { AdjacencyGraph } from './types.js';
 
-/** Number of palette hues the render layer promises (PRD §3.3: 4-6). */
 export const DEFAULT_PALETTE_SIZE = 6;
 
-/** Colours are returned in a Uint8Array, so the largest index that fits is 255. */
+/** Colours come back in a Uint8Array, so 255 is the largest index that fits. */
 export const MAX_PALETTE_SIZE = 256;
 
 export class ColoringError extends Error {
@@ -34,10 +18,6 @@ export class ColoringError extends Error {
 /**
  * Assigns each segment a palette index in `[0, paletteSize)` such that no two
  * adjacent segments share one.
- *
- * `adjacency` is checked rather than trusted: a malformed graph produces a
- * colouring that violates that property silently, and the caller has no way to
- * tell it from a good one.
  */
 export function colorSegments(
   adjacency: AdjacencyGraph,
@@ -58,8 +38,6 @@ export function colorSegments(
   const colors = new Uint8Array(segmentCount);
   const assigned = new Uint8Array(segmentCount); // 0/1 flag; id 0 is itself a legitimate colour
 
-  // Reverse of the peeling order — last removed is coloured first — is what
-  // makes the degeneracy bound apply.
   for (let k = order.length - 1; k >= 0; k--) {
     const id = order[k] as number;
     const start = adjacency.adjStart[id - 1] as number;
@@ -84,14 +62,6 @@ export function colorSegments(
   return colors;
 }
 
-/**
- * Smallest-last (degeneracy) ordering: repeatedly remove the
- * currently-lowest-degree vertex and record the order removed in.
- *
- * `segmentCount` on a real board is at most a few thousand, so the O(n^2) scan
- * for the minimum remaining degree stays well inside the generator's 1s budget
- * and is far easier to verify than a bucket-queue peeling structure.
- */
 function smallestLastOrder(adjacency: AdjacencyGraph, segmentCount: number): Uint32Array {
   const { adjStart, adjTarget } = adjacency;
   const degree = new Uint32Array(segmentCount);
@@ -156,8 +126,7 @@ function assertWellFormed(adjacency: AdjacencyGraph, segmentCount: number): void
         throw new ColoringError(`segment ${id} is adjacent to itself`);
       }
       const edge = id * (segmentCount + 1) + neighbour;
-      // A duplicate double-decrements `degree` in smallestLastOrder, breaking
-      // the degeneracy ordering the <= 6 bound rests on.
+      // A duplicate would double-decrement `degree` in smallestLastOrder.
       if (edges.has(edge)) {
         throw new ColoringError(`segment ${id} lists segment ${neighbour} more than once`);
       }

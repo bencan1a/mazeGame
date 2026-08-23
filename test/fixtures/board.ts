@@ -9,12 +9,9 @@
  *     bbcc
  *     Cccc
  *
- * Everything else is derived from the picture, because everything else is
- * forced by it. A segment is a simple path, so naming the head fixes the
- * tail -> head order of segCells; the contract defines segDir as the terminal
- * stroke, so the last two cells fix the exit direction; and the blocking edges
- * are whatever the exit ray hits. A spec that had to restate any of those
- * would be a spec that could contradict its own picture.
+ * Everything else is derived, because the picture forces it: naming the head
+ * fixes the tail -> head order of segCells, the last two cells fix the exit
+ * direction, and the blocking edges are whatever the exit ray hits.
  */
 
 import { DIRECTIONS, NO_CELL, directionBetween, opposite, step } from '../../src/core/grid.js';
@@ -24,7 +21,7 @@ import { toRows } from './art.js';
 import { INSIDE_CHAR, OUTSIDE_CHAR, UNVISITED_CHAR, makeMask } from './mask.js';
 import { rayBlockers } from './postconditions.js';
 
-/** Number of hues the greedy colouring may use (PRD: 4-6). */
+/** Number of hues the greedy colouring may use. */
 export const PALETTE_SIZE = 6;
 
 const DIRECTION_OF: Readonly<Record<string, Direction>> = { N: 0, E: 1, S: 2, W: 3 };
@@ -43,16 +40,14 @@ export interface BoardSpec {
    * directions taken from its tail to its head, keyed by the lowercase letter.
    *
    * Needed when a segment has a *chord* — two of its cells adjacent in the grid
-   * but not consecutive in the walk. Any segment cut from a space-filling path
-   * that doubles back on itself has them, so this is the ordinary case for a
-   * realistic fixture, not an exotic one. Without the walk the cell set admits
-   * more than one ordering, and the renderer draws whichever one it is given.
+   * but not consecutive in the walk — because the cell set then admits more
+   * than one ordering.
    */
   readonly walks?: Readonly<Record<string, string>>;
   /**
-   * Replace the derived blocking edges with `[from, to]` pairs of 1-based ids.
-   * For building boards whose CSR deliberately disagrees with their geometry —
-   * validateBoard needs failing cases too. Leave it out for real boards.
+   * Replace the derived blocking edges with `[from, to]` pairs of 1-based ids,
+   * for boards whose CSR deliberately disagrees with their geometry. Leave it
+   * out for real boards.
    */
   readonly edges?: readonly (readonly [number, number])[];
   readonly params?: Partial<GenParams>;
@@ -70,10 +65,8 @@ export function makeBoard(spec: BoardSpecLike): Board {
 }
 
 /**
- * Build a Board together with the Mask it covers.
- *
- * `validateBoard(board, mask)` takes both, so they have to come from one source
- * or a test ends up asserting against a disagreement it introduced itself.
+ * Build a Board together with the Mask it covers, from one source, so a test
+ * cannot assert against a disagreement it introduced itself.
  */
 export function makeBoardAndMask(spec: BoardSpecLike): { board: Board; mask: Mask } {
   const { art, dirs, walks, edges, params } = toSpec(spec);
@@ -189,11 +182,9 @@ export function makeBoardAndMask(spec: BoardSpecLike): { board: Board; mask: Mas
 }
 
 /**
- * Walk the segment from its tail to its head.
- *
- * The cell set plus the head determines the walk only when the segment has no
- * chord. When it has one the walk is genuinely ambiguous, so this asks for
- * `walks` rather than picking one and letting the renderer draw the other.
+ * Walk the segment from its tail to its head. The cell set plus the head
+ * determines this only when the segment has no chord; with one the walk is
+ * genuinely ambiguous, so `walks` has to supply it.
  */
 function orderTailToHead(
   key: string,

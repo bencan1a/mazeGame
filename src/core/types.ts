@@ -1,13 +1,8 @@
 /**
  * Shared vocabulary for the whole generator pipeline.
  *
- * Every stage in `mask -> path -> segmentation -> orientation -> validation -> colors`
- * consumes and produces types declared here. Streams working in parallel code
- * against this file and nothing else, so a change here is a cross-stream change:
- * it needs a `contract-change` issue and human review (see docs/WORKFLOW.md).
- *
- * Layout conventions that the whole codebase depends on:
- *   - A cell index is `y * width + x`. There is no {x, y} object anywhere hot.
+ * Layout conventions the rest of the codebase indexes against:
+ *   - A cell index is `y * width + x`.
  *   - Segment ids are 1-based. Id 0 in `occupancy` means "empty cell".
  *   - Directions are 0=North(-y) 1=East(+x) 2=South(+y) 3=West(-x).
  */
@@ -18,35 +13,29 @@ export type CellIndex = number;
 /** 1-based. 0 is reserved for "no segment". */
 export type SegmentId = number;
 
-/** 0=N, 1=E, 2=S, 3=W. See DIRECTIONS in grid.ts. */
+/** 0=N, 1=E, 2=S, 3=W. */
 export type Direction = 0 | 1 | 2 | 3;
 
 /** Unsigned 32-bit. */
 export type Seed = number;
 
-/**
- * The complete input to the generator. A board is a pure function of this
- * object and nothing else (ADR-0004).
- */
+/** The complete input to the generator. */
 export interface GenParams {
-  /** Square board edge length, 20..100. */
+  /** Square board edge length. */
   readonly gridSize: number;
   readonly seed: Seed;
   /** Target mean segment length in cells. */
   readonly meanPieceLength: number;
   /** Spread of the segment-length distribution, in cells (std-dev-like). */
   readonly pieceLengthVariance: number;
-  /** 0..1 target bend rate for the space-filling path. See R1. */
+  /** 0..1 target bend rate for the space-filling path. */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
   readonly minStraightRun: number;
   /**
    * Fraction of the grid the raw silhouette aims to occupy, before repair
-   * trims it. 0.05..0.85.
-   *
-   * Approximate by design: the blob's boundary is perturbed into an organic
-   * shape, so the achieved area only tracks this loosely. It is a tuning dial
-   * for how much of the screen the puzzle fills, not an area guarantee.
+   * trims it. A tuning dial, not an area guarantee: the boundary is perturbed
+   * into an organic shape, so achieved area tracks this only loosely.
    */
   readonly fillFraction: number;
 }
@@ -77,8 +66,8 @@ export const DEFAULT_PLAY_PARAMS: PlayParams = {
  *
  * `inside[i] === 1` means the cell belongs to the silhouette.
  * `unvisited[i] === 1` means the cell is inside the silhouette but is
- * deliberately left off the Hamiltonian path to fix checkerboard parity
- * (PRD §4.2 step 1.6). Such cells are inside but never covered.
+ * deliberately left off the Hamiltonian path to fix checkerboard parity, so it
+ * is inside and never covered.
  */
 export interface Mask {
   readonly width: number;
@@ -97,10 +86,7 @@ export interface HamiltonianPath {
   readonly cells: Uint32Array;
 }
 
-/**
- * The finished board. All flat typed arrays in CSR form (ADR-0003) — no
- * per-segment objects, no per-cell objects, at any board size.
- */
+/** The finished board: flat typed arrays in CSR form, no per-cell objects. */
 export interface Board {
   readonly width: number;
   readonly height: number;
@@ -130,13 +116,13 @@ export interface Board {
   readonly segColor: Uint8Array;
 }
 
-/** Numbers the tuning harness reports. See docs/METRICS.md. */
+/** Numbers the tuning harness reports. */
 export interface BoardMetrics {
   readonly segmentCount: number;
-  /** Covered cells / inside cells. Target >= 0.99 (PRD §3.1). */
+  /** Covered cells / inside cells. */
   readonly coverage: number;
   readonly meanSegmentLength: number;
-  /** Fraction of interior path cells that are corners. Ground truth for R1. */
+  /** Fraction of interior path cells that are corners. */
   readonly bendRate: number;
   /** Longest chain in the blocking DAG. */
   readonly dagDepth: number;
@@ -148,7 +134,7 @@ export interface BoardMetrics {
   readonly generationMs: number;
 }
 
-/** Thrown by validation. Fails loudly in dev (PRD §4.2 step 5). */
+/** Thrown by validation. */
 export class BoardInvariantError extends Error {
   constructor(
     message: string,

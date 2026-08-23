@@ -1,9 +1,7 @@
 /**
- * A random spanning tree over the "full" 2x2 blocks of a tileable region (see
- * tiling.ts): the recursive-backtracker maze algorithm, written iteratively so
- * a 100x100 mask's 2500 blocks cannot blow the call stack. Not uniform over
- * all spanning trees — random, connected and linear time is all the contour
- * trace needs.
+ * A random spanning tree over the "full" 2x2 blocks of a region: the
+ * recursive-backtracker maze algorithm, written iteratively so a few thousand
+ * blocks cannot blow the call stack. Not uniform over all spanning trees.
  */
 
 import { DIRECTIONS, NO_CELL, opposite, step } from '../grid.js';
@@ -22,7 +20,7 @@ export function buildSpanningTree(
   halfWidth: number,
   halfHeight: number,
   rng: Rng,
-  /** Row-major index of the block to root at; `TilingOk.firstFullBlock`. -1 when there is none. */
+  /** Row-major index of the block to root at, or -1 when there is none. */
   start: number,
 ): SpanningTree {
   const open = new Uint8Array(blockFull.length * 4);

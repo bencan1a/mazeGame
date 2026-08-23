@@ -1,5 +1,3 @@
-/** Public surface of the S2 path-fill stage. */
-
 export type { ContourFailed, ContourOk, ContourResult } from './contour.js';
 export { buildContourPath } from './contour.js';
 export type { TilingFailed, TilingOk, TilingResult } from './tiling.js';

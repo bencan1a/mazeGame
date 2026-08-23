@@ -4,8 +4,7 @@ import { DEFAULT_GEN_PARAMS } from '../types.js';
 import { makeMask, makePath } from '../../../test/fixtures/index.js';
 import { segmentPath } from './index.js';
 
-// The barrel re-export is what every other stream imports from; a direct
-// deep import of segmentPath.ts elsewhere would not catch it going stale.
+// Every other test file imports directly, so only this catches a bad re-export.
 describe('segment barrel export', () => {
   it('re-exports a working segmentPath', () => {
     const mask = makeMask({ width: 6, height: 1 });

@@ -145,9 +145,6 @@ describe('directions that survive past the type system', () => {
   });
 
   it('terminates a ray walk instead of spinning on it', () => {
-    // The blocking digraph walks a ray to the board edge. Before this guard,
-    // step() returned NaN, NaN !== NO_CELL held at every iteration, and the
-    // loop never ended.
     let cell = step(12, 255 as Direction, W, H);
     let guard = 0;
     while (cell !== NO_CELL && guard < 1000) {

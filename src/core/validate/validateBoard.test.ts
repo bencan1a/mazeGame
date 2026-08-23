@@ -70,7 +70,7 @@ describe('validateBoard', () => {
     expect(() => validateBoard(broken, acyclicMask)).toThrow(/terminal stroke/);
   });
 
-  it('guards a corrupt segDir before walking a ray, rather than looping forever', () => {
+  it('names a corrupt segDir rather than reporting the segment as unblocked', () => {
     // segDir is a Uint8Array, so 255 is a value it can carry with no type error
     // to catch it. An unguarded walk finds no blockers and the segment reads as
     // free, so the corruption has to be named here instead.

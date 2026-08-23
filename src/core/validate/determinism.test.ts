@@ -4,10 +4,7 @@ import { BoardInvariantError } from '../types.js';
 import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../../test/fixtures/index.js';
 import { assertDeterministic } from './determinism.js';
 
-/**
- * Covers `assertDeterministic` itself, on two boards. Wiring it to a real
- * generator is #14's, as `assertDeterministic(generateBoard(p), generateBoard(p))`.
- */
+/** Covers `assertDeterministic` itself, on two boards built by hand. */
 describe('assertDeterministic', () => {
   it('accepts two structurally-equal boards, including a fresh clone of every array', () => {
     const clone: Board = {

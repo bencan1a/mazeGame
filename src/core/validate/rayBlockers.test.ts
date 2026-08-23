@@ -45,7 +45,7 @@ describe('rayBlockers', () => {
   });
 
   it('throws naming the segment when its direction is out of range, before walking', () => {
-    // step() answers NO_CELL outside 0..3 (#38), so an unguarded walk reports
+    // step() answers NO_CELL outside 0..3, so an unguarded walk would report
     // no blockers. This must throw before the first step instead.
     const segDir = Uint8Array.from(ACYCLIC_BOARD.segDir);
     segDir[0] = 200;

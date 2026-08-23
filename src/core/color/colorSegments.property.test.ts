@@ -1,14 +1,9 @@
 /**
- * The property the whole coloring stage exists for: two segments that touch
- * on the grid never end up sharing a palette index.
+ * Two segments that touch on the grid never share a palette index.
  *
- * The boards are synthesised, not generated — #8/#9 do not exist yet, and
- * re-running the three fixed fixtures 500 times would test one graph 500
- * times. A randomized multi-source flood fill is a fair proxy for the only
- * structure this stage cares about: each region is a connected subset of the
- * grid, so the region-adjacency graph is planar for the same reason a real
- * one is. It reproduces none of segmentation's own logic (piece length,
- * straight-run constraints) and does not need to.
+ * The boards are synthesised by randomized multi-source flood fill, which
+ * reproduces the only structure this stage reads — which regions touch which —
+ * and none of segmentation's own logic.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
@@ -97,10 +92,8 @@ describe('colorSegments property: adjacent segments never share a hue', () => {
         const adjacency = buildAdjacencyGraph(occupancy, width, height, segmentCount);
         const colors = colorSegments(adjacency, segmentCount);
 
-        // Check the property directly against the grid, not just by trusting
-        // buildAdjacencyGraph agrees with itself — that would only prove the
-        // two functions are consistent with each other, not that the board is
-        // actually readable.
+        // Checked against the grid rather than against buildAdjacencyGraph,
+        // which would only prove the two agree with each other.
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             const i = y * width + x;

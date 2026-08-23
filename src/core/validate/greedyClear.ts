@@ -3,12 +3,8 @@
  * `edgeTarget`) — Kahn's algorithm, i.e. exactly a simulated greedy clear: a
  * segment is free the moment every segment it depends on is gone.
  *
- * `dagDepth` and the free-set statistics in `BoardMetrics` (#15) are byproducts
- * of this same traversal, so `computeMetrics` should read `depth`/`freeSetSizes`
- * off the result rather than walking the graph a second time.
- *
- * Never throws, so metrics can run it on a board that has not been through
- * `validateBoard`; an unsatisfiable board comes back as a non-empty `stuck`.
+ * Never throws: an unsatisfiable board comes back as a non-empty `stuck`, so
+ * this can also run on a board that has not been validated.
  */
 
 import type { Board, SegmentId } from '../types.js';

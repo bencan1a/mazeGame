@@ -40,7 +40,6 @@ export default tseslint.config(
   },
   {
     // The generator must never touch React, the DOM, or the clock.
-    // See docs/adr/0004-generator-purity.md.
     files: ['src/core/**/*.ts', 'src/harness/**/*.ts'],
     rules: {
       'no-restricted-globals': [

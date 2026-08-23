@@ -2,10 +2,9 @@
 /**
  * Bundle size budget.
  *
- * Offline is a first-class requirement and every byte is precached on a phone,
- * so bundle growth is one of the few genuinely useful performance signals CI
- * can produce on its own. It is a regression guard, not a substitute for the
- * device measurements in docs/TESTING.md.
+ * Every byte is precached on a phone, so bundle growth is one of the few
+ * performance signals CI can produce on its own. A regression guard, not a
+ * substitute for measuring on a device.
  *
  *   npm run build && node scripts/check-budget.mjs
  */

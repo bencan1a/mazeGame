@@ -9,9 +9,7 @@ import type { BlockingGraphInput } from './blocking.js';
 import { buildBlockingGraph } from './blocking.js';
 
 describe('hand-checked fixtures (docs/CONTRACTS.md "blocking digraph")', () => {
-  // The same expected arrays board.test.ts asserts against the fixtures by
-  // hand. Matching them here is not derived-from-derived: the fixtures' edges
-  // come from the postconditions helper, not from this module.
+  // Hand-derived from the fixture pictures, not from this module's output.
   it('ACYCLIC_BOARD: a -> c (south), b -> a (east), c -> nothing (west, off the board)', () => {
     const graph = buildBlockingGraph(ACYCLIC_BOARD);
     expect(Array.from(graph.edgeStart)).toEqual([0, 1, 2, 2]);
@@ -85,8 +83,8 @@ describe('CSR shape', () => {
   });
 });
 
-describe('the step() NaN hazard (issue #38)', () => {
-  it('throws instead of walking a ray forever when segDir is out of range', () => {
+describe('a segDir outside 0..3', () => {
+  it('throws rather than reporting the segment as unblocked', () => {
     // segDir is a Uint8Array: writing -1 into it silently stores 255. step()
     // answers NO_CELL for a direction outside 0..3, so an unguarded walk would
     // report no blockers at all — indistinguishable from a genuinely free
@@ -104,11 +102,8 @@ describe('the step() NaN hazard (issue #38)', () => {
 });
 
 describe('property: buildBlockingGraph over arbitrary small grids', () => {
-  // Random occupancy grids, random segment heads and (valid) directions. None
-  // of these are realistic boards - occupancy need not form contiguous
-  // segments - but buildBlockingGraph only reads occupancy, segHead and
-  // segDir, and every invariant it owns must hold regardless of what put
-  // those cells there.
+  // Not realistic boards — occupancy need not form contiguous segments — but
+  // buildBlockingGraph reads only occupancy, segHead and segDir.
   const arbitraryInput = fc
     .record({
       width: fc.integer({ min: 1, max: 6 }),
@@ -234,10 +229,8 @@ function rowOf(graph: { edgeStart: Uint32Array; edgeTarget: Uint32Array }, id: n
 
 describe('construction time at 100x100', () => {
   it('builds the blocking graph for a full 100x100 board well under a second', () => {
-    // A realistic-shaped input without a segmentation stage: a boustrophedon
-    // path cut into fixed-length chunks. 10000 / 20 = 500 segments, near
-    // DEFAULT_GEN_PARAMS.meanPieceLength; exact shape does not move the
-    // asymptotics this measures.
+    // A boustrophedon path cut into fixed-length chunks: 10000 / 20 = 500
+    // segments. Exact segment shape does not move what this measures.
     const size = 100;
     const chunkLength = 20;
     const mask = makeMask({ width: size, height: size });
@@ -271,7 +264,7 @@ describe('construction time at 100x100', () => {
     const graph = buildBlockingGraph(input);
     const elapsedMs = performance.now() - t0;
 
-    // A regression guard, not a measurement to cite — see docs/TESTING.md.
+    // A regression guard, not a measurement to cite.
     console.info(
       `buildBlockingGraph 100x100 (${segmentCount} segments): ${elapsedMs.toFixed(3)}ms`,
     );

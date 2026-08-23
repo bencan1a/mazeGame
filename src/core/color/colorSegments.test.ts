@@ -106,9 +106,7 @@ describe('colorSegments', () => {
   });
 
   it('reports rather than silently reusing a hue when the palette is too small', () => {
-    // K_7 needs 7 mutually-distinct colours; a real board's adjacency graph is
-    // planar and can never demand this, but a malformed one must fail loudly
-    // rather than quietly hand back a board two adjacent pieces share a hue on.
+    // K_7 needs 7 mutually-distinct colours, one more than the palette holds.
     const adjacency = completeGraph(7);
     expect(() => colorSegments(adjacency, 7)).toThrow(ColoringError);
     expect(() => colorSegments(adjacency, 7)).toThrow(/palette only holds 6/);
@@ -222,9 +220,7 @@ describe('malformed input is rejected, not coloured badly', () => {
 
 describe('duplicate adjacency entries', () => {
   it('rejects a neighbour listed twice, which would corrupt the ordering', () => {
-    // A duplicate double-decrements degree during peeling, so the ordering
-    // stops being a true degeneracy ordering and the <= 6 bound no longer
-    // follows from it.
+    // A duplicate would double-decrement degree during peeling.
     const bad: AdjacencyGraph = {
       adjStart: Uint32Array.from([0, 2, 3]),
       adjTarget: Uint32Array.from([2, 2, 1]),

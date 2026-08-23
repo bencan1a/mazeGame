@@ -1,7 +1,4 @@
-/**
- * Grid index arithmetic. A cell is a single number, `y * width + x`; nothing in
- * the hot path allocates an {x, y} pair.
- */
+/** Grid index arithmetic. A cell is a single number, `y * width + x`. */
 
 import type { CellIndex, Direction } from './types.js';
 
@@ -33,10 +30,7 @@ export function opposite(dir: Direction): Direction {
   return ((dir + 2) & 3) as Direction;
 }
 
-/**
- * Direction you travel to get from `from` to `to`. Both must be 4-neighbours.
- * Returns -1 if they are not.
- */
+/** Direction travelled from `from` to `to`, or -1 if they are not neighbours. */
 export function directionBetween(from: CellIndex, to: CellIndex, width: number): Direction | -1 {
   const dx = xOf(to, width) - xOf(from, width);
   const dy = yOf(to, width) - yOf(from, width);
@@ -54,10 +48,10 @@ export const NO_CELL = -1;
  * Neighbour of `index` in `dir`, or NO_CELL if that step leaves the grid.
  * Guards the row wrap that plain index arithmetic would silently allow.
  *
- * A direction outside 0..3 also answers NO_CELL. `Direction` survives into
- * `Board.segDir`, a Uint8Array, where the type is gone and -1 arrives as 255;
- * unguarded, the arithmetic yields NaN, every bounds comparison is false, and
- * a `while (cell !== NO_CELL)` ray walk never terminates.
+ * `dir` outside 0..3 also answers NO_CELL. It gets here despite the type: a
+ * Direction stored in a Uint8Array loses it, and -1 reads back as 255. Without
+ * the `undefined` guard the arithmetic yields NaN, every bounds comparison is
+ * false for NaN, and the caller gets NaN rather than NO_CELL.
  */
 export function step(index: CellIndex, dir: Direction, width: number, height: number): CellIndex {
   const dx = DX[dir];
@@ -75,15 +69,14 @@ export function isBorder(index: CellIndex, width: number, height: number): boole
   return x === 0 || y === 0 || x === width - 1 || y === height - 1;
 }
 
-/** Checkerboard colour of a cell: 0 or 1. Hamiltonian-path parity depends on it. */
+/** Checkerboard colour of a cell: 0 or 1. */
 export function parityOf(index: CellIndex, width: number): 0 | 1 {
   return (((index % width) + Math.floor(index / width)) & 1) as 0 | 1;
 }
 
 /**
- * Number of steps from `index` to the grid edge travelling in `dir`, exclusive
- * of `index`. NO_CELL for a direction outside 0..3 — see `step()` for how one
- * gets here.
+ * Steps from `index` to the grid edge travelling in `dir`, exclusive of
+ * `index`. NO_CELL for a `dir` outside 0..3, as `step()`.
  */
 export function stepsToEdge(
   index: CellIndex,

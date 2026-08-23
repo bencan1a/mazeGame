@@ -1,13 +1,7 @@
 /**
- * `occupancy` and the per-segment CSR (`segStart`/`segCells`/`segHead`/`segDir`)
- * must agree in both directions:
- *
- *   - every occupied cell's segment must list that cell (occupancy -> CSR)
- *   - every cell a segment lists must be occupied by that segment, in order,
- *     as a connected walk (CSR -> occupancy)
- *
- * This is the structural half of validation. It does not touch the blocking
- * edges (see edges.ts) or the mask (see coverage.ts).
+ * `occupancy` and the per-segment CSR must agree in both directions: every
+ * occupied cell is listed by its segment, and every cell a segment lists is
+ * occupied by it, in order, as a connected walk.
  */
 
 import { directionBetween } from '../grid.js';
@@ -82,8 +76,8 @@ export function checkStructure(board: Board): void {
       }
     }
 
-    // segCells runs tail -> head (CONTRACTS.md), so the head is the last cell
-    // and segDir is the stroke that arrives at it.
+    // segCells runs tail -> head, so the head is the last cell and segDir is
+    // the stroke that arrives at it.
     const head = board.segCells[to - 1] as number;
     if (board.segHead[id - 1] !== head) {
       throw new BoardInvariantError(
@@ -113,8 +107,8 @@ export function checkStructure(board: Board): void {
       }
     }
 
-    // A head on the border pointing outward has no blockers at all. Legal
-    // (see ACYCLIC_BOARD's `c`), so nothing further is checked here.
+    // A head on the border pointing outward has no blockers at all, which is
+    // legal, so nothing further is checked here.
   }
 
   if (covered !== listedCells) {

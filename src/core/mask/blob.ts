@@ -1,35 +1,12 @@
-/**
- * Procedural blob generator (S1, issue #2; half-resolution rework, issue #58).
- *
- * The *raw* silhouette only — the first half of PRD §4.2 step 1. Output is
- * allowed to be disconnected or spurred; largest-component extraction, opening,
- * hole fill (#3) and parity absorption (#4) are separate stages, so this file
- * does not satisfy the `Mask` postconditions in docs/CONTRACTS.md.
- *
- * The silhouette is drawn on a half-resolution lattice and each cell upscaled
- * into a 2x2 block. That is what makes every region block-aligned to lattice
- * offset (0, 0) by construction, which the contour path fill (#5) requires; an
- * organic boundary drawn at full resolution essentially never tiles (measured
- * 0/300 on the previous full-resolution generator). The accepted trade is an
- * outline pixelated at 2-cell rather than 1-cell resolution — the harmonics
- * still run on the half-resolution lattice, so the shape is coarser in outline,
- * not simpler.
- */
-
 import { toIndex } from '../grid.js';
 import { createRng, type Rng } from '../rng.js';
 import type { Seed } from '../types.js';
 
 export interface BlobParams {
-  /** Square board edge length. See GenParams.gridSize. */
+  /** Square board edge length. */
   readonly gridSize: number;
   readonly seed: Seed;
-  /**
-   * Target fraction of the grid the raw blob should occupy, before repair
-   * trims it. Clamped rather than rejected at the extremes: near 0 is
-   * near-empty and near 1 looks rectangular, but both are safe — repair
-   * downstream assumes no particular fraction survived.
-   */
+  /** Target fraction of the grid the raw blob occupies. Clamped, not rejected. */
   readonly fillFraction?: number;
 }
 
@@ -64,14 +41,7 @@ interface Harmonic {
   readonly phase: number;
 }
 
-/**
- * Half of `gridSize`, rounded down, floored to 1. The PRD's grid-size range
- * (20..100, ADR-0006) does not promise even numbers, so odd sizes round down
- * and leave a full-resolution row and column past `2 * halfSize` outside the
- * lattice; `upscale2x` never writes there, so that strip stays outside the
- * silhouette. The floor of 1 keeps `gridSize` 1 non-empty; 0 is rejected by
- * `generateBlob`.
- */
+/** Floored to 1 so that `gridSize` 1 still has a lattice to draw on. */
 function halfResSize(gridSize: number): number {
   return Math.max(1, Math.floor(gridSize / 2));
 }
@@ -99,20 +69,9 @@ export function generateBlob(params: BlobParams): Blob {
   return upscale2x(half, gridSize, gridSize);
 }
 
-/**
- * The lattice is a parameter so that mask repair (#3) can run at half
- * resolution too, before the upscale. That ordering is the intended one:
- * erosion or dilation on an already-upscaled region can shave one cell off a
- * 2x2 block and break the alignment `upscale2x` guarantees, where the same
- * operation at half resolution stays in whole-block units. Nothing enforces
- * the ordering yet — this only avoids foreclosing it.
- */
 function generateRadialBlob(width: number, height: number, rng: Rng, fillFraction: number): Blob {
   // Drawn before fillFraction is read, so lobe count, position and depth
-  // depend on the seed alone. fillFraction then scales the shape — but not
-  // purely, since the centre jitter below is a fraction of baseRadius. Area is
-  // therefore monotone in fillFraction only empirically; blob.test.ts asserts
-  // it rather than the construction guaranteeing it.
+  // depend on the seed alone.
   const harmonicCount = MIN_HARMONICS + rng.int(MAX_HARMONICS - MIN_HARMONICS + 1);
   const harmonics: Harmonic[] = [];
   for (let k = 0; k < harmonicCount; k++) {
@@ -150,9 +109,7 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
     }
   }
 
-  // Non-empty by construction rather than by likelihood. Forcing it here
-  // rather than after the upscale is enough: a forced-inside half-resolution
-  // cell upscales to a forced-inside 2x2 block.
+  // Non-empty by construction rather than by likelihood.
   const centreX = clampIndex(Math.round(cx - 0.5), width);
   const centreY = clampIndex(Math.round(cy - 0.5), height);
   inside[toIndex(centreX, centreY, width)] = 1;
@@ -161,13 +118,10 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
 }
 
 /**
- * Maps every `half` cell to the 2x2 block at `(2*hx, 2*hy)`, which is what
- * makes the output block-aligned to lattice offset (0, 0) unconditionally —
- * the contour path fill (#5) then succeeds on its first offset.
+ * Maps every `half` cell to the 2x2 block at `(2*hx, 2*hy)`.
  *
- * `fullWidth`/`fullHeight` may exceed twice the half dimensions when
- * `gridSize` is odd. The leftover row and column are never written, so they
- * stay outside and can never become a path cell no 2x2 block covers.
+ * `fullWidth`/`fullHeight` may exceed twice the half dimensions when the grid
+ * size is odd; the leftover row and column are left as they came in.
  */
 function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
   const inside = new Uint8Array(fullWidth * fullHeight);

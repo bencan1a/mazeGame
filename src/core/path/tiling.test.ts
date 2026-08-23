@@ -73,8 +73,7 @@ describe('classifyTiling', () => {
   });
 
   it('still rejects a 2x2 block that is partly absorbed and partly on the path, at every offset', () => {
-    // A lone block with one absorbed corner has no offset that avoids routing
-    // the contour through a cell that must stay off the path.
+    // A lone block with one absorbed corner is mixed at every offset.
     const mask = makeMask(['o#', '##'].join('\n'));
     const result = classifyTiling(mask);
     expect(result.ok).toBe(false);
@@ -116,8 +115,7 @@ describe('classifyTiling', () => {
 
 describe('classifyTiling: trusting mask.pathCellCount without reconciling it (regression)', () => {
   // Deliberately malformed: mask.pathCellCount disagrees with what
-  // `inside`/`unvisited` contain. Each must reach the caller as ok: false
-  // rather than as a corrupted path out of contour.ts.
+  // `inside`/`unvisited` contain. Each must come back as ok: false.
 
   it('rejects an all-empty mask that falsely claims 4 path cells (the -1 start-index case)', () => {
     // No cell is inside, so the block partition finds zero full blocks; the
@@ -175,8 +173,7 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
         (width, height, seed, delta) => {
           if (delta === 0) return;
           const size = width * height;
-          // A deterministic-enough "random" inside/unvisited fill from the seed,
-          // without reaching for Math.random (core lint forbids it).
+          // A deterministic "random" fill from the seed, without Math.random.
           const inside = new Uint8Array(size);
           const unvisited = new Uint8Array(size);
           let real = 0;
@@ -197,9 +194,7 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
 
 describe('firstFullBlock', () => {
   it('points at the first full block, so callers need not rescan for it', () => {
-    // The offset that succeeds is not always (0,0), and the spanning tree and
-    // the cycle cut both root here — the whole point of carrying it is that
-    // those two cannot drift from this one.
+    // The offset that succeeds is not always (0, 0).
     const result = classifyTiling(makeMask(['....', '.##.', '.##.', '....'].join('\n')));
 
     expect(result.ok).toBe(true);

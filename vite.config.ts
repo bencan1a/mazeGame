@@ -2,9 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// The app must be fully playable offline after one visit (PRD §3.5).
 // Everything is code — no runtime fonts, images, or audio — so precaching the
-// build output is sufficient.
+// build output is enough to make the app playable offline after one visit.
 // GitHub Pages serves this from /<repo>/, so the base path comes from the
 // environment at build time. Dev and any root-hosted deploy use '/'.
 const base = process.env.VITE_BASE ?? '/';

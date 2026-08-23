@@ -1,36 +1,18 @@
-/**
- * The blocking digraph (S3, see docs/CONTRACTS.md "blocking digraph").
- *
- * An edge `j -> k` means "k must be removed before j can leave". Building the
- * graph only: acyclicity and orientation are #10/#11's, kept separate so both
- * can be tested against this file's output.
- */
+/** An edge `j -> k` means "k must be removed before j can leave". */
 
 import { NO_CELL, step } from '../grid.js';
 import type { Board, Direction } from '../types.js';
 
-/**
- * A `Pick` of `Board` rather than a bespoke type: orientation builds
- * `segHead`/`segDir` before the edge arrays exist, so callers hold a partial
- * board, and a second copy of those field types could drift from the contract.
- */
 export type BlockingGraphInput = Pick<
   Board,
   'width' | 'height' | 'segmentCount' | 'occupancy' | 'segHead' | 'segDir'
 >;
 
-/** The CSR output half of `Board` this stage is responsible for. */
 export type BlockingGraph = Pick<Board, 'edgeStart' | 'edgeTarget'>;
 
 /**
  * Walks every segment's exit ray from its head to the board edge and records
- * which other segments it crosses.
- *
- * - A segment's own cells never block it, however many times the ray crosses
- *   them: that is what makes a clear head a guarantee of escape.
- * - One edge per *pair*, not per crossing — a bending segment can cross a
- *   straight ray more than once.
- * - Targets are sorted within each row; ray order is encounter order.
+ * which other segments it crosses. A segment's own cells never block it.
  */
 export function buildBlockingGraph(input: BlockingGraphInput): BlockingGraph {
   const { width, height, segmentCount, occupancy, segHead, segDir } = input;
@@ -38,10 +20,9 @@ export function buildBlockingGraph(input: BlockingGraphInput): BlockingGraph {
 
   for (let id = 1; id <= segmentCount; id++) {
     const dir = segDir[id - 1] as number;
-    // segDir is a Uint8Array, so a stray -1 upstream arrives as 255, not a type
-    // error. step() answers NO_CELL for it (#38), so the walk below would find
-    // nothing — and "no blockers" reads as "this segment is free", a worse
-    // answer than an error.
+    // segDir is a Uint8Array, so a stray -1 arrives as 255 rather than as a
+    // type error, and step() then answers NO_CELL: an unchecked walk would find
+    // no blockers, which reads as "this segment is free".
     if (!isDirection(dir)) {
       throw new Error(`segment ${id} has direction ${dir}, expected 0..3`);
     }

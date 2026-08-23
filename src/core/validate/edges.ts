@@ -4,9 +4,6 @@
  * declared that the ray does not hit, and nothing the ray hits that is not
  * declared.
  *
- * This is what keeps greedyClear.ts honest. That pass trusts the declared CSR
- * for speed, so a derivation bug in the CSR would leave a clean topological
- * sort saying nothing about whether the board is solvable.
  */
 
 import type { Board, SegmentId } from '../types.js';

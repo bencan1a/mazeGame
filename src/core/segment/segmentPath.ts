@@ -1,19 +1,11 @@
 /**
- * Segmentation (S3, PRD §4.2 step 3): cut a Hamiltonian path into segments.
+ * Cuts a Hamiltonian path into segments. Every segment is a contiguous slice
+ * of the walk, so concatenating them in order reproduces the path.
  *
- * Every segment is a contiguous slice of the walk, so concatenating them in
- * order reproduces the path for free — there is no reordering step to get
- * wrong.
- *
- * `minStraightRun` is the interesting constraint: a cut may not leave a stub
- * shorter than that many cells on either side of a straight run, since a stub
- * is too short to read as its own direction once it is a separate segment. A
- * corner is always a safe cut; the middle of a long straight stretch is not.
- *
- * The contract's escape hatch ("except where the path offers none") is checked
- * *before* picking a cut, not after. Checking only the chosen cut green-lights
- * one that looks fine assuming the run continues to its natural end, then a
- * later cut lands inside the same run and invalidates it in hindsight.
+ * Whether a straight run has room for a compliant cut is checked *before* a
+ * cut is picked, not after. Checking only the chosen cut green-lights one that
+ * looks fine assuming the run continues to its natural end, and a later cut
+ * landing in the same run then invalidates it in hindsight.
  */
 
 import { directionBetween } from '../grid.js';
@@ -27,10 +19,6 @@ export interface SegmentedPath {
   readonly segCells: Uint32Array;
 }
 
-/**
- * `rng` is threaded through rather than seeded locally so a caller building a
- * whole board from one seed gets one draw sequence across every stage.
- */
 export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng): SegmentedPath {
   const cells = path.cells;
   const length = cells.length;
@@ -40,13 +28,10 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
   const segCells = new Uint32Array(cells);
 
   if (length === 0) {
-    // Not expected from a real HamiltonianPath, but a well-formed empty CSR is
-    // cheaper than a special case at every call site.
     return { segStart: Uint32Array.from([0]), segCells };
   }
 
-  // Boards are square (types.ts), so gridSize is the grid width the index
-  // arithmetic below needs.
+  // Boards are square, so gridSize is also the grid width.
   const width = params.gridSize;
 
   const edgeCount = length - 1;
@@ -75,8 +60,7 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
     runEnd[e] = e === edgeCount - 1 || dirs[e] !== dirs[e + 1] ? e : (runEnd[e + 1] as number);
   }
 
-  // Clamped rather than trusted: below 1 it is not meaningful, and it would
-  // make every position "roomless".
+  // Below 1 every position would be "roomless".
   const minStraightRun = Math.max(1, params.minStraightRun);
 
   /**
@@ -84,9 +68,7 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
    * current segment cannot start earlier than `pos`.
    *
    * A corner cut splits nothing straight and is always allowed. A cut inside a
-   * straight run needs `minStraightRun` cells on both sides. Callers only
-   * reach this for a run already confirmed to have room, so the "no compliant
-   * split remains" branch is a fallback, not the normal path.
+   * straight run needs `minStraightRun` cells on both sides.
    */
   function isValidCut(k: number, pos: number): boolean {
     if (k <= 0 || k >= edgeCount) return true;
@@ -115,8 +97,7 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
       const up = clamped + r;
       if (up <= hi && isValidCut(up, pos)) return up;
     }
-    // Unreachable while the caller's room check holds; a floor here beats an
-    // infinite loop if a future edit breaks that invariant.
+    // A floor rather than an infinite loop when no cut in range is valid.
     return clamped;
   }
 
@@ -135,9 +116,8 @@ export function segmentPath(path: HamiltonianPath, params: GenParams, rng: Rng):
   while (pos < lastCell) {
     const runEndCell = runEndCellFrom(pos);
     // The most room this run can offer a cut starting at `pos`. Too little for
-    // any compliant split means no cut inside it would fare better, so absorb
-    // through to the run's end; that lands on a corner or the path's end, both
-    // unconditionally safe places to have stopped.
+    // any compliant split, so absorb through to the run's end, which is a
+    // corner or the path's end and always safe to have stopped at.
     if (runEndCell - pos + 1 < 2 * minStraightRun) {
       pos = runEndCell;
       continue;

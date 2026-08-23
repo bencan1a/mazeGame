@@ -1,10 +1,6 @@
 /**
- * Determinism: regenerating from the same `(seed, params)` must give
- * byte-identical arrays (CONTRACTS.md "validation", ADR-0004).
- *
- * Separate from `validateBoard`, whose signature takes one board where this is
- * a statement about *two* generations from the same input. #14 is what wires it
- * up, as `assertDeterministic(generateBoard(p), generateBoard(p))`.
+ * Separate from `validateBoard`, whose signature takes one board where
+ * determinism is a statement about two generations from the same input.
  */
 
 import type { Board } from '../types.js';
@@ -12,6 +8,7 @@ import { BoardInvariantError } from '../types.js';
 
 /** Spelled out rather than derived so a field added to `Board` fails to
  * compile here instead of being silently skipped. */
+
 const ARRAY_FIELDS = [
   'occupancy',
   'segStart',

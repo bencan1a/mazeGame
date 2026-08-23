@@ -219,10 +219,7 @@ describe('invalid parameters', () => {
   });
 });
 
-// Issue #58: the blob is drawn at half resolution and upscaled 2x so that
-// every region tiles into 2x2 blocks, which is what the spanning-tree contour
-// path method (#5) needs. These tests pin that postcondition down directly,
-// rather than trusting that "draw at half res, upscale by 2" produced it.
+// Every region must partition into whole 2x2 blocks aligned to (0, 0).
 describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
   it('never produces a 2x2 block that is partially inside', () => {
     fc.assert(
@@ -253,16 +250,13 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
   });
 
   it('leaves any leftover row/column from an odd gridSize entirely outside', () => {
-    // halfResSize rounds gridSize/2 down, so an odd gridSize has exactly one
-    // full-resolution row and one column (the last of each) that fall outside
-    // every 2x2 block. Those must never be marked inside, or classifyTiling
-    // would reject the region as having a path cell no block covers.
+    // An odd gridSize leaves exactly one row and one column outside every 2x2
+    // block, and those must never be marked inside.
     fc.assert(
       fc.property(seedArb, fc.integer({ min: 1, max: 101 }), (seed, gridSize) => {
         const { width, height, inside } = generateBlob({ seed, gridSize });
         // Below gridSize 2 there is no room for a full 2x2 block, so the
-        // single conceptual block is clipped to whatever the grid has rather
-        // than left empty — see generateRadialBlob's non-empty guarantee.
+        // single block is clipped to whatever the grid has rather than empty.
         const half = Math.max(1, Math.floor(width / 2));
         const coveredWidth = Math.min(width, half * 2);
         const coveredHeight = Math.min(height, half * 2);
@@ -295,9 +289,8 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
 describe('generateBlob has zero checkerboard parity mismatch', () => {
   it('|black - white| is exactly 0, not merely within {0, ±1}', () => {
     // Every 2x2 block holds two cells of each checkerboard colour wherever it
-    // sits, so a region built from whole blocks cancels exactly and parity
-    // absorption (#4) has nothing left to do. gridSize 1 is excluded: there is
-    // no room for a whole block, so the floor-of-1 clamp trims it to one cell.
+    // sits, so a region of whole blocks cancels exactly. gridSize 1 is
+    // excluded: no room for a whole block, so it is clipped to one cell.
     fc.assert(
       fc.property(
         seedArb,

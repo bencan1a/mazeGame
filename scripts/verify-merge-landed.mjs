@@ -1,9 +1,9 @@
 /**
  * After a merge into `main`, assert the branch's tip actually landed.
  *
- * A push landing mid-merge (as on #48) can leave commits behind: branch
- * protection should close that window by invalidating the required check, and
- * this confirms it did rather than leaving it to be spotted by hand.
+ * A push landing mid-merge can leave commits behind. Branch protection should
+ * close that window by invalidating the required check; this confirms it did,
+ * rather than leaving it to be spotted by hand.
  *
  *   node scripts/verify-merge-landed.mjs <merge-sha>
  *
