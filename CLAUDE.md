@@ -231,8 +231,10 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 - **`bendProbability` is not natively controllable** by the contour path method
   (R1). If you are tuning it, check the measured `bendRate` rather than trusting
   the parameter.
-- **Orientation search may not converge** (R2). It is time-boxed; the fallback
-  to reverse construction is built, not hypothetical.
+- **Cut placement blind to the blocking digraph does not work** above roughly
+  20x20 — it produces segmentations with no acyclic orientation at all, which no
+  orienter can rescue. The cut and the head are chosen together for that reason,
+  and acyclicity is constructed rather than searched for (this retires R2).
 - **The tap radius must only ever snap to a _free_ segment.** Snapping to a
   blocked one costs a life the player never chose to risk. No free segment in
   radius is a no-op miss, not a bounce.

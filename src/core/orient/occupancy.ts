@@ -1,9 +1,9 @@
-/** Stamp a `SegmentedPath`'s cells with 1-based segment ids. */
+/** Stamp a segmentation's cells with 1-based segment ids. */
 
-import type { SegmentedPath } from '../segment/segmentPath.js';
+import type { PeeledSegments } from '../segment/peelSegments.js';
 
 export function occupancyFromSegments(
-  segments: SegmentedPath,
+  segments: Pick<PeeledSegments, 'segStart' | 'segCells'>,
   width: number,
   height: number,
 ): Uint16Array {

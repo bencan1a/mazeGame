@@ -99,6 +99,15 @@ describe('peelSegments: the segmentation contract', () => {
     }
   });
 
+  it('reverses the segments whose head is the endpoint the path reaches first', () => {
+    // An acyclicity check cannot catch a bug here: the blocking graph does not
+    // depend on the order a segment lists its own body in. Only the head
+    // landing last does, and only if both cases actually occur.
+    const result = peelSegments(path, paramsAt({ gridSize: 12 }), createRng(4), 12, 12);
+    const flags = new Set(result.segReversed);
+    expect(flags).toEqual(new Set([0, 1]));
+  });
+
   it('is a deterministic function of its rng seed', () => {
     const a = peelSegments(path, paramsAt({ gridSize: 12 }), createRng(9), 12, 12);
     const b = peelSegments(path, paramsAt({ gridSize: 12 }), createRng(9), 12, 12);

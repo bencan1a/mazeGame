@@ -147,13 +147,13 @@ and it is one agent rather than six.
 algorithmically dense rather than merely fiddly, and the failure is usually
 subtle-and-plausible rather than obviously broken:
 
-| Issue                        | Why                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| #4 parity absorption         | Choosing which cells to drop while preserving 4-connectivity               |
-| #5 spanning-tree contour     | Half-resolution tree, full-resolution contour trace, 2×2 tiling constraint |
-| #6 backbite                  | Tail reversal that must preserve the Hamiltonian property on every move    |
-| #10 orientation local search | Tarjan SCC plus a search whose correctness condition is global             |
-| #11 reverse construction     | Correct by construction only if the insertion argument actually holds      |
+| Issue                     | Why                                                                        |
+| ------------------------- | -------------------------------------------------------------------------- |
+| #4 parity absorption      | Choosing which cells to drop while preserving 4-connectivity               |
+| #5 spanning-tree contour  | Half-resolution tree, full-resolution contour trace, 2×2 tiling constraint |
+| #6 backbite               | Tail reversal that must preserve the Hamiltonian property on every move    |
+| #83 cut-and-orient        | One stage whose correctness condition is a global ordering property        |
+| #14 end-to-end generation | Composes six stages; a wiring error looks like a generator bug             |
 
 Escalate by overriding the model on that invocation, not by editing the agent
 definition — the default should stay Sonnet.
@@ -173,8 +173,9 @@ once` beats `test buildPath`.
 Say so in the issue, with what you tried. Three specific cases have a defined
 answer already:
 
-- **Orientation search will not converge** → switch to reverse construction
-  (R2). It is scheduled work, not an emergency.
+- **A stage's quality target proves unreachable** → say so with the measurement
+  attached, and propose moving the target. Reporting a number you did not
+  achieve is the job; quietly reporting a different number is not.
 - **The contour method will not tile the region** → backbite fallback (S2).
 - **`bendProbability` does not track the achieved bend rate** → that is R1;
   record the numbers in the spike issue rather than tuning by feel.

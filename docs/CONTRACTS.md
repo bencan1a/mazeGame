@@ -123,32 +123,6 @@ board". `PeelStats` reports the pressure — `shortOfTarget`, `belowMinimum`,
 `wholeRunEscapes`, `shortStraightRuns` — so a sweep can see it rather than
 infer it.
 
-### orientation over a fixed segmentation (S3)
-
-```ts
-orientSegments(segments, occupancy, width, height, rng): { segHead: Uint32Array; segDir: Uint8Array; segReversed: Uint8Array }
-```
-
-**Not on the `generateBoard` path.** `peelSegments` above orients as it cuts.
-This is the orienter for a segmentation that arrives already cut — local search
-first, a greedy peel over the whole board (`reverseConstruct`) when its
-iteration box expires.
-
-That peel is **complete** over the candidate set: if any acyclic orientation of
-a given segmentation exists, it finds one, whichever eligible segment it happens
-to pick. Take any valid removal order and consider its first segment not yet
-peeled — every segment blocking it comes earlier in that order, so all of them
-are already gone and it is eligible now. So a failure
-(`OrientationExhaustedError`) means no acyclic orientation of _those cells_
-exists, and the recovery is re-cutting, never retrying orientation.
-
-Completeness is a property of the peel _direction_ specifically. Removals only
-ever unblock, which is what makes peeling safe. Insertion is the anti-monotone
-mirror — the placed set only grows, so a segment's ray only becomes more
-constrained — and a greedy insertion order is not in general the reverse of a
-valid removal order. It would need backtracking to match what the peel gets for
-free.
-
 ### blocking digraph (S3)
 
 ```ts
