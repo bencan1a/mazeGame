@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
+import { toIndex } from '../grid.js';
 import type { Blob } from './blob.js';
 import { fillHoles } from './holes.js';
 
@@ -10,7 +11,7 @@ function blobFromRows(rows: string[]): Blob {
   for (let y = 0; y < height; y++) {
     const row = rows[y] as string;
     for (let x = 0; x < width; x++) {
-      if (row[x] === '#') inside[y * width + x] = 1;
+      if (row[x] === '#') inside[toIndex(x, y, width)] = 1;
     }
   }
   return { width, height, inside };
@@ -20,7 +21,8 @@ function toRows(blob: Blob): string[] {
   const rows: string[] = [];
   for (let y = 0; y < blob.height; y++) {
     let row = '';
-    for (let x = 0; x < blob.width; x++) row += blob.inside[y * blob.width + x] === 1 ? '#' : '.';
+    for (let x = 0; x < blob.width; x++)
+      row += blob.inside[toIndex(x, y, blob.width)] === 1 ? '#' : '.';
     rows.push(row);
   }
   return rows;

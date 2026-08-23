@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { DIRECTIONS, NO_CELL, step } from '../grid.js';
+import { DIRECTIONS, NO_CELL, step, toIndex } from '../grid.js';
 import type { Blob } from './blob.js';
 import { largestComponent } from './components.js';
 
@@ -11,7 +11,7 @@ function blobFromRows(rows: string[]): Blob {
   for (let y = 0; y < height; y++) {
     const row = rows[y] as string;
     for (let x = 0; x < width; x++) {
-      if (row[x] === '#') inside[y * width + x] = 1;
+      if (row[x] === '#') inside[toIndex(x, y, width)] = 1;
     }
   }
   return { width, height, inside };
