@@ -13,12 +13,17 @@
  * process; what this function actually runs is its mirror image, a **greedy
  * peel**: repeatedly take a still-present segment that has a candidate whose
  * exit ray is clear of every other still-present segment, fix that candidate
- * as its orientation, and remove it. The reversed peel order is the
- * insertion order the PRD describes, and acyclicity falls out for free: a
- * segment peeled at step t only ever depended on segments already peeled
- * before t, so the peel order is a topological order of the very blocking
- * digraph `buildBlockingGraph` will later derive from the chosen
- * `segHead`/`segDir` — there is no cycle for it to contain.
+ * as its orientation, and remove it. Acyclicity falls out for free either way
+ * you read the resulting order: a segment peeled at step t only ever depended
+ * on segments already peeled before t (blockers before dependents), so there
+ * is no cycle for `buildBlockingGraph` to find in the `segHead`/`segDir` this
+ * produces. Read in reverse, that same order is the insertion order the PRD
+ * describes, and — because every edge `id -> blocker` then has `id` after
+ * `blocker` reversed to `blocker` after `id` — it is also a topological order
+ * of the blocking digraph in the standard source-before-target sense. See
+ * `ReverseConstructSuccess.peelOrder` for the precise claim; the two readings
+ * are inverses of each other, not independent facts, so only one of them can
+ * be "peelOrder itself" and it is the removal reading.
  *
  * A candidate's blocker set (which other segments sit on its ray) is a fixed
  * property of geometry — cells never move, only presence does — so it is
@@ -27,6 +32,20 @@
  * candidates waiting on it (Kahn's algorithm, the same shape `greedyClear`
  * uses). That makes this a single pass over the candidates' rays rather than
  * an O(segments^2) rescan of "what's left" after every removal.
+ *
+ * The peel is also *complete* over this fixed candidate set, not merely
+ * best-effort: if any combination of endpoint choices makes the whole board's
+ * blocking digraph acyclic, this function finds an acyclic one (not
+ * necessarily that same combination, but one that works). Proof sketch: fix
+ * such a satisfying combination and suppose, for contradiction, the peel
+ * stalls with a non-empty set R of segments still unresolved. R's induced
+ * blocking digraph under that satisfying combination is a subgraph of an
+ * acyclic graph, hence acyclic itself, hence has a segment r whose blockers
+ * under that combination all lie outside R — i.e. already peeled. That makes
+ * r's corresponding candidate ready at this exact point in the peel
+ * (`remaining` counts only still-present blockers), contradicting "stalled".
+ * So `ok: false` means no acyclic orientation exists for this segmentation at
+ * all — the fix is re-segmenting or re-pathing, not retrying orientation.
  */
 
 import { NO_CELL, directionBetween, step } from '../grid.js';
@@ -36,14 +55,27 @@ import type { SegmentedPath } from '../segment/segmentPath.js';
 
 export interface ReverseConstructSuccess {
   readonly ok: true;
-  /** Head cell index per segment. Length n, indexed by (id - 1). */
+  /**
+   * Cells per segment, CSR-aligned with the input `segStart`, each segment's
+   * slice reordered tail -> head to match the chosen head. `Board.segCells`
+   * (src/core/validate/structure.ts) requires the last cell of a segment's
+   * slice to be its head; the input `segCells` only satisfies that for
+   * whichever of the two candidates happens to agree with the path's own
+   * walk direction; this array is corrected so either candidate is safe to
+   * assemble into a `Board` directly.
+   */
+  readonly segCells: Uint32Array;
+  /** Head cell index per segment — the last cell of `segCells`'s slice. Length n. */
   readonly segHead: Uint32Array;
   /** Exit direction per segment. Length n. */
   readonly segDir: Uint8Array;
   /**
-   * Segment ids in the order the peel removed them. Its reverse is the
-   * insertion order the PRD describes, and is a valid topological order of
-   * the resulting blocking digraph.
+   * Segment ids in the order the peel removed them: every blocker appears
+   * before the segments it blocks. Reversed, this is both the insertion
+   * order the PRD describes, and a topological order of the blocking digraph
+   * `buildBlockingGraph` will derive from `segHead`/`segDir` in the standard
+   * sense (edge `id -> blocker` has `id` before `blocker`) — this array
+   * itself is the removal order, which is that same order's inverse.
    */
   readonly peelOrder: Uint32Array;
 }
@@ -51,10 +83,11 @@ export interface ReverseConstructSuccess {
 export interface ReverseConstructFailure {
   readonly ok: false;
   /**
-   * Segment ids that never had a candidate whose ray cleared. Non-empty only
-   * when segmentation has left segments whose geometry admits no acyclic
-   * orientation at all — expected to be rare-to-never (see the property
-   * test), not a normal outcome to route around silently.
+   * Segment ids that never had a candidate whose ray cleared: no acyclic
+   * orientation exists for this segmentation at all (see the module-level
+   * completeness argument above), so the recovery is re-segmenting or
+   * re-pathing, not retrying orientation. Expected to be rare-to-never (see
+   * the property test), not a normal outcome to route around silently.
    */
   readonly stuck: Uint32Array;
 }
@@ -83,13 +116,14 @@ export function reverseConstruct(
   if (n === 0) {
     return {
       ok: true,
+      segCells: new Uint32Array(0),
       segHead: new Uint32Array(0),
       segDir: new Uint8Array(0),
       peelOrder: new Uint32Array(0),
     };
   }
 
-  const { candHead, candDir, candSeg } = buildCandidates(segStart, segCells, width);
+  const { candHead, candDir, candSeg, candReversed } = buildCandidates(segStart, segCells, width);
   const candidateCount = candHead.length;
 
   // remaining[c] counts distinct still-present blockers for candidate c;
@@ -118,6 +152,7 @@ export function reverseConstruct(
   }
 
   const resolved = new Uint8Array(n);
+  const reversedFlag = new Uint8Array(n);
   const segHead = new Uint32Array(n);
   const segDir = new Uint8Array(n);
   const peelOrder = new Uint32Array(n);
@@ -142,6 +177,7 @@ export function reverseConstruct(
     resolved[id - 1] = 1;
     segHead[id - 1] = candHead[c] as number;
     segDir[id - 1] = candDir[c] as number;
+    reversedFlag[id - 1] = candReversed[c] as number;
     peelOrder[filled++] = id;
 
     for (const waiter of waitingOn[id] as number[]) {
@@ -157,7 +193,18 @@ export function reverseConstruct(
     return { ok: false, stuck: Uint32Array.from(stuck) };
   }
 
-  return { ok: true, segHead, segDir, peelOrder };
+  const outCells = new Uint32Array(segCells.length);
+  for (let id = 1; id <= n; id++) {
+    const from = segStart[id - 1] as number;
+    const to = segStart[id] as number;
+    if (reversedFlag[id - 1] === 1) {
+      for (let k = from; k < to; k++) outCells[k] = segCells[to - 1 - (k - from)] as number;
+    } else {
+      for (let k = from; k < to; k++) outCells[k] = segCells[k] as number;
+    }
+  }
+
+  return { ok: true, segCells: outCells, segHead, segDir, peelOrder };
 }
 
 interface Candidates {
@@ -165,6 +212,8 @@ interface Candidates {
   readonly candDir: Uint8Array;
   /** Owning segment id (1-based) per candidate. */
   readonly candSeg: Uint32Array;
+  /** 1 if choosing this candidate means the segment's cells must be emitted in reverse of `segCells`'s input order. */
+  readonly candReversed: Uint8Array;
 }
 
 /**
@@ -187,6 +236,7 @@ function buildCandidates(segStart: Uint32Array, segCells: Uint32Array, width: nu
   const candHead = new Uint32Array(candidateCount);
   const candDir = new Uint8Array(candidateCount);
   const candSeg = new Uint32Array(candidateCount);
+  const candReversed = new Uint8Array(candidateCount);
 
   for (let id = 1; id <= n; id++) {
     const from = segStart[id - 1] as number;
@@ -199,6 +249,7 @@ function buildCandidates(segStart: Uint32Array, segCells: Uint32Array, width: nu
         candHead[at + d] = cell;
         candDir[at + d] = d;
         candSeg[at + d] = id;
+        candReversed[at + d] = 0;
       }
       continue;
     }
@@ -217,13 +268,18 @@ function buildCandidates(segStart: Uint32Array, segCells: Uint32Array, width: nu
       );
     }
 
+    // Candidate 0 keeps the input's own tail -> head order (its "head" is
+    // already segCells's last cell). Candidate 1 picks the opposite endpoint,
+    // so emitting it as Board.segCells needs that segment's slice reversed.
     candHead[at] = head;
     candDir[at] = dirFromHead;
     candSeg[at] = id;
+    candReversed[at] = 0;
     candHead[at + 1] = tail;
     candDir[at + 1] = dirFromTail;
     candSeg[at + 1] = id;
+    candReversed[at + 1] = 1;
   }
 
-  return { candHead, candDir, candSeg };
+  return { candHead, candDir, candSeg, candReversed };
 }

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { directionBetween } from '../grid.js';
+import { NO_CELL, directionBetween, step } from '../grid.js';
 import { createRng } from '../rng.js';
+import type { Board, Direction, GenParams } from '../types.js';
+import { DEFAULT_GEN_PARAMS } from '../types.js';
+import { buildAdjacencyGraph } from '../color/adjacency.js';
+import { colorSegments } from '../color/colorSegments.js';
+import { segmentPath } from '../segment/segmentPath.js';
+import { validateBoard } from '../validate/index.js';
+import { isAcyclic } from '../../../test/fixtures/postconditions.js';
+import { makeMask, makePath } from '../../../test/fixtures/index.js';
+import type { ReverseConstructSuccess } from './reverseConstruct.js';
 import { reverseConstruct } from './reverseConstruct.js';
 import { buildBlockingGraph } from './blocking.js';
 
@@ -22,36 +31,104 @@ function occupancyFrom(
 }
 
 /**
- * A minimal, self-contained topological sort over a CSR edge list — deliberately
- * not a re-import of `validate/greedyClear.ts` (a different stream owns that
- * file), just enough of the same Kahn's-algorithm shape to check the one thing
- * this test cares about: does every segment become free eventually.
+ * A minimal but real `Board` from a successful result, colours included, for
+ * tests that hand it to `validateBoard` or to the shared fixture checkers
+ * rather than re-deriving those checks locally.
  */
-function isAcyclicAndFull(
-  edgeStart: Uint32Array,
-  edgeTarget: Uint32Array,
-  segmentCount: number,
-): boolean {
-  const remaining = new Uint32Array(segmentCount);
-  const blockedBy: number[][] = Array.from({ length: segmentCount + 1 }, () => []);
-  for (let id = 1; id <= segmentCount; id++) {
-    const from = edgeStart[id - 1] as number;
-    const to = edgeStart[id] as number;
-    remaining[id - 1] = to - from;
-    for (let k = from; k < to; k++) (blockedBy[edgeTarget[k] as number] as number[]).push(id);
-  }
-  const queue: number[] = [];
-  for (let id = 1; id <= segmentCount; id++) if (remaining[id - 1] === 0) queue.push(id);
-  let cleared = 0;
-  while (cleared < queue.length) {
-    const id = queue[cleared] as number;
-    cleared++;
-    for (const waiter of blockedBy[id] as number[]) {
-      remaining[waiter - 1] = (remaining[waiter - 1] as number) - 1;
-      if (remaining[waiter - 1] === 0) queue.push(waiter);
+function toBoard(
+  width: number,
+  height: number,
+  segStart: Uint32Array,
+  occupancy: Uint16Array,
+  result: ReverseConstructSuccess,
+  params: GenParams,
+): Board {
+  const segmentCount = segStart.length - 1;
+  const graph = buildBlockingGraph({
+    width,
+    height,
+    segmentCount,
+    occupancy,
+    segHead: result.segHead,
+    segDir: result.segDir,
+  });
+  const adjacency = buildAdjacencyGraph(occupancy, width, height, segmentCount);
+  return {
+    width,
+    height,
+    params,
+    segmentCount,
+    occupancy,
+    segStart,
+    segCells: result.segCells,
+    segHead: result.segHead,
+    segDir: result.segDir,
+    edgeStart: graph.edgeStart,
+    edgeTarget: graph.edgeTarget,
+    segColor: colorSegments(adjacency, segmentCount),
+  };
+}
+
+/**
+ * Every segment's declared head is one of its *original* two endpoints, the
+ * corrected `segCells` really does end at that head, and (for anything longer
+ * than one cell) `segDir` matches the terminal stroke arriving at it — the
+ * exact rule `src/core/validate/structure.ts` enforces, checked here against
+ * this module's own output rather than trusted from its bookkeeping.
+ */
+function assertOrientationMatchesGeometry(
+  segStart: Uint32Array,
+  inputCells: Uint32Array,
+  result: ReverseConstructSuccess,
+  width: number,
+): void {
+  const n = segStart.length - 1;
+  for (let id = 1; id <= n; id++) {
+    const from = segStart[id - 1] as number;
+    const to = segStart[id] as number;
+    const head = result.segHead[id - 1] as number;
+    const firstCell = inputCells[from] as number;
+    const lastCell = inputCells[to - 1] as number;
+    expect([firstCell, lastCell]).toContain(head);
+    expect(result.segCells[to - 1]).toBe(head);
+
+    if (to - from >= 2) {
+      const before = result.segCells[to - 2] as number;
+      expect(result.segDir[id - 1]).toBe(directionBetween(before, head, width));
     }
   }
-  return cleared === segmentCount;
+}
+
+/**
+ * Independently replays `peelOrder` against a live copy of `occupancy`,
+ * confirming each segment's chosen ray was actually clear of every
+ * still-present segment at the moment the peel removed it. This is the
+ * property the whole algorithm exists to guarantee, checked without trusting
+ * the algorithm's own `remaining`/`waitingOn` bookkeeping.
+ */
+function assertPeelWasValid(
+  result: ReverseConstructSuccess,
+  segStart: Uint32Array,
+  occupancy: Uint16Array,
+  width: number,
+  height: number,
+): void {
+  const live = Uint16Array.from(occupancy);
+  for (const id of result.peelOrder) {
+    const head = result.segHead[id - 1] as number;
+    const dir = result.segDir[id - 1] as Direction;
+    let cell = step(head, dir, width, height);
+    while (cell !== NO_CELL) {
+      const other = live[cell] as number;
+      if (other !== 0 && other !== id) {
+        throw new Error(`segment ${id} was peeled while its ray still crossed segment ${other}`);
+      }
+      cell = step(cell, dir, width, height);
+    }
+    const from = segStart[id - 1] as number;
+    const to = segStart[id] as number;
+    for (let k = from; k < to; k++) live[result.segCells[k] as number] = 0;
+  }
 }
 
 describe('a single segment spanning the whole path', () => {
@@ -67,32 +144,23 @@ describe('a single segment spanning the whole path', () => {
     if (!result.ok) return;
 
     expect(Array.from(result.peelOrder)).toEqual([1]);
-    const head = result.segHead[0] as number;
-    const dir = result.segDir[0] as number;
-    if (head === 4) {
-      expect(dir).toBe(directionBetween(3, 4, 5));
-    } else if (head === 0) {
-      expect(dir).toBe(directionBetween(1, 0, 5));
-    } else {
-      throw new Error(`head ${head} is neither endpoint of the segment`);
-    }
+    assertOrientationMatchesGeometry(segStart, segCells, result, 5);
+    assertPeelWasValid(result, segStart, occupancy, 5, 1);
   });
 });
 
 describe('a single-cell segment has no terminal stroke, so all four directions are candidates', () => {
-  it('assigns the lone cell as head with a direction whose ray is actually clear', () => {
-    // A 3x3 board: the centre cell (index 4) is its own segment, surrounded on
-    // three sides by another segment and open to the west. Only west reaches
-    // the board edge without crossing the other segment.
+  it('assigns the lone cell as head with a direction whose ray is actually clear at peel time', () => {
+    // A 3x3 board: the centre cell (index 4) is its own segment. Segment 2 is
+    // a connected walk wrapping the north, east and south sides
+    // (0 -> 1 -> 2 -> 5 -> 8 -> 7 -> 6); the west lane (cell 3) is never
+    // assigned to any segment, so it stays empty on its own, not by an
+    // explicit override.
     const width = 3;
     const height = 3;
-    // cells: 0 1 2 / 3 4 5 / 6 7 8. Segment 2 takes every cell except the
-    // centre (4) and the strip due west of it (3), which stays empty so the
-    // west ray is genuinely clear all the way to the edge.
     const segStart = Uint32Array.from([0, 1, 8]);
-    const segCells = Uint32Array.from([4, 0, 1, 2, 5, 6, 7, 8]);
+    const segCells = Uint32Array.from([4, 0, 1, 2, 5, 8, 7, 6]);
     const occupancy = occupancyFrom(segStart, segCells, width, height);
-    occupancy[3] = 0; // leave a clear lane west of the singleton
 
     const rng = createRng(7);
     const result = reverseConstruct({ segStart, segCells }, occupancy, width, height, rng);
@@ -100,8 +168,12 @@ describe('a single-cell segment has no terminal stroke, so all four directions a
     if (!result.ok) return;
 
     expect(result.segHead[0]).toBe(4);
-    // West (3) is the only direction whose ray never meets segment 2.
-    expect(result.segDir[0]).toBe(3);
+    // Which of the 4 directions wins depends on peel order (segment 2 can
+    // vacate before segment 1 is even drawn - see the "seeded, not
+    // incidental" describe block below for that in isolation), so the only
+    // thing to assert is the invariant the peel actually guarantees: whatever
+    // direction it picked, that ray was genuinely clear when it was peeled.
+    assertPeelWasValid(result, segStart, occupancy, width, height);
   });
 });
 
@@ -113,6 +185,7 @@ describe('acyclic by construction', () => {
     const segStart = Uint32Array.from([0, 2, 4, 6, 8, 9]);
     const segCells = Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     const occupancy = occupancyFrom(segStart, segCells, width, height);
+    const params: GenParams = { ...DEFAULT_GEN_PARAMS, gridSize: width };
 
     for (let seed = 1; seed <= 20; seed++) {
       const rng = createRng(seed);
@@ -120,29 +193,11 @@ describe('acyclic by construction', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
 
-      const graph = buildBlockingGraph({
-        width,
-        height,
-        segmentCount: 5,
-        occupancy,
-        segHead: result.segHead,
-        segDir: result.segDir,
-      });
-      expect(isAcyclicAndFull(graph.edgeStart, graph.edgeTarget, 5)).toBe(true);
+      assertOrientationMatchesGeometry(segStart, segCells, result, width);
+      assertPeelWasValid(result, segStart, occupancy, width, height);
 
-      // Every candidate is one of the segment's own cells, and the reversed
-      // peel order is a valid topological order (each segment's blockers all
-      // precede it).
-      const position = new Map<number, number>();
-      result.peelOrder.forEach((id, index) => position.set(id, index));
-      for (let id = 1; id <= 5; id++) {
-        const from = graph.edgeStart[id - 1] as number;
-        const to = graph.edgeStart[id] as number;
-        for (let k = from; k < to; k++) {
-          const blocker = graph.edgeTarget[k] as number;
-          expect(position.get(id)).toBeGreaterThan(position.get(blocker) as number);
-        }
-      }
+      const board = toBoard(width, height, segStart, occupancy, result, params);
+      expect(isAcyclic(board)).toBe(true);
     }
   });
 });
@@ -212,6 +267,48 @@ describe('the peel is seeded, not incidental to iteration order', () => {
   });
 });
 
+describe('assembles into a Board that validateBoard accepts', () => {
+  it('a finely-cut 6x6 rectangle, exercising both endpoint choices, passes every S4 check', () => {
+    const width = 6;
+    const height = 6;
+    const mask = makeMask({ width, height });
+    const path = makePath(mask);
+    const genParams: GenParams = {
+      ...DEFAULT_GEN_PARAMS,
+      gridSize: width,
+      meanPieceLength: 3,
+      pieceLengthVariance: 1,
+      minStraightRun: 1,
+    };
+    const rng = createRng(11);
+    const segmented = segmentPath(path, genParams, rng);
+    const segmentCount = segmented.segStart.length - 1;
+    const occupancy = occupancyFrom(segmented.segStart, segmented.segCells, width, height);
+
+    const result = reverseConstruct(segmented, occupancy, width, height, rng);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Confirm this genuinely exercises the tail-as-head case (the reviewer's
+    // reported bug), not just the endpoint the input order already agreed
+    // with - otherwise this test would pass even with that bug back.
+    let tailChosenAsHead = 0;
+    for (let id = 1; id <= segmentCount; id++) {
+      const from = segmented.segStart[id - 1] as number;
+      if ((segmented.segCells[from] as number) === (result.segHead[id - 1] as number)) {
+        tailChosenAsHead++;
+      }
+    }
+    expect(tailChosenAsHead).toBeGreaterThan(0);
+
+    assertOrientationMatchesGeometry(segmented.segStart, segmented.segCells, result, width);
+    assertPeelWasValid(result, segmented.segStart, occupancy, width, height);
+
+    const board = toBoard(width, height, segmented.segStart, occupancy, result, genParams);
+    expect(() => validateBoard(board, mask)).not.toThrow();
+  });
+});
+
 describe('edge cases', () => {
   it('zero segments is a well-formed empty success, not a special case a caller must guard', () => {
     const segStart = Uint32Array.from([0]);
@@ -220,6 +317,7 @@ describe('edge cases', () => {
     const result = reverseConstruct({ segStart, segCells }, occupancy, 3, 3, createRng(1));
     expect(result).toEqual({
       ok: true,
+      segCells: new Uint32Array(0),
       segHead: new Uint32Array(0),
       segDir: new Uint8Array(0),
       peelOrder: new Uint32Array(0),
