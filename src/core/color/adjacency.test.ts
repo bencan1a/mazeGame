@@ -101,8 +101,8 @@ describe('buildAdjacencyGraph', () => {
 
 describe('corrupt occupancy', () => {
   it('rejects a segment id past segmentCount instead of throwing a TypeError', () => {
-    // Reached from a cell that touches another segment. Unchecked this read
-    // an undefined Set and threw "Cannot read properties of undefined".
+    // Reached from a cell that touches another segment: unchecked, this reads
+    // an undefined Set rather than reporting the bad id.
     const occupancy = Uint16Array.from([1, 9, 0, 0]);
     expect(() => buildAdjacencyGraph(occupancy, 2, 2, 1)).toThrow(
       /cell 1 holds segment id 9, which is not a segment id \(1\.\.1\)/,
@@ -110,8 +110,8 @@ describe('corrupt occupancy', () => {
   });
 
   it('rejects an isolated out-of-range id, which was silently dropped', () => {
-    // Touching nothing, this produced no error and no entry - so segColor
-    // came back shorter than the board's segment count.
+    // Touching nothing, an unchecked bad id yields no error and no entry, so
+    // segColor comes back shorter than the board's segment count.
     const occupancy = Uint16Array.from([0, 0, 0, 9]);
     expect(() => buildAdjacencyGraph(occupancy, 2, 2, 1)).toThrow(/not a segment id/);
   });

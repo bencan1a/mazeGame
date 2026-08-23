@@ -25,7 +25,7 @@ export function checkStructure(board: Board): void {
   checkArrayLengths(board, n, size);
   checkCsrOffsets(board, n);
 
-  // occupancy -> CSR: every occupied cell must resolve to a valid, matching segment.
+  // occupancy -> CSR
   let covered = 0;
   for (let cell = 0; cell < size; cell++) {
     const id = board.occupancy[cell] as number;
@@ -39,9 +39,7 @@ export function checkStructure(board: Board): void {
     }
   }
 
-  // CSR -> occupancy, per segment: non-empty, a connected walk, head and dir
-  // consistent with the walk's terminal stroke, and every listed cell actually
-  // occupied by this segment.
+  // CSR -> occupancy
   let listedCells = 0;
   for (let id = 1; id <= n; id++) {
     const from = board.segStart[id - 1] as number;
@@ -84,8 +82,8 @@ export function checkStructure(board: Board): void {
       }
     }
 
-    // segCells runs tail -> head (README/CONTRACTS.md), so the head is the last
-    // cell and segDir is the direction of the stroke that arrives at it.
+    // segCells runs tail -> head (CONTRACTS.md), so the head is the last cell
+    // and segDir is the stroke that arrives at it.
     const head = board.segCells[to - 1] as number;
     if (board.segHead[id - 1] !== head) {
       throw new BoardInvariantError(
@@ -115,9 +113,8 @@ export function checkStructure(board: Board): void {
       }
     }
 
-    // A segment whose exit ray leaves the grid on its very first step (head()
-    // on the border, dir pointing outward) has no blockers at all — legal (see
-    // ACYCLIC_BOARD's `c`), not checked further here.
+    // A head on the border pointing outward has no blockers at all. Legal
+    // (see ACYCLIC_BOARD's `c`), so nothing further is checked here.
   }
 
   if (covered !== listedCells) {
@@ -172,8 +169,7 @@ function checkCsrOffsets(board: Board, n: number): void {
       `edgeStart[${n}] is ${board.edgeStart[n] as number}, but edgeTarget has ${board.edgeTarget.length} entries`,
     );
   }
-  // segStart (and edgeStart) must be non-decreasing, or a segment's slice
-  // [from, to) is not even a valid range.
+  // Non-decreasing, or a segment's slice [from, to) is not a valid range.
   for (let id = 1; id <= n; id++) {
     if ((board.segStart[id] as number) < (board.segStart[id - 1] as number)) {
       throw new BoardInvariantError(`segStart is not non-decreasing at segment ${id}`, {

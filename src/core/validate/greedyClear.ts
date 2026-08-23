@@ -3,19 +3,12 @@
  * `edgeTarget`) — Kahn's algorithm, i.e. exactly a simulated greedy clear: a
  * segment is free the moment every segment it depends on is gone.
  *
- * `validateBoard` uses this to check acyclicity and full reachability in one
- * pass. `dagDepth` and the free-set statistics in `BoardMetrics` (#15) fall out
- * of the same pass — the longest chain ending at a segment, and the size of
- * the free set at each removal, are both byproducts of this traversal, not a
- * second walk of the graph. `computeMetrics` should call this function
- * directly and read `depth`/`freeSetSizes` off the result rather than
- * re-deriving them.
+ * `dagDepth` and the free-set statistics in `BoardMetrics` (#15) are byproducts
+ * of this same traversal, so `computeMetrics` should read `depth`/`freeSetSizes`
+ * off the result rather than walking the graph a second time.
  *
- * This function never throws: it is meant to be reusable by metrics on a
- * board that has not (yet, or ever) been through `validateBoard`, so it
- * reports what it finds — including an unsatisfiable board — as data rather
- * than an exception. `validateBoard` is what turns "stuck is non-empty" into a
- * thrown `BoardInvariantError` naming the segments.
+ * Never throws, so metrics can run it on a board that has not been through
+ * `validateBoard`; an unsatisfiable board comes back as a non-empty `stuck`.
  */
 
 import type { Board, SegmentId } from '../types.js';
@@ -37,9 +30,8 @@ export interface GreedyClearResult {
 
 export function greedyClear(board: Board): GreedyClearResult {
   const n = board.segmentCount;
-  // remaining[id-1] counts *all* declared blockers, including ones with an
-  // out-of-range target id — an edge to nowhere can never be satisfied, so it
-  // must still hold its dependent stuck rather than being silently skipped.
+  // Counts *all* declared blockers, out-of-range target ids included: an edge
+  // to nowhere can never be satisfied, so it must hold its dependent stuck.
   const remaining = new Uint32Array(n);
   const blockedBy: SegmentId[][] = Array.from({ length: n + 1 }, () => []);
 
@@ -62,9 +54,9 @@ export function greedyClear(board: Board): GreedyClearResult {
   let filled = 0;
   let head = 0;
   while (head < queue.length) {
-    // Free-set size *before* this removal: everything already queued and not
-    // yet processed. FIFO order does not change the size sequence, only which
-    // same-round id is named first when several are free at once.
+    // Free-set size *before* this removal: everything queued and not yet
+    // processed. FIFO order does not change the sequence of sizes, only which
+    // same-round id is named first.
     freeSetSizes[filled] = queue.length - head;
 
     const id = queue[head] as SegmentId;

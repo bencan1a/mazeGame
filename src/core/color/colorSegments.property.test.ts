@@ -2,23 +2,13 @@
  * The property the whole coloring stage exists for: two segments that touch
  * on the grid never end up sharing a palette index.
  *
- * The generator pipeline (mask -> path -> segmentation) does not exist yet —
- * this stream builds against fixtures, not against #8/#9 — so "500 boards"
- * cannot mean 500 real generated boards. Re-running the three fixed fixtures
- * 500 times would test nothing 500 copies of the same graph wouldn't already
- * test once. Instead this synthesises 500 *varied* segment tilings directly:
- * a randomized multi-source flood fill over grids of varying size, seeded by
- * fast-check's own integers through `createRng` (never `Math.random`, per
- * ADR-0004), grown into a random number of connected, non-overlapping regions.
- *
- * That is a fair proxy for a real board's adjacency graph: like real
- * segments, each region is a connected subset of the grid, and the resulting
- * region-adjacency graph is planar for the same reason a real one is (no
- * region can be adjacent to another without a shared physical cell boundary,
- * and cell boundaries do not cross). It is not claiming to reproduce
- * segmentation's own logic (piece length, straight-run constraints, etc.) —
- * only the structural property that matters for this stage: which segments
- * touch which.
+ * The boards are synthesised, not generated — #8/#9 do not exist yet, and
+ * re-running the three fixed fixtures 500 times would test one graph 500
+ * times. A randomized multi-source flood fill is a fair proxy for the only
+ * structure this stage cares about: each region is a connected subset of the
+ * grid, so the region-adjacency graph is planar for the same reason a real
+ * one is. It reproduces none of segmentation's own logic (piece length,
+ * straight-run constraints) and does not need to.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';

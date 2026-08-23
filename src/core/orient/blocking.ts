@@ -1,26 +1,18 @@
 /**
  * The blocking digraph (S3, see docs/CONTRACTS.md "blocking digraph").
  *
- * A segment k blocks segment j when something sits on j's exit ray between its
- * head and the board edge. An edge `j -> k` therefore means "k must be removed
- * before j can leave" — which is exactly the relation the orientation search
- * (#10, #11) needs to be acyclic, and the relation validation (#S4) checks a
- * topological sort of.
- *
- * This module only builds the graph. It does not decide whether the graph is
- * acyclic, and it does not orient anything — that is #10/#11's job, kept
- * separate so both can be built and tested against this file's output.
+ * An edge `j -> k` means "k must be removed before j can leave". Building the
+ * graph only: acyclicity and orientation are #10/#11's, kept separate so both
+ * can be tested against this file's output.
  */
 
 import { NO_CELL, step } from '../grid.js';
 import type { Board, Direction } from '../types.js';
 
 /**
- * Everything `buildBlockingGraph` reads. A `Pick` of `Board` rather than a
- * bespoke type: orientation builds `segHead`/`segDir` before `edgeStart`/
- * `edgeTarget` exist, so callers naturally have a "board-ish" object that is
- * not yet a full `Board`, and this keeps that shape tied to the real contract
- * instead of a second copy of it that could drift.
+ * A `Pick` of `Board` rather than a bespoke type: orientation builds
+ * `segHead`/`segDir` before the edge arrays exist, so callers hold a partial
+ * board, and a second copy of those field types could drift from the contract.
  */
 export type BlockingGraphInput = Pick<
   Board,
@@ -31,32 +23,25 @@ export type BlockingGraphInput = Pick<
 export type BlockingGraph = Pick<Board, 'edgeStart' | 'edgeTarget'>;
 
 /**
- * Walk every segment's exit ray from its head to the board edge and record
+ * Walks every segment's exit ray from its head to the board edge and records
  * which other segments it crosses.
  *
- * - A segment's own cells are skipped, however many times the ray crosses
- *   them: self-blocking would make a "clear head" meaningless, since the
- *   whole point of the rule is that a clear head guarantees escape.
- * - A blocker is recorded once per ray no matter how many times its cells
- *   appear on that ray (a long, bending segment can cross a straight ray more
- *   than once): the digraph has one edge per *pair*, not one per crossing.
- * - Edges are emitted sorted by target within each segment's row. Ray order is
- *   encounter order, not sorted order, so this is a real sort, not free.
+ * - A segment's own cells never block it, however many times the ray crosses
+ *   them: that is what makes a clear head a guarantee of escape.
+ * - One edge per *pair*, not per crossing — a bending segment can cross a
+ *   straight ray more than once.
+ * - Targets are sorted within each row; ray order is encounter order.
  */
 export function buildBlockingGraph(input: BlockingGraphInput): BlockingGraph {
   const { width, height, segmentCount, occupancy, segHead, segDir } = input;
-  // Sized, not filled: every slot is assigned below, so pre-seeding each one
-  // with a literal would allocate segmentCount arrays only to discard them.
   const perSegment: number[][] = new Array<number[]>(segmentCount);
 
   for (let id = 1; id <= segmentCount; id++) {
     const dir = segDir[id - 1] as number;
-    // segDir is a Uint8Array, so a bug upstream (e.g. a stray -1) arrives here
-    // as some value outside 0..3, not a type error. step() answers NaN for
-    // such a direction (issue #38, not this file's to fix), and NaN is never
-    // NO_CELL, so an unguarded `while (cell !== NO_CELL)` below would spin
-    // forever. Validating the direction before the walk turns that hang into
-    // a thrown error at the one place that can see it coming.
+    // segDir is a Uint8Array, so a stray -1 upstream arrives as 255, not a type
+    // error. step() answers NO_CELL for it (#38), so the walk below would find
+    // nothing — and "no blockers" reads as "this segment is free", a worse
+    // answer than an error.
     if (!isDirection(dir)) {
       throw new Error(`segment ${id} has direction ${dir}, expected 0..3`);
     }
@@ -67,8 +52,6 @@ export function buildBlockingGraph(input: BlockingGraphInput): BlockingGraph {
     let cell = step(head, dir, width, height);
     while (cell !== NO_CELL) {
       const other = occupancy[cell] as number;
-      // other === 0 is an empty cell; other === id is the segment's own body.
-      // Neither blocks. seen.has(other) is the twice-crossed case: one edge.
       if (other !== 0 && other !== id && !seen.has(other)) {
         seen.add(other);
         blockers.push(other);

@@ -56,9 +56,8 @@ export function issueBody(issue) {
     '---',
     '',
     'Read `docs/WORKFLOW.md` before starting. Claim by assigning yourself.',
-    // Braces, not angle brackets: a <placeholder> is stripped as an HTML tag
-    // when an issue is written through the GitHub MCP tools, which silently
-    // turned this line into `agent//-key` the first time round.
+    // Braces, not angle brackets: a <placeholder> is silently stripped as an
+    // HTML tag when an issue is written through the GitHub MCP tools.
     `Branch: \`agent/${streamName}/{issue-number}-${issue.key}\``,
   ].join('\n');
 }

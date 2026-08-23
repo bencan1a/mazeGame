@@ -102,10 +102,8 @@ function boardFromEdges(perSegment: readonly number[][]): Board {
   return {
     width: 1,
     height: n,
-    // Spread the defaults rather than listing every field: a bare literal
-    // stops compiling the moment GenParams gains a required field, which is
-    // how this broke when fillFraction landed. Only what this test cares
-    // about is overridden.
+    // Spread the defaults: a bare literal stops compiling the moment GenParams
+    // gains a required field.
     params: { ...DEFAULT_GEN_PARAMS, gridSize: n, meanPieceLength: 1, minStraightRun: 1 },
     segmentCount: n,
     occupancy: new Uint16Array(n),

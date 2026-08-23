@@ -6,13 +6,8 @@
  * rather than a bare "invalid board", because the next agent debugging a
  * generator bug needs a place to start looking.
  *
- * Order matters: each stage assumes the previous one held, so a failure is
- * attributed to the earliest thing actually wrong rather than a symptom of it.
- *
- *   1. structure  — occupancy and the per-segment CSR agree, in both directions
- *   2. coverage   — inside cells are covered, unvisited cells explain the rest
- *   3. edges      — the declared blocking CSR agrees with the actual exit rays
- *   4. greedyClear — the blocking digraph is acyclic and every segment clears
+ * Call order matters: each stage assumes the previous one held, so a failure
+ * is attributed to the earliest thing actually wrong rather than a symptom.
  *
  * Determinism (the fifth CONTRACTS.md check) is deliberately not here — see
  * determinism.ts for why the signature below cannot carry it.

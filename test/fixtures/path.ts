@@ -44,11 +44,10 @@ export function makePath(mask: Mask): HamiltonianPath {
 }
 
 /**
- * Wrap a hand-written walk as a path, checking the S2 postconditions.
- *
- * The escape hatch for a stream that needs a path over a non-rectangular mask
- * before S2 lands: checking a Hamiltonian path is trivial, constructing one is
- * not, so the fixture will check yours but will not invent one.
+ * Wrap a hand-written walk as a path, checking the S2 postconditions. The
+ * escape hatch for a non-rectangular mask: checking a Hamiltonian path is
+ * trivial where constructing one is not, so this checks yours rather than
+ * inventing one.
  */
 export function makePathFromCells(mask: Mask, cells: Iterable<number>): HamiltonianPath {
   const path: HamiltonianPath = { cells: Uint32Array.from(cells) };

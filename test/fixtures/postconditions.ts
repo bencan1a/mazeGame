@@ -1,14 +1,12 @@
 /**
  * The postconditions from docs/CONTRACTS.md, as checkers.
  *
- * Each returns a list of human-readable violations; empty means clean. They
- * return rather than throw so a test can assert on the whole list, and so a
- * deliberately-broken fixture can be checked for exactly the breakage it is
- * supposed to have.
+ * Each returns a list of violations rather than throwing, so a test can assert
+ * on the whole list and a deliberately-broken fixture can be checked for
+ * exactly the breakage it is supposed to have.
  *
- * These check *fixtures*. They are not `validateBoard` (S4, src/core/validate)
- * — that one throws, runs in dev, and computes metrics on the way through. When
- * it lands it should be tested against these fixtures, not against this file.
+ * These check *fixtures*, and are not `validateBoard` (S4): that one should be
+ * tested against these fixtures, not against this file.
  */
 
 import { DIRECTIONS, NO_CELL, directionBetween, parityOf, step } from '../../src/core/grid.js';
@@ -311,9 +309,8 @@ export function isAcyclic(board: Board): boolean {
 export function rayBlockers(board: Board, id: number): number[] {
   const dir = board.segDir[id - 1] as Direction;
   // segDir is a Uint8Array, so a board can carry 255 (what -1 becomes) with no
-  // type error to catch it. step() now answers NO_CELL for that (#38), so the
-  // walk would simply find nothing — and "no blockers" reads as "this segment
-  // is free", which is a worse answer than an error.
+  // type error. step() answers NO_CELL for it, so the walk finds nothing — and
+  // "no blockers" reads as "this segment is free", worse than an error.
   if (!isDirection(dir)) {
     throw new Error(`segment ${id} has direction ${dir as number}, which is not one of 0..3`);
   }
@@ -322,8 +319,8 @@ export function rayBlockers(board: Board, id: number): number[] {
   let cell = step(board.segHead[id - 1] as number, dir, board.width, board.height);
   while (cell !== NO_CELL) {
     const other = board.occupancy[cell] as number;
-    // A segment's own body never blocks it — that is what makes a clear head a
-    // guaranteed escape rather than a guess.
+    // A segment's own body never blocks it: that is what makes a clear head a
+    // guaranteed escape.
     if (other !== 0 && other !== id && !seen.has(other)) {
       seen.add(other);
       found.push(other);

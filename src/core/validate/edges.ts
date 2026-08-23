@@ -4,12 +4,9 @@
  * declared that the ray does not hit, and nothing the ray hits that is not
  * declared.
  *
- * This is the check that keeps the acyclicity/greedy-clear pass (greedyClear.ts)
- * honest: that pass trusts the declared CSR for speed, so if the CSR itself
- * were wrong — S3's own derivation bug — a clean topological sort would say
- * nothing about whether the board is actually solvable. Cross-checking against
- * the ray is what makes "never ship an unsolvable board" a claim about the
- * board's actual geometry rather than about a cache of it.
+ * This is what keeps greedyClear.ts honest. That pass trusts the declared CSR
+ * for speed, so a derivation bug in the CSR would leave a clean topological
+ * sort saying nothing about whether the board is solvable.
  */
 
 import type { Board, SegmentId } from '../types.js';

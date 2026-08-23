@@ -5,11 +5,8 @@ import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../../test
 import { assertDeterministic } from './determinism.js';
 
 /**
- * `generateBoard` (#14) is out of this stream's scope and does not exist yet.
- * These tests exercise the comparison half honestly: `assertDeterministic`
- * itself, on two boards, rather than pretending to wire up a generator that
- * is not there. Once #14 lands, it is expected to call this as
- * `assertDeterministic(generateBoard(params), generateBoard(params))`.
+ * Covers `assertDeterministic` itself, on two boards. Wiring it to a real
+ * generator is #14's, as `assertDeterministic(generateBoard(p), generateBoard(p))`.
  */
 describe('assertDeterministic', () => {
   it('accepts two structurally-equal boards, including a fresh clone of every array', () => {

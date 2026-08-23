@@ -1,38 +1,19 @@
 /**
  * Procedural blob generator (S1, issue #2; half-resolution rework, issue #58).
  *
- * This is the *raw* silhouette only: the first half-step of `docs/PRD.md`
- * §4.2 step 1 ("rasterize / generate blob to binary grid"). It hands a binary
- * region to the mask-repair pipeline, which is separate work (#3 largest
- * component + morphological open + hole fill, #4 parity absorption). A raw
- * blob is explicitly allowed to be disconnected or spurred here — fixing that
- * is what #3 exists for — so this module does not attempt to satisfy the full
- * `Mask` postconditions in `docs/CONTRACTS.md`.
+ * The *raw* silhouette only — the first half of PRD §4.2 step 1. Output is
+ * allowed to be disconnected or spurred; largest-component extraction, opening,
+ * hole fill (#3) and parity absorption (#4) are separate stages, so this file
+ * does not satisfy the `Mask` postconditions in docs/CONTRACTS.md.
  *
- * Shape: a radial silhouette around a (slightly jittered) centre, whose
- * boundary radius at each angle is a base radius perturbed by a handful of
- * sinusoidal harmonics. Their frequencies are fixed (2, 3, 4, ... one per
- * harmonic); the seed chooses how many there are and randomises each one's
- * phase and amplitude. That is enough to produce lobes and concavities, so the
- * result is neither a disc (constant radius) nor a rectangle (axis-aligned
- * boundary) for any seed — see blob.test.ts for the property tests that pin
- * this down.
- *
- * Half-resolution generation (#58): the spanning-tree contour path method
- * (#5) is the PRD's primary path-fill method, but it only runs on regions
- * that tile into 2x2 blocks at full resolution — and an arbitrary organic
- * boundary drawn directly at full resolution essentially never does (measured
- * 0/300 on the previous full-resolution generator; see the issue for the
- * sweep). So this generator draws the radial silhouette on a
- * `halfWidth x halfHeight` lattice — half the edge length, rounded down — and
- * then upscales every half-resolution cell into a 2x2 block of full-
- * resolution cells. Every region this produces is therefore block-aligned to
- * offset (0, 0) *by construction*, not by getting lucky with an organic
- * boundary. The trade is real and accepted: outlines are pixelated at 2-cell
- * resolution rather than 1-cell. The organic lobing itself (the harmonics)
- * is untouched — it happens on the half-resolution lattice exactly as it used
- * to happen on the full one — so the silhouette is coarser in outline detail,
- * not simpler in overall shape.
+ * The silhouette is drawn on a half-resolution lattice and each cell upscaled
+ * into a 2x2 block. That is what makes every region block-aligned to lattice
+ * offset (0, 0) by construction, which the contour path fill (#5) requires; an
+ * organic boundary drawn at full resolution essentially never tiles (measured
+ * 0/300 on the previous full-resolution generator). The accepted trade is an
+ * outline pixelated at 2-cell rather than 1-cell resolution — the harmonics
+ * still run on the half-resolution lattice, so the shape is coarser in outline,
+ * not simpler.
  */
 
 import { toIndex } from '../grid.js';
@@ -45,12 +26,9 @@ export interface BlobParams {
   readonly seed: Seed;
   /**
    * Target fraction of the grid the raw blob should occupy, before repair
-   * trims it. Optional; defaults to a mid-sized blob. Clamped to a sane
-   * range — near 0 produces a near-empty region and near 1 pushes the
-   * boundary against the grid edge and starts to look rectangular, and
-   * neither is a meaningful "organic blob" request, but both are safe
-   * inputs (the repair pipeline downstream does not assume any particular
-   * fraction survived).
+   * trims it. Clamped rather than rejected at the extremes: near 0 is
+   * near-empty and near 1 looks rectangular, but both are safe — repair
+   * downstream assumes no particular fraction survived.
    */
   readonly fillFraction?: number;
 }
@@ -67,20 +45,17 @@ const MIN_FILL_FRACTION = 0.05;
 const MAX_FILL_FRACTION = 0.85;
 const DEFAULT_FILL_FRACTION = 0.45;
 
-// A handful of harmonics is enough to break both circular and rectangular
-// symmetry without needing so many that neighbouring lobes cancel back out
-// into a near-constant radius.
+// Enough to break both circular and rectangular symmetry, but not so many that
+// neighbouring lobes cancel back out into a near-constant radius.
 const MIN_HARMONICS = 3;
 const MAX_HARMONICS = 6;
 
 const MIN_AMPLITUDE_FRACTION = 0.12;
 const MAX_AMPLITUDE_FRACTION = 0.4;
 
-// However harmonics conspire, the radius never drops below this fraction of
-// the base radius. Without a floor, destructive interference between
-// harmonics can push the radius through zero and fold the boundary curve
-// back on itself, which would fragment the blob into unrelated pieces
-// instead of just carving an inlet into one organic shape.
+// Without a floor, destructive interference between harmonics can push the
+// radius through zero and fold the boundary back on itself, fragmenting the
+// blob instead of carving an inlet into it.
 const MIN_RADIUS_FRACTION = 0.2;
 
 interface Harmonic {
@@ -90,36 +65,25 @@ interface Harmonic {
 }
 
 /**
- * Half of `gridSize`, rounded down, floored to 1. Odd `gridSize` is handled
- * explicitly by rounding down rather than rejecting: the PRD's grid-size
- * range (20..100, ADR-0006) does not promise even numbers, and there is
- * nothing wrong with an odd full-resolution grid — it just means one row and
- * one column of full-resolution cells (the ones at index `2 * halfSize` and
- * beyond) sit outside the half-resolution lattice entirely, and so must never
- * be inside the silhouette. `upscale2x` enforces exactly that: it never
- * writes past `2 * halfSize` in either axis, so that leftover strip stays
- * zeroed (outside) by construction. The floor of 1 exists for `gridSize` 1,
- * which has no meaningful "half resolution" but is a legal positive integer
- * and must still come back non-empty. `gridSize` 0 never reaches here —
- * `generateBlob` rejects anything below 1, and a test asserts that it throws.
+ * Half of `gridSize`, rounded down, floored to 1. The PRD's grid-size range
+ * (20..100, ADR-0006) does not promise even numbers, so odd sizes round down
+ * and leave a full-resolution row and column past `2 * halfSize` outside the
+ * lattice; `upscale2x` never writes there, so that strip stays outside the
+ * silhouette. The floor of 1 keeps `gridSize` 1 non-empty; 0 is rejected by
+ * `generateBlob`.
  */
 function halfResSize(gridSize: number): number {
   return Math.max(1, Math.floor(gridSize / 2));
 }
 
-/**
- * Deterministic given `(seed, gridSize, fillFraction)` — same inputs, identical
- * grid. All randomness is drawn from `createRng(seed)`, never `Math.random`.
- */
 export function generateBlob(params: BlobParams): Blob {
   const { gridSize } = params;
   if (!Number.isInteger(gridSize) || gridSize < 1) {
     throw new Error(`gridSize must be a positive integer, got ${gridSize}`);
   }
-  // NaN would survive clamp() and poison the radius and centre, so every
-  // dist <= radius test is false and even the non-empty fallback below writes
-  // to inside[NaN] — a silent no-op on a Uint8Array. The result is an all-zero
-  // mask, which is exactly the invariant this function promises not to break.
+  // NaN survives clamp() and poisons the radius and centre: every distance
+  // test is false and the non-empty fallback writes to inside[NaN], a silent
+  // no-op on a Uint8Array, yielding the all-zero mask this must never return.
   if (params.fillFraction !== undefined && !Number.isFinite(params.fillFraction)) {
     throw new Error(`fillFraction must be a finite number, got ${params.fillFraction}`);
   }
@@ -131,63 +95,44 @@ export function generateBlob(params: BlobParams): Blob {
 
   const rng = createRng(params.seed);
   const halfSize = halfResSize(gridSize);
-  // The whole shape — harmonics, jitter, radius — is decided once on the
-  // half-resolution lattice. Nothing below this point draws at full
-  // resolution; upscale2x is a pure remap of already-decided cells, so the
-  // full-resolution boundary is always an exact 2x2-block staircase of the
-  // half-resolution one, never an independent full-resolution decision that
-  // could fall off the lattice.
   const half = generateRadialBlob(halfSize, halfSize, rng, fillFraction);
   return upscale2x(half, gridSize, gridSize);
 }
 
 /**
- * Draws the harmonics-perturbed radial silhouette directly on a
- * `width x height` lattice. Factored out of `generateBlob` so the lattice it
- * draws on is a parameter rather than baked in — `generateBlob` always calls
- * it at half resolution (#58), but a future mask-repair pass (#3) can call it,
- * or feed a `Blob` from elsewhere, at that same half resolution too.
- * Repairing before the 2x upscale is the intended order: erosion/dilation on
- * an already-upscaled region can shave a single full-resolution cell off a
- * 2x2 block and break the alignment `upscale2x` guarantees, whereas repairing
- * at half resolution and re-upscaling afterwards cannot — every operation
- * stays in whole-block units — and it is cheaper, since it walks a quarter as
- * many cells. This function does not enforce that ordering itself, since #3
- * does not exist yet; it just avoids foreclosing it.
+ * The lattice is a parameter so that mask repair (#3) can run at half
+ * resolution too, before the upscale. That ordering is the intended one:
+ * erosion or dilation on an already-upscaled region can shave one cell off a
+ * 2x2 block and break the alignment `upscale2x` guarantees, where the same
+ * operation at half resolution stays in whole-block units. Nothing enforces
+ * the ordering yet — this only avoids foreclosing it.
  */
 function generateRadialBlob(width: number, height: number, rng: Rng, fillFraction: number): Blob {
-  // Harmonics are drawn before fillFraction is read, so the blob's
-  // "personality" — how many lobes, where they sit, how deep — depends only on
-  // the seed. fillFraction then scales the shape. Not purely, though: the
-  // centre jitter below is a fraction of baseRadius, so raising fillFraction
-  // also moves the centre slightly. Area is monotone in fillFraction across
-  // the tested range rather than by construction, and blob.test.ts asserts it
-  // rather than assuming it.
+  // Drawn before fillFraction is read, so lobe count, position and depth
+  // depend on the seed alone. fillFraction then scales the shape — but not
+  // purely, since the centre jitter below is a fraction of baseRadius. Area is
+  // therefore monotone in fillFraction only empirically; blob.test.ts asserts
+  // it rather than the construction guaranteeing it.
   const harmonicCount = MIN_HARMONICS + rng.int(MAX_HARMONICS - MIN_HARMONICS + 1);
   const harmonics: Harmonic[] = [];
   for (let k = 0; k < harmonicCount; k++) {
     harmonics.push({
-      // Fixed, not random: one harmonic per lobe count from 2 upward, so the
-      // set of frequencies is the same every seed and only their phases and
-      // amplitudes vary. Random frequencies would let two harmonics land close
-      // together and beat, flattening the boundary instead of lobing it.
+      // Fixed, not random: two random frequencies can land close together and
+      // beat, flattening the boundary instead of lobing it.
       frequency: k + 2,
-      // Divide by sqrt(count) so that harmonics summing in phase (rare, but
-      // possible at some angle) still bound the worst-case bulge, the same
-      // way independent-variance sums bound an RMS rather than a raw sum.
+      // Divided by sqrt(count) so harmonics that happen to sum in phase at
+      // some angle still bound the worst-case bulge.
       amplitudeFraction:
         rng.range(MIN_AMPLITUDE_FRACTION, MAX_AMPLITUDE_FRACTION) / Math.sqrt(harmonicCount),
       phase: rng.range(0, Math.PI * 2),
     });
   }
 
-  // Area of a disc of this radius approximates the requested fraction of the
-  // grid; the harmonics above then perturb that disc into an organic lobed
-  // shape of roughly (not exactly) the same area.
+  // A disc of this radius has the requested area; the harmonics then perturb
+  // it into a lobed shape of roughly, not exactly, that area.
   const baseRadius = Math.sqrt((fillFraction * width * height) / Math.PI);
 
-  // Jitter the centre so the blob is not dead-centre-symmetric every seed,
-  // scaled to the blob itself so it stays roughly in view of the grid.
+  // Scaled to the blob so an off-centre silhouette still stays in view.
   const jitter = baseRadius * 0.1;
   const cx = width / 2 + rng.range(-jitter, jitter);
   const cy = height / 2 + rng.range(-jitter, jitter);
@@ -205,13 +150,9 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
     }
   }
 
-  // Guarantee non-empty by construction rather than by argument: whatever
-  // the harmonics did, the cell nearest the centre is always inside. This is
-  // the acceptance criterion "output is always non-empty" as an invariant,
-  // not a statistical likelihood. Forcing it here, at whatever resolution
-  // this function is called at, means generateBlob's own non-empty guarantee
-  // falls out for free after upscaling — a forced-inside half-resolution cell
-  // upscales to a forced-inside full-resolution 2x2 block.
+  // Non-empty by construction rather than by likelihood. Forcing it here
+  // rather than after the upscale is enough: a forced-inside half-resolution
+  // cell upscales to a forced-inside 2x2 block.
   const centreX = clampIndex(Math.round(cx - 0.5), width);
   const centreY = clampIndex(Math.round(cy - 0.5), height);
   inside[toIndex(centreX, centreY, width)] = 1;
@@ -220,20 +161,13 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
 }
 
 /**
- * Maps every `half` cell to the 2x2 block of full-resolution cells at
- * `(2*hx, 2*hy)`. This is what makes the output block-aligned to lattice
- * offset (0, 0) unconditionally. The contour path fill (#5) accepts a region
- * only when it divides into whole 2x2 blocks under one of four lattice
- * offsets; a region built out of such blocks satisfies that at offset (0, 0)
- * by construction, so the search succeeds on its first try. No path is named
- * here on purpose: that code lives on another branch, and a hardcoded path to
- * a file this branch does not contain would be stale the moment either moves.
+ * Maps every `half` cell to the 2x2 block at `(2*hx, 2*hy)`, which is what
+ * makes the output block-aligned to lattice offset (0, 0) unconditionally —
+ * the contour path fill (#5) then succeeds on its first offset.
  *
- * `fullWidth`/`fullHeight` may exceed `2 * half.width` / `2 * half.height`
- * when `gridSize` is odd (`halfResSize` rounds down) — the leftover
- * full-resolution row/column past `2 * half.width` (or `.height`) is left as
- * "outside" (the array already starts zeroed), never written "inside", so it
- * can never become a path cell that no 2x2 block covers.
+ * `fullWidth`/`fullHeight` may exceed twice the half dimensions when
+ * `gridSize` is odd. The leftover row and column are never written, so they
+ * stay outside and can never become a path cell no 2x2 block covers.
  */
 function upscale2x(half: Blob, fullWidth: number, fullHeight: number): Blob {
   const inside = new Uint8Array(fullWidth * fullHeight);

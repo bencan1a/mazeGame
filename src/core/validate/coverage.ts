@@ -45,10 +45,8 @@ export function checkCoverage(board: Board, mask: Mask): void {
         });
       }
     } else if (inside && !unvisited) {
-      // Inside, not on the path, and not sanctioned by unvisited: a genuine
-      // coverage gap. Named individually rather than only as an aggregate
-      // percentage, because "which cell" is what the next agent needs to
-      // reproduce it.
+      // Named individually rather than rolled into the percentage below:
+      // "which cell" is what reproducing the gap needs.
       throw new BoardInvariantError(
         `cell ${cell} is inside the mask, not covered by any segment, and not marked unvisited`,
         { cell },

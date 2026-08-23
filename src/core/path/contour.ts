@@ -19,17 +19,10 @@
  *   WEST  edge -> next[SW] = the west neighbour's SE cell
  *   NORTH edge -> next[NW] = the north neighbour's SW cell
  *
- * This is the only rewrite each direction ever makes, and each of a block's
- * four corners is the rewrite target of exactly one direction (NE only for
- * EAST, SE only for SOUTH, SW only for WEST, NW only for NORTH) — so a block
- * with tree edges in several directions never has two rules fight over the
- * same corner. Proving each rewrite keeps `next` a bijection (nothing is
- * pointed at twice, nothing is orphaned) is exactly the standard argument for
- * why splicing two disjoint cycles together via a matched pair of crossing
- * edges yields one bigger cycle rather than two: this repo's write-up of that
- * argument, with a worked 2x2-block example per direction, lives in
- * `contour.test.ts` (see `describe('merge derivation')`) since it is the kind
- * of claim that wants a runnable check next to it, not just prose.
+ * Each corner is the rewrite target of exactly one direction, so a block with
+ * tree edges in several directions never has two rules fight over the same
+ * corner, and every rewrite keeps `next` a bijection. The worked derivation
+ * per direction is in `contour.test.ts`, `describe('merge derivation')`.
  *
  * Because the base graph is a spanning TREE (connected, no cycles), merging
  * every tree edge in turn always joins two previously-separate cycles and
@@ -58,13 +51,9 @@ export type ContourFailed = TilingFailed;
 export type ContourResult = ContourOk | ContourFailed;
 
 /**
- * Build a Hamiltonian path over `mask` via the spanning-tree contour method.
- *
- * Returns `{ ok: false, reason }` instead of throwing when the region will
- * not tile into 2x2 blocks. That is an expected, common outcome — most
- * masks a real silhouette pipeline produces will not tile — and the backbite
- * fallback (#6) exists precisely to handle it, so it is reported cleanly
- * rather than treated as an error.
+ * Returns `{ ok: false, reason }` rather than throwing when the region will not
+ * tile into 2x2 blocks: most masks a real silhouette pipeline produces do not,
+ * and the backbite fallback (#6) exists to handle exactly that.
  */
 export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
   const tiling = classifyTiling(mask);
@@ -94,9 +83,8 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
       next[se] = sw;
       next[sw] = nw;
 
-      // Tiling already guarantees any neighbour a tree edge points at is
-      // itself a full block within bounds, so these targets are always
-      // valid path cells — no separate bounds check needed here.
+      // No bounds check: tiling guarantees any neighbour a tree edge points at
+      // is itself a full block within bounds.
       if (tree.open[block * 4 + EAST] === 1) next[ne] = toIndex(x0 + 2, y0, width);
       if (tree.open[block * 4 + SOUTH] === 1) next[se] = toIndex(x0 + 1, y0 + 2, width);
       if (tree.open[block * 4 + WEST] === 1) next[sw] = toIndex(x0 - 1, y0 + 1, width);
@@ -104,13 +92,11 @@ export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
     }
   }
 
-  // Cut the cycle at the first full block's NW corner. Any cell would do —
-  // the contour is a cycle, so every cut yields a valid Hamiltonian path.
+  // Any cell would do — the contour is a cycle, so every cut yields a valid
+  // Hamiltonian path.
   const startBlock = tiling.firstFullBlock;
-  // classifyTiling's ok:true guarantees at least one full, connected block
-  // (mask.pathCellCount === 0 and an empty blockFull are both rejected there),
-  // so this should be unreachable. Guarded anyway: a negative index here would
-  // silently wrap into a huge Uint32Array value below rather than fail loudly.
+  // Unreachable given classifyTiling's ok:true, but guarded: a -1 here wraps
+  // into a huge Uint32Array index below rather than failing loudly.
   if (startBlock === -1) {
     throw new Error(
       'classifyTiling reported ok:true with no full block; this is a contract violation, not ' +

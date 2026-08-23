@@ -12,9 +12,7 @@ export const WEST = 3 satisfies Direction;
 
 export const DIRECTIONS: readonly Direction[] = [NORTH, EAST, SOUTH, WEST];
 
-/** Column delta per direction, indexed by Direction. */
 export const DX: readonly number[] = [0, 1, 0, -1];
-/** Row delta per direction, indexed by Direction. */
 export const DY: readonly number[] = [-1, 0, 1, 0];
 
 export const DIRECTION_NAMES: readonly string[] = ['N', 'E', 'S', 'W'];
@@ -56,12 +54,10 @@ export const NO_CELL = -1;
  * Neighbour of `index` in `dir`, or NO_CELL if that step leaves the grid.
  * Guards the row wrap that plain index arithmetic would silently allow.
  *
- * A direction outside 0..3 also answers NO_CELL. `Direction` is `0 | 1 | 2 | 3`,
- * but it survives into `Board.segDir`, a Uint8Array, where the type is gone and
- * a -1 arrives as 255. Without the guard the arithmetic below yields NaN, every
- * one of the four bounds comparisons is false for NaN, and the function returns
- * NaN — which is not NO_CELL, so a ray walk shaped like
- * `while (cell !== NO_CELL)` never terminates.
+ * A direction outside 0..3 also answers NO_CELL. `Direction` survives into
+ * `Board.segDir`, a Uint8Array, where the type is gone and -1 arrives as 255;
+ * unguarded, the arithmetic yields NaN, every bounds comparison is false, and
+ * a `while (cell !== NO_CELL)` ray walk never terminates.
  */
 export function step(index: CellIndex, dir: Direction, width: number, height: number): CellIndex {
   const dx = DX[dir];
@@ -73,7 +69,6 @@ export function step(index: CellIndex, dir: Direction, width: number, height: nu
   return y * width + x;
 }
 
-/** True when the cell sits on the outer ring of the grid. */
 export function isBorder(index: CellIndex, width: number, height: number): boolean {
   const x = index % width;
   const y = Math.floor(index / width);
@@ -88,7 +83,7 @@ export function parityOf(index: CellIndex, width: number): 0 | 1 {
 /**
  * Number of steps from `index` to the grid edge travelling in `dir`, exclusive
  * of `index`. NO_CELL for a direction outside 0..3 — see `step()` for how one
- * gets here; without the default this returned `undefined` typed as `number`.
+ * gets here.
  */
 export function stepsToEdge(
   index: CellIndex,

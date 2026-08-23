@@ -14,19 +14,14 @@ function paramsFor(width: number, overrides: Partial<GenParams>): GenParams {
 
 /**
  * Independent check of the minStraightRun postcondition (CONTRACTS.md §S3):
- * re-derives straight runs and cut positions from scratch, from `path` and
- * `segStart` alone, rather than reusing any of segmentPath's internal
- * bookkeeping (dirs/runStart/runEnd). A test that shared that bookkeeping
- * with the code under test could pass by construction rather than by
- * checking anything.
+ * re-derived from `path` and `segStart` alone, since a test sharing
+ * segmentPath's own dirs/runStart/runEnd bookkeeping could pass by
+ * construction.
  *
- * A cut's compliance is judged against what was actually still available to
- * it: the straight run it sits inside, narrowed to the segment boundaries on
- * either side of it (the previous and next actual cuts). Judging it against
- * the run's full geometric extent instead would be wrong whenever an earlier
- * cut already used up the run's only compliant split point — the exception
- * ("the path offers none") has to mean "none, given what earlier cuts already
- * fixed", not "none, in a hypothetical replay with no other cuts."
+ * A cut is judged against the run it sits inside narrowed to the neighbouring
+ * cuts, not the run's full geometric extent: the escape hatch ("the path
+ * offers none") means none given what earlier cuts already fixed, not none in
+ * a hypothetical replay with no other cuts.
  */
 function straightRunViolations(
   path: HamiltonianPath,

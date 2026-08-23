@@ -45,8 +45,8 @@ describe('rayBlockers', () => {
   });
 
   it('throws naming the segment when its direction is out of range, before walking', () => {
-    // #38: step() returns NaN (not NO_CELL) outside 0..3; NaN !== NO_CELL, so
-    // an unguarded walk never terminates. This must throw before the first step.
+    // step() answers NO_CELL outside 0..3 (#38), so an unguarded walk reports
+    // no blockers. This must throw before the first step instead.
     const segDir = Uint8Array.from(ACYCLIC_BOARD.segDir);
     segDir[0] = 200;
     const broken: Board = { ...ACYCLIC_BOARD, segDir };

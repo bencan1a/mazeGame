@@ -10,17 +10,10 @@
  * four lattice offsets — (0,0), (1,0), (0,1), (1,1) — and accepts the first
  * one that works.
  *
- * A block is "full" only when all four of its full-resolution cells are path
- * cells, and "empty" only when none of them are. Anything else — a mixed
- * block, a path cell that falls outside every block under this offset, or a
- * region whose full blocks are not one connected piece — cannot be traced by
- * the contour method under that offset. `unvisited` cells are simply not part
- * of the region: they behave exactly like outside cells for tiling purposes.
- * A block that is partly unvisited and partly on the path is still mixed, and
- * still fails — the contour would otherwise have to route through a cell the
- * contract says must stay off the path. That per-block constraint is
- * unconditional; only the blanket "any unvisited cell anywhere rejects the
- * whole mask" behaviour is gone.
+ * A block is "full" only when all four of its cells are path cells and "empty"
+ * only when none are. `unvisited` cells count as outside for tiling purposes,
+ * so a block that is part unvisited and part path is mixed and fails — the
+ * contour would otherwise route through a cell that must stay off the path.
  *
  * All of this is reported, not thrown: a non-tileable region is an expected
  * outcome the backbite fallback exists for (#6), not a bug.
@@ -44,12 +37,9 @@ export interface TilingOk {
   readonly offsetX: 0 | 1;
   readonly offsetY: 0 | 1;
   /**
-   * Index into `blockFull` of the first full block, in row-major order.
-   *
-   * Carried rather than re-derived: the spanning tree roots itself here and
-   * the contour cuts its cycle here, and both used to find it with their own
-   * `indexOf(1)`. Three scans that had to agree by hand on what "no full
-   * block" means is one more chance to disagree than the answer is worth.
+   * Index into `blockFull` of the first full block, row-major. Carried rather
+   * than re-derived so the spanning tree root and the contour's cut point
+   * cannot disagree about what "no full block" means.
    */
   readonly firstFullBlock: number;
 }
@@ -69,13 +59,9 @@ const LATTICE_OFFSETS: ReadonlyArray<readonly [0 | 1, 0 | 1]> = [
 ];
 
 export function classifyTiling(mask: Mask): TilingResult {
-  // mask.pathCellCount is a claim the mask makes about itself, not a value
-  // this function derives. Trusting it blindly let a mask whose inside/
-  // unvisited arrays disagreed with the claimed count produce a "successful"
-  // block partition that did not actually cover pathCellCount cells — which
-  // downstream (contour.ts) turned into a corrupted or truncated path, or a
-  // negative start index, without any ok:false ever appearing. Reconciling
-  // the two here, once, up front, closes all three failure shapes at once.
+  // pathCellCount is the mask's claim about itself. A mask whose arrays
+  // disagree with it can otherwise tile "successfully" over the wrong number
+  // of cells, which contour.ts turns into a truncated path with no ok:false.
   const actualPathCells = countPathCells(mask);
   if (actualPathCells !== mask.pathCellCount) {
     return {
@@ -125,11 +111,9 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     };
   }
 
-  // Every cell the lattice at this offset does not cover — a partial row or
-  // column at the near edge (when the offset is 1) or a leftover strip at the
-  // far edge (when width/height minus the offset is odd) — belongs to no
-  // block and so can never be traced. A tiling at this offset only works if
-  // none of those leftover cells are on the path.
+  // Cells the lattice does not cover — a near-edge row/column when the offset
+  // is 1, a far-edge strip when the remaining span is odd — belong to no block
+  // and can never be traced, so none of them may be on the path.
   const coveredWidth = 2 * halfWidth;
   const coveredHeight = 2 * halfHeight;
   for (let y = 0; y < height; y++) {
@@ -192,11 +176,9 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     };
   }
 
-  // Belt-and-suspenders on top of the up-front reconciliation: the block
-  // partition this offset produced must account for exactly pathCellCount
-  // cells. It always will once the checks above hold, but this is the literal
-  // guard against `contour.ts` ever tracing a block count that disagrees with
-  // the length of Hamiltonian path it is about to allocate.
+  // Redundant once the checks above hold, but it is the direct guard against
+  // contour.ts tracing a block count that disagrees with the path length it
+  // allocates.
   if (4 * total !== mask.pathCellCount) {
     return {
       ok: false,
