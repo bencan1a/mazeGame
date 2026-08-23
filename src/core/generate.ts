@@ -67,11 +67,16 @@ export interface GenerateBoardDiagnostics {
 
 export interface GenerateBoardResult {
   readonly board: Board;
+  /**
+   * The silhouette this board was cut from. Carried out because coverage is
+   * covered cells over *inside* cells, and a `Board` records only the former.
+   */
+  readonly mask: Mask;
   readonly diagnostics: GenerateBoardDiagnostics;
 }
 
 type AttemptOutcome =
-  | { readonly ok: true; readonly board: Board; readonly peel: PeelStats }
+  | { readonly ok: true; readonly board: Board; readonly mask: Mask; readonly peel: PeelStats }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -102,6 +107,7 @@ export function generateBoardWithDiagnostics(
     if (outcome.ok) {
       return {
         board: outcome.board,
+        mask: outcome.mask,
         diagnostics: {
           attempts: attempt + 1,
           attemptFailures: [...attemptFailures],
@@ -223,5 +229,5 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     }
   }
 
-  return { ok: true, board, peel: segments.stats };
+  return { ok: true, board, mask, peel: segments.stats };
 }
