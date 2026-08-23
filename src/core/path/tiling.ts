@@ -1,29 +1,12 @@
 /**
- * Whether a Mask's path cells can be partitioned into a perfect grid of 2x2
- * blocks at half resolution — the precondition the spanning-tree contour
- * method needs (PRD 4.2 step 2, docs/CONTRACTS.md `Mask -> HamiltonianPath`).
+ * Whether a Mask's path cells partition into whole 2x2 blocks.
  *
- * Only the REGION (the `inside && !unvisited` cells, i.e. the path cells) has
- * to tile — not the whole grid. A silhouette sitting inside a larger,
- * possibly odd-sized, grid tiles exactly when some placement of the 2x2
- * lattice lines the region's cells up into whole blocks, so this tries all
- * four lattice offsets — (0,0), (1,0), (0,1), (1,1) — and accepts the first
- * one that works.
+ * Only the region — the `inside && !unvisited` cells — has to tile, not the
+ * whole grid, so a silhouette inside a larger odd-sized grid can still tile.
+ * That is why all four lattice offsets are tried rather than only (0, 0).
  *
- * A block is "full" only when all four of its full-resolution cells are path
- * cells, and "empty" only when none of them are. Anything else — a mixed
- * block, a path cell that falls outside every block under this offset, or a
- * region whose full blocks are not one connected piece — cannot be traced by
- * the contour method under that offset. `unvisited` cells are simply not part
- * of the region: they behave exactly like outside cells for tiling purposes.
- * A block that is partly unvisited and partly on the path is still mixed, and
- * still fails — the contour would otherwise have to route through a cell the
- * contract says must stay off the path. That per-block constraint is
- * unconditional; only the blanket "any unvisited cell anywhere rejects the
- * whole mask" behaviour is gone.
- *
- * All of this is reported, not thrown: a non-tileable region is an expected
- * outcome the backbite fallback exists for (#6), not a bug.
+ * `unvisited` cells count as outside here, so a block that is part unvisited
+ * and part path is mixed and fails.
  */
 
 import { toIndex } from '../grid.js';
@@ -37,21 +20,12 @@ export interface TilingOk {
   /** 1 where the half-res block at `by * halfWidth + bx` is a "full" (path) block. */
   readonly blockFull: Uint8Array;
   /**
-   * The lattice offset the region tiled under, i.e. the full-resolution
-   * origin of block (0, 0) is (offsetX, offsetY). Every other block sits at
-   * (offsetX + 2*bx, offsetY + 2*by). Reported so callers and tests can see
-   * which of the four placements succeeded, since it is not always (0, 0).
+   * Full-resolution origin of block (0, 0); block (bx, by) sits at
+   * (offsetX + 2*bx, offsetY + 2*by).
    */
   readonly offsetX: 0 | 1;
   readonly offsetY: 0 | 1;
-  /**
-   * Index into `blockFull` of the first full block, in row-major order.
-   *
-   * Carried rather than re-derived: the spanning tree roots itself here and
-   * the contour cuts its cycle here, and both used to find it with their own
-   * `indexOf(1)`. Three scans that had to agree by hand on what "no full
-   * block" means is one more chance to disagree than the answer is worth.
-   */
+  /** Index into `blockFull` of the first full block, row-major. */
   readonly firstFullBlock: number;
 }
 
@@ -70,13 +44,8 @@ const LATTICE_OFFSETS: ReadonlyArray<readonly [0 | 1, 0 | 1]> = [
 ];
 
 export function classifyTiling(mask: Mask): TilingResult {
-  // mask.pathCellCount is a claim the mask makes about itself, not a value
-  // this function derives. Trusting it blindly let a mask whose inside/
-  // unvisited arrays disagreed with the claimed count produce a "successful"
-  // block partition that did not actually cover pathCellCount cells — which
-  // downstream (contour.ts) turned into a corrupted or truncated path, or a
-  // negative start index, without any ok:false ever appearing. Reconciling
-  // the two here, once, up front, closes all three failure shapes at once.
+  // pathCellCount is the mask's claim about itself, and a mask whose arrays
+  // disagree with it would otherwise tile "successfully" over the wrong count.
   const actualPathCells = countPathCells(mask);
   if (actualPathCells !== mask.pathCellCount) {
     return {
@@ -103,7 +72,6 @@ export function classifyTiling(mask: Mask): TilingResult {
   };
 }
 
-/** A cell that the path must cover: inside the silhouette and not parity-absorbed. */
 function isPathCell(mask: Mask, index: number): boolean {
   return mask.inside[index] === 1 && mask.unvisited[index] !== 1;
 }
@@ -126,11 +94,9 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     };
   }
 
-  // Every cell the lattice at this offset does not cover — a partial row or
-  // column at the near edge (when the offset is 1) or a leftover strip at the
-  // far edge (when width/height minus the offset is odd) — belongs to no
-  // block and so can never be traced. A tiling at this offset only works if
-  // none of those leftover cells are on the path.
+  // Cells the lattice does not cover — a near-edge row/column when the offset
+  // is 1, a far-edge strip when the remaining span is odd — belong to no block
+  // and can never be traced, so none of them may be on the path.
   const coveredWidth = 2 * halfWidth;
   const coveredHeight = 2 * halfHeight;
   for (let y = 0; y < height; y++) {
@@ -179,8 +145,6 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     }
   }
 
-  // The path is one walk, so its blocks must be a single 4-connected piece —
-  // a spanning tree cannot span two components with one tree.
   const total = countOnes(blockFull);
   const firstFullBlock = blockFull.indexOf(1);
   const reached = floodFillCount(blockFull, halfWidth, halfHeight, firstFullBlock);
@@ -193,11 +157,6 @@ function classifyAtOffset(mask: Mask, offsetX: 0 | 1, offsetY: 0 | 1): TilingRes
     };
   }
 
-  // Belt-and-suspenders on top of the up-front reconciliation: the block
-  // partition this offset produced must account for exactly pathCellCount
-  // cells. It always will once the checks above hold, but this is the literal
-  // guard against `contour.ts` ever tracing a block count that disagrees with
-  // the length of Hamiltonian path it is about to allocate.
   if (4 * total !== mask.pathCellCount) {
     return {
       ok: false,

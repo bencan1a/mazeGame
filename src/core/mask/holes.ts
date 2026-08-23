@@ -1,10 +1,7 @@
 /**
- * Interior hole filling (PRD §4.2 step 1.5): an "outside" cell is a hole, not
- * background, when it cannot reach the grid border through other outside
- * cells — i.e. it is enclosed on all sides by `inside` cells. Only holes at
- * or below `areaThreshold` cells are filled; a large enclosed void is treated
- * as a deliberate feature of the silhouette (a ring, a letter "O") rather
- * than a repair target.
+ * An "outside" cell is a hole rather than background when it cannot reach the
+ * grid border through other outside cells. Only holes at or below
+ * `areaThreshold` cells are filled.
  */
 
 import { DIRECTIONS, NO_CELL, isBorder, step } from '../grid.js';

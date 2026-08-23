@@ -6,11 +6,9 @@ import type { Mask } from '../types.js';
 import { buildContourPath } from './contour.js';
 
 describe('buildContourPath: mask.pathCellCount disagreeing with inside/unvisited (regression)', () => {
-  // Before classifyTiling reconciled the two, this exact mask produced
-  // cells = [4294967286, 0, 0, 0]: blockFull.indexOf(1) was -1 (no cell is
-  // actually inside), and toIndex(-2, 0, width) wrapped to a huge value once
-  // stored in the Uint32Array start index — an ok: true result no caller
-  // could tell apart from a real path.
+  // No cell is actually inside, so an unreconciled pathCellCount of 4 makes
+  // blockFull.indexOf(1) return -1 and the start index wrap to a huge
+  // Uint32Array value — an ok: true no caller could tell from a real path.
   it('reports ok: false instead of a garbage path for an all-empty mask claiming 4 path cells', () => {
     const mask: Mask = {
       width: 2,
@@ -25,13 +23,10 @@ describe('buildContourPath: mask.pathCellCount disagreeing with inside/unvisited
 });
 
 describe('buildContourPath: merge derivation, worked by hand', () => {
-  // These two cases are the smallest possible instance of a tree edge in
-  // each axis (exactly one edge, no choice of direction for the spanning
-  // tree to make), so the exact cell order is a hand-checkable proof that
-  // the corner-rewrite rule in contour.ts's header comment is right, not
-  // merely plausible. Both strips have no interior cells, so the only
-  // Hamiltonian cycle over them is the strip's own perimeter — which is
-  // exactly what falls out of the construction below.
+  // The smallest instance of a tree edge in each axis: exactly one edge, no
+  // choice for the spanning tree to make, so the exact cell order is
+  // hand-checkable. Neither strip has interior cells, so the only Hamiltonian
+  // cycle over it is its own perimeter.
   it('traces a horizontal (EAST/WEST) merge as the perimeter of a 4x2 strip', () => {
     const mask = makeMask({ width: 4, height: 2 });
     const result = buildContourPath(mask, createRng(1));
@@ -146,13 +141,9 @@ describe('buildContourPath', () => {
   });
 
   it('stays linear at 100x100 rather than quietly becoming quadratic', () => {
-    // A complexity tripwire, not a benchmark. Observed ~18ms on a sandbox
-    // runner, but wall-clock on a shared CI machine varies with load, so the
-    // bound is an order of magnitude above that: it catches an algorithm that
-    // regressed to quadratic and nothing else. Real timing belongs in the
-    // harness (#16, #18), where it can be run repeatedly and compared to a
-    // committed baseline. docs/TESTING.md: a number from a Linux runner is
-    // not evidence about a phone either way.
+    // A complexity tripwire, not a benchmark: the bound is an order of
+    // magnitude above what was observed, so it catches a regression to
+    // quadratic and nothing else.
     const mask = makeMask({ width: 100, height: 100 });
 
     // Warm up first, so JIT compilation is not counted against the bound.

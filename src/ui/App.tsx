@@ -1,10 +1,4 @@
-/**
- * React owns chrome only. The board lives on a canvas behind an uncontrolled
- * ref that React never re-renders into. See docs/adr/0002-canvas-not-svg.md.
- *
- * Placeholder shell: the board mount, settings panel, and HUD land with their
- * own issues (streams S5 and S6).
- */
+/** Placeholder shell. The board mount, settings panel and HUD are not built. */
 export function App() {
   return (
     <main

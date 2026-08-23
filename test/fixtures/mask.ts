@@ -1,10 +1,6 @@
 /**
- * Synthetic `Mask` fixtures.
- *
- * `makeMask` is deliberately not a validator: it builds exactly the mask the
- * spec describes, including masks that violate the S1 postconditions, because
- * the validator's own failing cases have to come from somewhere. Use
- * `maskViolations` from ./postconditions.js to assert a mask is well formed.
+ * Synthetic `Mask` fixtures. `makeMask` is not a validator — it builds exactly
+ * the mask the spec describes, ill-formed ones included.
  */
 
 import type { Mask } from '../../src/core/types.js';
@@ -99,14 +95,14 @@ export function renderMask(mask: Mask): string {
   return fromRows(rows);
 }
 
-/** A 4x4 rectangle. The smallest mask that is interesting and still hand-checkable. */
+/** The smallest mask that is interesting and still hand-checkable. */
 export const SQUARE_MASK: Mask = makeMask({ width: 4, height: 4 });
 
 /** A non-convex silhouette: rays cross outside cells, which is the case that catches bugs. */
 export const PLUS_MASK: Mask = makeMask(['.##.', '####', '####', '.##.'].join('\n'));
 
 /**
- * Odd cell count, so the checkerboard is unbalanced 5:4 until the centre cell is
- * absorbed. This is the shape of the parity problem S1 exists to solve.
+ * Odd cell count, so the checkerboard is unbalanced 5:4 until the centre cell
+ * is absorbed.
  */
 export const UNVISITED_MASK: Mask = makeMask(['###', '#o#', '###'].join('\n'));

@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ACYCLIC_BOARD } from '../../../test/fixtures/board.js';
 import { DEFAULT_PALETTE_SIZE, buildAdjacencyGraph, colorSegments } from './index.js';
 
-/**
- * The barrel is the public surface every other stream imports through —
- * consumers should never need to reach past it into './adjacency.js' or
- * './colorSegments.js' directly. A smoke test through it catches a re-export
- * that silently goes stale.
- */
+/** Covers the barrel itself: most tests import the modules behind it directly. */
 describe('the color barrel', () => {
   it('re-exports a working pipeline', () => {
     const adjacency = buildAdjacencyGraph(

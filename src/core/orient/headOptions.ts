@@ -1,30 +1,15 @@
 /**
- * The legal head/direction candidates for every segment (PRD §4.2 step 4,
- * issue #10).
+ * The legal head/direction candidates for every segment.
  *
- * A segment of length >= 2 has exactly two: either endpoint of its polyline
- * as head, with `segDir` fixed to that endpoint's terminal stroke (the
- * direction the path was travelling as it arrived there) - flipping swaps
- * `segHead` and `segDir` together, they are not chosen independently.
+ * A segment of length >= 2 has two: either endpoint as head, with `segDir`
+ * fixed to that endpoint's terminal stroke. Head and direction are chosen
+ * together, never independently.
  *
- * A length-1 segment (`segmentPath`'s `minStraightRun` escape hatch can
- * produce one) has no terminal stroke to read a direction from at all: its
- * one cell is both endpoints. Per issue #11 (reverse construction, the
- * mandated fallback - see `docs/CONTRACTS.md` "orientation") this module
- * gives it all four compass directions as candidates instead of two, so a
- * board oriented by either method means the same thing. This is a real,
- * if narrow, departure from "exactly two legal heads" for the one case
- * where that phrase does not have a well-defined answer; see this issue's
- * report for whether CONTRACTS.md needs a line about it.
+ * A length-1 segment has no terminal stroke to read a direction from — its one
+ * cell is both endpoints — so it gets all four compass directions instead.
  *
- * `segmentPath` hands every segment's cells in one fixed order (the order
- * the Hamiltonian path visited them), but `src/core/validate/structure.ts`
- * requires `Board.segCells` to run tail -> head with `segHead` equal to each
- * slice's *last* cell. Choosing the endpoint that is already last needs
- * nothing extra; choosing the other one means the caller assembling the
- * final `Board` must reverse that segment's cell slice before writing it in.
- * `reversed` says which, per candidate, so the two orienters (this module's
- * local search and #11's reverse construction) agree on the convention.
+ * `reversed` marks the candidates whose slice must be reversed for `segHead`
+ * to end up last, since `segmentPath` emits one fixed order.
  *
  * Candidates are CSR: segment `k`'s options are `head[j]`/`dir[j]`/`reversed[j]`
  * for `j` in `[candStart[k], candStart[k + 1])`.
@@ -35,11 +20,11 @@ import type { Direction } from '../types.js';
 import type { SegmentedPath } from '../segment/segmentPath.js';
 
 export interface HeadCandidates {
-  /** CSR offsets into `head`/`dir`/`reversed`. Length segmentCount + 1. 2 candidates per segment, except 4 for a length-1 segment. */
+  /** CSR offsets into `head`/`dir`/`reversed`. Length segmentCount + 1. */
   readonly candStart: Uint32Array;
   readonly head: Uint32Array;
   readonly dir: Uint8Array;
-  /** 1 = the caller must reverse this segment's `segCells` slice so `segHead` is its last cell. */
+  /** 1 = reverse this segment's `segCells` slice so `segHead` is its last cell. */
   readonly reversed: Uint8Array;
 }
 

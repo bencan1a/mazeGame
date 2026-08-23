@@ -2,10 +2,9 @@
 /**
  * Generates the PWA icons into public/.
  *
- * Hand-rolled PNG encoder rather than a dependency: offline is a first-class
- * requirement, every dependency is bundle weight or supply-chain surface, and
- * this needs to run exactly once per icon change. zlib is in the standard
- * library, so the whole thing is about sixty lines.
+ * Hand-rolled PNG encoder rather than a dependency: every dependency is bundle
+ * weight or supply-chain surface, zlib is in the standard library, and this
+ * runs once per icon change.
  *
  *   node scripts/make-icons.mjs
  */

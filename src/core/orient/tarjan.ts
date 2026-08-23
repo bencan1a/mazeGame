@@ -1,25 +1,14 @@
 /**
- * Iterative Tarjan strongly-connected-components, for the orientation local
- * search (issue #10, PRD §4.2 step 4).
+ * Iterative Tarjan strongly-connected-components.
  *
- * Iterative rather than recursive on purpose: a 100x100 board can carry
- * thousands of segments, and Tarjan's natural recursion is one stack frame
- * per node on the current DFS path, which is exactly the depth a long
- * dependency chain would hit. `src/core/path/spanningTree.ts` faces the same
- * hazard and solves it the same way - an explicit stack standing in for the
- * call stack.
+ * Iterative rather than recursive: the natural recursion is one frame per node
+ * on the current DFS path, which a long dependency chain reaches.
  *
- * Nodes are plain 0-based indices here, not `SegmentId`s: this module knows
- * nothing about segments or blocking, only about a CSR graph, so it is
- * testable (and reusable) on its own. The orientation search adapts a
- * `BlockingGraph` (1-based ids) into this shape.
+ * Nodes are 0-based indices, not `SegmentId`s — this module knows only about a
+ * CSR graph. Callers holding 1-based ids adapt.
  *
- * The local search (localSearch.ts) calls this tens of thousands of times
- * per board - once per candidate flip, because acyclicity is a global
- * property that a single flip can only be *checked* against globally, not
- * updated incrementally. `TarjanScratch` lets that caller reuse its working
- * arrays across calls instead of paying a fresh O(n) allocation every time;
- * ordinary callers (tests, one-off use) can ignore it entirely.
+ * `TarjanScratch` lets a hot-loop caller reuse its working arrays; ordinary
+ * callers can ignore it.
  */
 
 export interface CsrGraph {
@@ -47,16 +36,16 @@ export interface TarjanResult {
   readonly componentSize: Uint32Array;
 }
 
-/** Reusable working arrays for `tarjanSCC`, sized once per `nodeCount` and reset (not reallocated) on every call. */
+/** Sized once per `nodeCount`, then reset rather than reallocated per call. */
 export interface TarjanScratch {
   readonly nodeCount: number;
   readonly index: Int32Array;
   readonly lowlink: Int32Array;
   readonly onStack: Uint8Array;
   readonly comp: Int32Array;
-  /** Tarjan's "S": every node pushed at most once, so capacity `nodeCount` always suffices. */
+  /** Tarjan's "S". Every node is pushed at most once. */
   readonly nodeStack: Uint32Array;
-  /** Explicit DFS call stack: depth is bounded by `nodeCount` (one frame per node). */
+  /** Explicit DFS call stack, one frame per node. */
   readonly frameNode: Uint32Array;
   readonly frameEdgePos: Uint32Array;
   readonly componentSize: Uint32Array;
@@ -83,15 +72,12 @@ function rowEnd(graph: CsrGraph, v: number): number {
 }
 
 /**
- * Standard Tarjan, run iteratively. Component ids are assigned in the order
- * each SCC finishes, which is a reverse topological order of the condensation:
- * for any edge `u -> v` with `comp[u] !== comp[v]`, `comp[u] > comp[v]`.
+ * Component ids are assigned as each SCC finishes, which is a reverse
+ * topological order of the condensation: for any edge `u -> v` with
+ * `comp[u] !== comp[v]`, `comp[u] > comp[v]`.
  *
- * `scratch` (from `createTarjanScratch`) lets a hot-loop caller skip the
- * per-call allocation of `index`/`lowlink`/`onStack`/the two DFS stacks; the
- * returned `TarjanResult` is always a fresh, independent snapshot regardless
- * (a small O(n) copy) so it stays safe to hold onto after the next call
- * reuses and overwrites the scratch.
+ * The returned `TarjanResult` is a fresh snapshot even when `scratch` is
+ * reused, so it stays valid after the next call overwrites the scratch.
  */
 export function tarjanSCC(graph: CsrGraph, scratch?: TarjanScratch): TarjanResult {
   const n = graph.nodeCount;
@@ -147,8 +133,7 @@ export function tarjanSCC(graph: CsrGraph, scratch?: TarjanScratch): TarjanResul
       }
 
       // v's edges are exhausted: pop its frame and, for a tree edge, fold its
-      // lowlink into the parent that pushed it - the step a recursive
-      // implementation takes right after the recursive call returns.
+      // lowlink into the parent that pushed it.
       frameTop--;
       if (frameTop > 0) {
         const parent = frameNode[frameTop - 1] as number;
@@ -181,12 +166,9 @@ export function tarjanSCC(graph: CsrGraph, scratch?: TarjanScratch): TarjanResul
 
 export interface CyclicNodesOptions {
   /**
-   * Skip the self-loop scan (an O(edges) pass) when the caller already knows
-   * `graph` cannot contain a self-edge - true of every blocking digraph this
-   * module is used with (`buildBlockingGraph`'s own doc comment: a segment's
-   * body never blocks itself). Defaults to false (always scan), which is
-   * always correct; set true only when self-loop-freedom is a property of
-   * how `graph` was built, not merely observed to hold on some inputs.
+   * Skip the self-loop scan. Defaults to false, which is always correct; set
+   * true only when self-loop-freedom follows from how `graph` was built, not
+   * from having observed it on some inputs.
    */
   readonly skipSelfLoopScan?: boolean;
   /** Reuse this buffer for the output instead of allocating a new `Uint8Array(nodeCount)`. */

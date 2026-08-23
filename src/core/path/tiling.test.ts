@@ -18,12 +18,8 @@ describe('classifyTiling', () => {
     }
   });
 
-  // A whole-grid rectangle with an odd dimension genuinely cannot tile at any
-  // lattice offset: every cell is on the path, so whichever offset is tried
-  // leaves some border strip both leftover (uncovered by any block) and on
-  // the path. This is a real non-tileable region, not an artifact of the old
-  // whole-grid-even-dimensions rule — see the 5x5-holding-a-4x4 test below for
-  // the case that rule used to reject wrongly.
+  // Every cell is on the path, so whichever offset is tried leaves a border
+  // strip that is both uncovered by any block and on the path.
   it('rejects a full rectangle with an odd width (no offset can cover every path cell)', () => {
     const mask = makeMask({ width: 5, height: 4 });
     const result = classifyTiling(mask);
@@ -37,9 +33,8 @@ describe('classifyTiling', () => {
   });
 
   it('accepts an odd-sized grid holding a block-aligned even silhouette (only the region has to tile)', () => {
-    // 5x5 grid, but the silhouette is the top-left 4x4 — exactly the case the
-    // whole-grid even-dimensions rule used to reject outright even though the
-    // region itself tiles perfectly at offset (0, 0).
+    // Only the region has to tile, not the grid: a 4x4 silhouette in a 5x5
+    // grid tiles at offset (0, 0).
     const mask = makeMask(['####.', '####.', '####.', '####.', '.....'].join('\n'));
     const result = classifyTiling(mask);
     expect(result.ok).toBe(true);
@@ -52,24 +47,18 @@ describe('classifyTiling', () => {
   });
 
   it('rejects a mask whose unvisited cells break every block at every offset', () => {
-    // Even dimensions, but the two centre-ish cells are parity-absorbed and
-    // sit inside a block no offset can route around: this is a genuinely
-    // non-tileable shape, not a case the old blanket "any unvisited cell
-    // rejects everything" rule got right by accident. See the offset test
-    // below for the shape that rule wrongly rejected.
+    // Even dimensions, but the parity-absorbed centre cells sit inside a block
+    // no offset can route around.
     const mask = makeMask(['####', '#oo#', '####', '####'].join('\n'));
     const result = classifyTiling(mask);
     expect(result.ok).toBe(false);
   });
 
   it('accepts a region with an absorbed cell when some other offset routes around it', () => {
-    // Interior 2x2 block of path cells at (1,1)-(2,2); everything else is
-    // outside except one absorbed (unvisited) cell at the (0,0) corner. At
-    // offset (0,0) that corner cell sits inside a block with the path cells,
-    // making it mixed and rejecting that offset — exactly the failure mode
-    // the old blanket rule conflated with "not tileable at all". Offset
-    // (1, 1) lines the lattice up on the interior block instead, where the
-    // absorbed cell and every other non-path cell fall outside any block.
+    // Interior 2x2 block of path cells at (1,1)-(2,2), plus one absorbed cell
+    // at the (0,0) corner. Offset (0,0) puts that corner in a block with path
+    // cells, making it mixed; offset (1,1) lines the lattice up on the
+    // interior block, where the absorbed cell falls outside every block.
     const mask = makeMask(['o...', '.##.', '.##.', '....'].join('\n'));
     expect(mask.pathCellCount).toBe(4);
     const result = classifyTiling(mask);
@@ -84,10 +73,7 @@ describe('classifyTiling', () => {
   });
 
   it('still rejects a 2x2 block that is partly absorbed and partly on the path, at every offset', () => {
-    // The contract this must never violate: a block cannot be traced if the
-    // contour would have to route through a cell that must stay off the
-    // path. A lone block with one absorbed corner has no offset that avoids
-    // this — fixing the blanket rejection must not "fix" this too.
+    // A lone block with one absorbed corner is mixed at every offset.
     const mask = makeMask(['o#', '##'].join('\n'));
     const result = classifyTiling(mask);
     expect(result.ok).toBe(false);
@@ -128,18 +114,12 @@ describe('classifyTiling', () => {
 });
 
 describe('classifyTiling: trusting mask.pathCellCount without reconciling it (regression)', () => {
-  // These three masks are deliberately malformed: mask.pathCellCount disagrees
-  // with what `inside`/`unvisited` actually contain. Before the reconciliation
-  // check, all three returned ok: true with a blockFull that did not actually
-  // cover pathCellCount cells, which downstream (contour.ts) turned into a
-  // negative, wrapped start index, a duplicated cycle, or a silently truncated
-  // path — never an ok: false a caller could see and fall back from.
+  // Deliberately malformed: mask.pathCellCount disagrees with what
+  // `inside`/`unvisited` contain. Each must come back as ok: false.
 
   it('rejects an all-empty mask that falsely claims 4 path cells (the -1 start-index case)', () => {
-    // No cell is inside at all, so classifyAtOffset's own block partition
-    // would find zero full blocks — but the claimed count of 4 must still be
-    // caught, since it is what previously drove `blockFull.indexOf(1)` to -1
-    // and a garbage, wrapped Uint32Array start index in contour.ts.
+    // No cell is inside, so the block partition finds zero full blocks; the
+    // claimed count of 4 is what must still be caught.
     const mask: Mask = {
       width: 2,
       height: 2,
@@ -193,8 +173,7 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
         (width, height, seed, delta) => {
           if (delta === 0) return;
           const size = width * height;
-          // A deterministic-enough "random" inside/unvisited fill from the seed,
-          // without reaching for Math.random (core lint forbids it).
+          // A deterministic "random" fill from the seed, without Math.random.
           const inside = new Uint8Array(size);
           const unvisited = new Uint8Array(size);
           let real = 0;
@@ -215,9 +194,7 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
 
 describe('firstFullBlock', () => {
   it('points at the first full block, so callers need not rescan for it', () => {
-    // The offset that succeeds is not always (0,0), and the spanning tree and
-    // the cycle cut both root here — the whole point of carrying it is that
-    // those two cannot drift from this one.
+    // The offset that succeeds is not always (0, 0).
     const result = classifyTiling(makeMask(['....', '.##.', '.##.', '....'].join('\n')));
 
     expect(result.ok).toBe(true);

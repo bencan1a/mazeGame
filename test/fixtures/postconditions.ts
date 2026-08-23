@@ -1,20 +1,13 @@
 /**
- * The postconditions from docs/CONTRACTS.md, as checkers.
- *
- * Each returns a list of human-readable violations; empty means clean. They
- * return rather than throw so a test can assert on the whole list, and so a
- * deliberately-broken fixture can be checked for exactly the breakage it is
- * supposed to have.
- *
- * These check *fixtures*. They are not `validateBoard` (S4, src/core/validate)
- * — that one throws, runs in dev, and computes metrics on the way through. When
- * it lands it should be tested against these fixtures, not against this file.
+ * Each returns a list of violations rather than throwing, so a test can assert
+ * on the whole list and a deliberately-broken fixture can be checked for
+ * exactly the breakage it is supposed to have.
  */
 
 import { DIRECTIONS, NO_CELL, directionBetween, parityOf, step } from '../../src/core/grid.js';
 import type { Board, Direction, HamiltonianPath, Mask } from '../../src/core/types.js';
 
-/** Postconditions of `buildMask` (S1). */
+/** Postconditions of a `Mask`. */
 export function maskViolations(mask: Mask): string[] {
   const out: string[] = [];
   const { width, height, inside, unvisited } = mask;
@@ -79,7 +72,7 @@ export function maskViolations(mask: Mask): string[] {
   return out;
 }
 
-/** Postconditions of `buildPath` (S2). */
+/** Postconditions of a `HamiltonianPath` over a `Mask`. */
 export function pathViolations(path: HamiltonianPath, mask: Mask): string[] {
   const out: string[] = [];
   const { cells } = path;
@@ -112,8 +105,7 @@ export function pathViolations(path: HamiltonianPath, mask: Mask): string[] {
 
 /**
  * Everything a Board must satisfy regardless of whether its blocking digraph is
- * acyclic. The deliberately cyclic fixtures must still pass this — otherwise
- * they would not be a fair test of the cycle check.
+ * acyclic, so that the cyclic fixtures can be checked against it too.
  */
 export function boardStructureViolations(board: Board): string[] {
   const out: string[] = [];
@@ -206,8 +198,8 @@ export function boardStructureViolations(board: Board): string[] {
       continue;
     }
     if (new Set(declared).size !== declared.length) {
-      // The contract de-duplicates: a long segment crossing the ray twice is one
-      // edge, so a repeat would double-count in any traversal of the digraph.
+      // A long segment crossing the ray twice is still one edge, so a repeat
+      // would double-count in any traversal of the digraph.
       out.push(`segment ${id} lists a blocker twice: [${declared.join(', ')}]`);
       continue;
     }
@@ -224,7 +216,7 @@ export function boardStructureViolations(board: Board): string[] {
     }
   }
 
-  // Adjacent segments must be visually distinguishable (S3 colouring).
+  // Adjacent segments must be visually distinguishable.
   for (let i = 0; i < size; i++) {
     const id = board.occupancy[i] as number;
     if (id === 0) continue;
@@ -244,7 +236,7 @@ export function boardStructureViolations(board: Board): string[] {
   return out;
 }
 
-/** Board and Mask have to describe the same silhouette for validateBoard to mean anything. */
+/** Board and Mask have to describe the same silhouette. */
 export function boardMaskViolations(board: Board, mask: Mask): string[] {
   const out: string[] = [];
   if (board.width !== mask.width || board.height !== mask.height) {
@@ -268,8 +260,7 @@ export function boardMaskViolations(board: Board, mask: Mask): string[] {
  * The order a greedy clear removes segments in, or null if it stalls.
  *
  * An edge k -> j means j blocks k, so k is removable once every j it points at
- * is gone. Stalling is exactly a cycle in the blocking digraph, which is the
- * one thing orientation must never produce.
+ * is gone, and stalling is exactly a cycle in the blocking digraph.
  */
 export function greedyClearOrder(board: Board): number[] | null {
   const n = board.segmentCount;
@@ -279,8 +270,7 @@ export function greedyClearOrder(board: Board): number[] | null {
     const targets = blockersOf(board, id);
     remaining[id - 1] = targets.length;
     for (const target of targets) {
-      // An edge to a segment that does not exist can never be satisfied, so the
-      // board is not clearable. Say so rather than throwing: this file reports.
+      // An edge to a segment that does not exist can never be satisfied.
       if (target < 1 || target > n) return null;
       (blockedBy[target] as number[]).push(id);
     }
@@ -311,9 +301,8 @@ export function isAcyclic(board: Board): boolean {
 export function rayBlockers(board: Board, id: number): number[] {
   const dir = board.segDir[id - 1] as Direction;
   // segDir is a Uint8Array, so a board can carry 255 (what -1 becomes) with no
-  // type error to catch it. step() now answers NO_CELL for that (#38), so the
-  // walk would simply find nothing — and "no blockers" reads as "this segment
-  // is free", which is a worse answer than an error.
+  // type error. step() answers NO_CELL for it, so the walk finds nothing — and
+  // "no blockers" reads as "this segment is free", worse than an error.
   if (!isDirection(dir)) {
     throw new Error(`segment ${id} has direction ${dir as number}, which is not one of 0..3`);
   }
@@ -322,8 +311,7 @@ export function rayBlockers(board: Board, id: number): number[] {
   let cell = step(board.segHead[id - 1] as number, dir, board.width, board.height);
   while (cell !== NO_CELL) {
     const other = board.occupancy[cell] as number;
-    // A segment's own body never blocks it — that is what makes a clear head a
-    // guaranteed escape rather than a guess.
+    // A segment's own body never blocks it.
     if (other !== 0 && other !== id && !seen.has(other)) {
       seen.add(other);
       found.push(other);

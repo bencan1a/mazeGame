@@ -1,19 +1,12 @@
 /**
- * Orientation entry point (issue #10, docs/CONTRACTS.md "orientation"):
- * choose a head for every segment such that the resulting blocking digraph is
- * acyclic.
+ * Choose a head for every segment such that the blocking digraph is acyclic:
+ * randomized local search first, reverse construction when its iteration box
+ * expires.
  *
- * Two implementations, per docs/CONTRACTS.md:
- *   1. Randomized local search (localSearch.ts) - the default, tried first.
- *   2. Reverse construction (issue #11, `reverseConstruct.ts`) - correct by
- *      construction, the mandated fallback when local search's iteration box
- *      expires (R2, docs/PLAN.md).
- *
- * Reverse construction is the default fallback and needs no wiring by the
- * caller. It stays injectable through `options.fallback` so a test can
- * substitute a stub or force the stuck path, but the default is the real one:
- * on measured board geometry local search rarely converges, so a caller that
- * had to remember to supply it would be a thrown error waiting to happen.
+ * The fallback defaults to the real `reverseConstruct` and needs no wiring. It
+ * stays injectable so a test can substitute a stub or force the stuck path,
+ * but a caller who had to remember to supply it would be a thrown error
+ * waiting to happen: local search rarely converges on measured geometry.
  */
 
 import type { Rng } from '../rng.js';
@@ -21,32 +14,24 @@ import type { SegmentedPath } from '../segment/segmentPath.js';
 import { DEFAULT_MAX_ITERATIONS, orientByLocalSearch } from './localSearch.js';
 import type { LocalSearchStats } from './localSearch.js';
 import { reverseConstruct } from './reverseConstruct.js';
-import type { ReverseConstructResult } from './reverseConstruct.js';
 
 export interface OrientationResult {
   readonly segHead: Uint32Array;
   readonly segDir: Uint8Array;
   /**
-   * 1 = the caller must reverse this segment's `segCells` slice before
-   * writing it into `Board.segCells`, so `segHead` ends up as the slice's
-   * *last* cell - the invariant `src/core/validate/structure.ts` enforces.
-   * `segmentPath` hands every segment's cells in one fixed (path-visit)
-   * order; whichever endpoint is *not* already last needs this.
+   * 1 = reverse this segment's `segCells` slice before writing it into
+   * `Board.segCells`, so `segHead` ends up as the slice's last cell.
+   * `segmentPath` emits one fixed order; the endpoint that is not already
+   * last needs this.
    */
   readonly segReversed: Uint8Array;
 }
 
-/** Same argument order as `orientSegments` itself, minus the options bag - reverse construction has no iteration box to configure. */
-export type ReverseConstructOrienter = (
-  segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
-  occupancy: Uint16Array,
-  width: number,
-  height: number,
-  rng: Rng,
-) => ReverseConstructResult;
+/** Structurally `reverseConstruct`, kept a type so the seam stays injectable. */
+export type ReverseConstructOrienter = typeof reverseConstruct;
 
 export interface OrientSegmentsOptions {
-  /** Overrides `localSearch.ts`'s `DEFAULT_MAX_ITERATIONS`. */
+  /** Overrides `DEFAULT_MAX_ITERATIONS`. */
   readonly maxIterations?: number;
   /**
    * Defaults to `reverseConstruct`. Override only to substitute a stub or to
@@ -58,12 +43,8 @@ export interface OrientSegmentsOptions {
 export interface OrientSegmentsResult extends OrientationResult {
   /**
    * True when local search's iteration box expired and reverse construction
-   * produced the result instead. AC #4 asks this be "recorded in metrics";
-   * `BoardMetrics` (src/core/types.ts) is a shared contract file this stream
-   * cannot edit unilaterally, so this flag is returned here for the caller
-   * (generate.ts, once it exists) to plumb into a new metrics field behind
-   * its own contract-change issue. See this issue's report for the exact
-   * field this needs.
+   * produced the result instead. The caller plumbs this into
+   * `BoardMetrics.orientationFallback`.
    */
   readonly usedFallback: boolean;
   readonly localSearch: LocalSearchStats;

@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
+import commentRules from './eslint-rules/no-comment-cross-references.js';
 
 export default tseslint.config(
   // .claude/worktrees holds live checkouts for parallel stream agents. Linting
@@ -40,7 +41,6 @@ export default tseslint.config(
   },
   {
     // The generator must never touch React, the DOM, or the clock.
-    // See docs/adr/0004-generator-purity.md.
     files: ['src/core/**/*.ts', 'src/harness/**/*.ts'],
     rules: {
       'no-restricted-globals': [
@@ -83,5 +83,12 @@ export default tseslint.config(
   {
     files: ['**/*.test.ts', 'scripts/**/*', 'src/harness/**/*'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    // scripts/ is exempt: those comments name the files the scripts themselves
+    // read and write, which is not a citation.
+    files: ['src/**/*.{ts,tsx}', 'test/**/*.ts', '*.config.{ts,js}'],
+    plugins: { comments: commentRules },
+    rules: { 'comments/no-comment-cross-references': 'error' },
   },
 );

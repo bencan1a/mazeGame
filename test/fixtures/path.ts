@@ -1,11 +1,7 @@
 /**
- * Synthetic `HamiltonianPath` fixtures.
- *
- * A boustrophedon (serpentine) walk is Hamiltonian over any full rectangle, for
- * any width and height, and it is correct by inspection. That last part is the
- * whole point: a general Hamiltonian path over an arbitrary mask is S2's job
- * (spanning-tree contour, backbite fallback), and a fixture that implemented it
- * would be a second copy of the algorithm under test, wrong in the same places.
+ * Synthetic `HamiltonianPath` fixtures. A boustrophedon walk is Hamiltonian
+ * over any full rectangle and correct by inspection, which is why the fixtures
+ * cover only rectangles.
  */
 
 import { directionBetween } from '../../src/core/grid.js';
@@ -13,11 +9,9 @@ import type { HamiltonianPath, Mask } from '../../src/core/types.js';
 import { pathViolations } from './postconditions.js';
 
 /**
- * A boustrophedon path over a mask whose cells are a full rectangle.
- *
- * Throws on anything else — a hole or an unvisited cell breaks the serpentine's
- * 4-adjacency, and a walk that silently skips cells is not a path even though
- * it still looks like one to everything downstream.
+ * A boustrophedon path over a mask whose cells are a full rectangle. Throws on
+ * anything else: a hole or an unvisited cell breaks the serpentine's
+ * 4-adjacency.
  */
 export function makePath(mask: Mask): HamiltonianPath {
   const full = mask.width * mask.height;
@@ -44,11 +38,9 @@ export function makePath(mask: Mask): HamiltonianPath {
 }
 
 /**
- * Wrap a hand-written walk as a path, checking the S2 postconditions.
- *
- * The escape hatch for a stream that needs a path over a non-rectangular mask
- * before S2 lands: checking a Hamiltonian path is trivial, constructing one is
- * not, so the fixture will check yours but will not invent one.
+ * Wrap a hand-written walk as a path, checking the postconditions. Checking a
+ * Hamiltonian path is trivial where constructing one is not, so this checks
+ * yours rather than inventing one.
  */
 export function makePathFromCells(mask: Mask, cells: Iterable<number>): HamiltonianPath {
   const path: HamiltonianPath = { cells: Uint32Array.from(cells) };

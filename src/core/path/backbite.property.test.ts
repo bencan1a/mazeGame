@@ -52,16 +52,14 @@ function randomConnectedBlocks(
  * Expand a block footprint to full resolution, then absorb up to
  * `holeBudget` individual cells as `unvisited` — each only if it leaves every
  * one of its neighbours with at least 2 remaining path-cell neighbours *and*
- * keeps the checkerboard balanced (`|black - white| <= 1`, docs/CONTRACTS.md).
- * A full block region is always exactly balanced (every 2x2 block contributes
- * one black and one white pair), so a hole is only accepted if removing it
- * would not push the imbalance past 1 — in practice this means holes alternate
- * colour. Skipping the parity guard here used to let this generator produce
- * masks with no Hamiltonian path at all (three same-colour holes is an
- * imbalance of 3), which is not a shape backbite is expected to solve — S1
- * promises `buildMask` never emits one — so those were never a fair test of
- * the builder. This is the shape backbite is actually expected to handle: a
- * would-be-tileable, contract-legal region with a couple of holes knocked
+ * keeps the checkerboard balanced (`|black - white| <= 1`). A full block
+ * region is always exactly balanced, so a hole is accepted only if removing it
+ * would not push the imbalance past 1 — in practice, holes alternate colour.
+ * Without that guard the generator emits masks with no Hamiltonian path at all
+ * (three same-colour holes is an imbalance of 3), which is not a shape backbite
+ * is expected to solve and so never a fair test of it. This is the shape it is
+ * expected to handle: a would-be-tileable, legal region with a couple of holes
+ * knocked
  * into it.
  */
 function maskFromBlocksWithHoles(
@@ -195,8 +193,8 @@ describe('buildBackbitePath: property tests', () => {
   });
 
   it('stays a valid, Hamiltonian path across thousands of backbite moves, checked after every one', () => {
-    // The core claim of issue #6: mixing moves reorder the path but never
-    // break it. validateEveryMove turns the dev-mode assertion on for every
+    // Mixing moves reorder the path but never break it.
+    // validateEveryMove turns the dev-mode assertion on for every
     // single move, not only the final one — an O(pathCellCount) check per
     // move, times thousands of moves, times several seeds, so this is the
     // slowest test in the file by design; the explicit timeout below is

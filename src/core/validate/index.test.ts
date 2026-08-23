@@ -7,12 +7,7 @@ import {
 } from '../../../test/fixtures/index.js';
 import * as validate from './index.js';
 
-/**
- * Smoke-tests the public re-export surface itself, not just the modules
- * behind it — a typo in index.ts's re-export list would otherwise ship
- * silently, since every other test file imports each function directly from
- * its own module.
- */
+/** Covers the barrel itself: most tests import the modules behind it directly. */
 describe('the public API surface', () => {
   it('re-exports validateBoard and it behaves the same as the direct import', () => {
     const { mask } = makeBoardAndMask({ art: ACYCLIC_BOARD_ART, walks: ACYCLIC_BOARD_WALKS });

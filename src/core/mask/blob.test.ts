@@ -219,10 +219,7 @@ describe('invalid parameters', () => {
   });
 });
 
-// Issue #58: the blob is drawn at half resolution and upscaled 2x so that
-// every region tiles into 2x2 blocks, which is what the spanning-tree contour
-// path method (#5) needs. These tests pin that postcondition down directly,
-// rather than trusting that "draw at half res, upscale by 2" produced it.
+// Every region must partition into whole 2x2 blocks aligned to (0, 0).
 describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
   it('never produces a 2x2 block that is partially inside', () => {
     fc.assert(
@@ -255,18 +252,13 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
   }, 20_000);
 
   it('leaves any leftover row/column from an odd gridSize entirely outside', () => {
-    // halfResSize rounds gridSize/2 down, so an odd gridSize has exactly one
-    // full-resolution row and one column (the last of each) that fall outside
-    // every 2x2 block. Those must never be marked inside, or classifyTiling
-    // would reject the region as having a path cell no block covers.
+    // An odd gridSize leaves exactly one row and one column outside every 2x2
+    // block, and those must never be marked inside.
     fc.assert(
       fc.property(seedArb, fc.integer({ min: 1, max: 101 }), (seed, gridSize) => {
         const { width, height, inside } = generateBlob({ seed, gridSize });
-        // Mirrors halfResSize's own floor-with-a-floor-of-1: below gridSize 2
-        // there is no room for even one full-resolution 2x2 block, so the
-        // generator clips a single conceptual block down to whatever the grid
-        // actually has rather than leaving it empty — see the non-empty
-        // guarantee in generateRadialBlob.
+        // Below gridSize 2 there is no room for a full 2x2 block, so the
+        // single block is clipped to whatever the grid has rather than empty.
         const half = Math.max(1, Math.floor(width / 2));
         const coveredWidth = Math.min(width, half * 2);
         const coveredHeight = Math.min(height, half * 2);
@@ -287,8 +279,8 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
   });
 
   it('picks an odd gridSize deliberately by rounding down, not rejecting it', () => {
-    // Documents the judgement call: odd gridSize is a valid input, handled by
-    // flooring to the nearest even coverage rather than throwing.
+    // Odd gridSize is valid input, floored to the nearest even coverage
+    // rather than rejected.
     for (const gridSize of [21, 41, 63, 99]) {
       expect(() => generateBlob({ seed: 1, gridSize })).not.toThrow();
       expect(insideCount(generateBlob({ seed: 1, gridSize }).inside)).toBeGreaterThan(0);
@@ -298,16 +290,9 @@ describe('generateBlob tiles into 2x2 blocks at offset (0, 0)', () => {
 
 describe('generateBlob has zero checkerboard parity mismatch', () => {
   it('|black - white| is exactly 0, not merely within {0, ±1}', () => {
-    // A block-aligned region is built from whole 2x2 blocks, and every 2x2
-    // block on a checkerboard has exactly two black and two white cells
-    // regardless of where it sits — so the region-wide counts cancel exactly.
-    // This is the empirical confirmation issue #58 asks for: parity
-    // absorption (#4) has nothing left to do on a blob from this generator.
-    // gridSize 1 is excluded: there is no room for even one whole 2x2 block,
-    // so halfResSize's floor-of-1 clamp trims the block to a single cell (see
-    // the "leaves any leftover..." test above) and the guarantee genuinely
-    // does not apply — a corner case, not the game's operating range of
-    // 20..100 (PRD §3.1).
+    // Every 2x2 block holds two cells of each checkerboard colour wherever it
+    // sits, so a region of whole blocks cancels exactly. gridSize 1 is
+    // excluded: no room for a whole block, so it is clipped to one cell.
     fc.assert(
       fc.property(
         seedArb,

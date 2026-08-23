@@ -1,22 +1,16 @@
 /**
  * Shared ASCII-art parsing for the fixture builders.
  *
- * Fixtures are read far more often than they are written — six streams read
- * each other's test failures — so the specs are pictures, and the picture is
- * the single source of truth for the fixture it describes.
- *
  * Canonical form is what `render*` emits: no indentation, rows joined by '\n',
  * no trailing newline. Parsing accepts more than that (indented template
- * literals, leading and trailing blank lines) so that a spec written inline in
- * a test still reads as a picture at the indentation of its call site.
+ * literals, leading and trailing blank lines) so a spec written inline in a
+ * test still reads as a picture at the indentation of its call site.
  */
 
 /**
- * Split art into rows, stripping the blank lines and common indentation that
- * an inline template literal picks up from its surroundings.
- *
- * Throws on ragged art: rows of unequal length are always a typo, and finding
- * one here is much cheaper than finding it as an off-by-one three stages later.
+ * Split art into rows, stripping the blank lines and common indentation an
+ * inline template literal picks up from its surroundings. Throws on ragged
+ * art, which is always a typo.
  */
 export function toRows(art: string): string[] {
   const lines = art.split('\n');
@@ -40,7 +34,7 @@ export function toRows(art: string): string[] {
   return rows;
 }
 
-/** Join rows back into canonical form. The inverse of `toRows` on canonical input. */
+/** The inverse of `toRows` on canonical input. */
 export function fromRows(rows: readonly string[]): string {
   return rows.join('\n');
 }

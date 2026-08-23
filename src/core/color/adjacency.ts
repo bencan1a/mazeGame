@@ -1,39 +1,15 @@
-/**
- * Builds the segment adjacency graph: an edge between two *different*
- * segments whenever a cell of one touches a cell of the other across a
- * 4-neighbour boundary.
- *
- * This is a different graph from the blocking digraph built in
- * `src/core/orient/` — adjacency is symmetric ("do these two pieces touch on
- * screen"), where blocking is directed ("must this one be removed before that
- * one"). Coloring only ever needs the former; do not confuse the two CSR
- * pairs even though both look like `{start, target}`.
- */
 import { EAST, NO_CELL, SOUTH, step, toIndex } from '../grid.js';
 import type { AdjacencyGraph } from './types.js';
 
-/**
- * `occupancy[i]` is the 1-based segment id at cell `i`, 0 for empty, matching
- * `Board.occupancy`. Passing primitives rather than a `Board` keeps this
- * buildable and testable without depending on the segmentation stream.
- */
 export function buildAdjacencyGraph(
   occupancy: Uint16Array,
   width: number,
   height: number,
   segmentCount: number,
 ): AdjacencyGraph {
-  // A segment's own body must never appear as its own neighbour (a self-loop
-  // would poison the "colours taken by neighbours" set in colorSegments with
-  // the segment's own eventual colour), and two segments that share many
-  // cell boundaries are still one edge, exactly like a blocking ray that
-  // crosses a segment twice — a Set dedupes both for free.
-  // Validate every cell before building anything. Checking inside the scan is
-  // too late: a valid cell reaches an out-of-range *neighbour* before the scan
-  // arrives at that neighbour's own cell. Unchecked, a corrupt id fails two
-  // different ways depending on where it sits - touching another segment
-  // throws a raw TypeError from an undefined Set, and touching nothing is
-  // silently dropped, returning a segColor shorter than the segment count.
+  // Validated up front rather than inside the scan below, which is too late: a
+  // valid cell reaches an out-of-range *neighbour* before the scan arrives at
+  // that neighbour's own cell.
   for (let i = 0; i < occupancy.length; i++) {
     const id = occupancy[i] as number;
     if (id > segmentCount) {
@@ -50,9 +26,8 @@ export function buildAdjacencyGraph(
       const i = toIndex(x, y, width);
       const id = occupancy[i] as number;
       if (id === 0) continue;
-      // Checking only East and South (not all four directions) visits every
-      // cell-to-cell contact exactly once instead of twice; the Set already
-      // records the edge for both endpoints below.
+      // East and South only: that visits every cell-to-cell contact once
+      // instead of twice, and each contact records both endpoints below.
       for (const dir of [EAST, SOUTH] as const) {
         const j = step(i, dir, width, height);
         if (j === NO_CELL) continue;
@@ -72,8 +47,8 @@ export function buildAdjacencyGraph(
   let at = 0;
   for (let id = 1; id <= segmentCount; id++) {
     adjStart[id - 1] = at;
-    // Sorted so the CSR slice is deterministic run to run, not merely correct
-    // as an unordered set — determinism is a hard requirement (ADR-0004).
+    // Sorted so the slice is byte-identical run to run, not merely correct as
+    // an unordered set.
     const sorted = Array.from(neighbours[id] as Set<number>).sort((a, b) => a - b);
     for (const target of sorted) adjTarget[at++] = target;
   }

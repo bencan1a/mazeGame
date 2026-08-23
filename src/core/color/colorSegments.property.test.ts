@@ -1,24 +1,9 @@
 /**
- * The property the whole coloring stage exists for: two segments that touch
- * on the grid never end up sharing a palette index.
+ * Two segments that touch on the grid never share a palette index.
  *
- * The generator pipeline (mask -> path -> segmentation) does not exist yet —
- * this stream builds against fixtures, not against #8/#9 — so "500 boards"
- * cannot mean 500 real generated boards. Re-running the three fixed fixtures
- * 500 times would test nothing 500 copies of the same graph wouldn't already
- * test once. Instead this synthesises 500 *varied* segment tilings directly:
- * a randomized multi-source flood fill over grids of varying size, seeded by
- * fast-check's own integers through `createRng` (never `Math.random`, per
- * ADR-0004), grown into a random number of connected, non-overlapping regions.
- *
- * That is a fair proxy for a real board's adjacency graph: like real
- * segments, each region is a connected subset of the grid, and the resulting
- * region-adjacency graph is planar for the same reason a real one is (no
- * region can be adjacent to another without a shared physical cell boundary,
- * and cell boundaries do not cross). It is not claiming to reproduce
- * segmentation's own logic (piece length, straight-run constraints, etc.) —
- * only the structural property that matters for this stage: which segments
- * touch which.
+ * The boards are synthesised by randomized multi-source flood fill, which
+ * reproduces the only structure this stage reads — which regions touch which —
+ * and none of segmentation's own logic.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
@@ -107,10 +92,8 @@ describe('colorSegments property: adjacent segments never share a hue', () => {
         const adjacency = buildAdjacencyGraph(occupancy, width, height, segmentCount);
         const colors = colorSegments(adjacency, segmentCount);
 
-        // Check the property directly against the grid, not just by trusting
-        // buildAdjacencyGraph agrees with itself — that would only prove the
-        // two functions are consistent with each other, not that the board is
-        // actually readable.
+        // Checked against the grid rather than against buildAdjacencyGraph,
+        // which would only prove the two agree with each other.
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             const i = y * width + x;

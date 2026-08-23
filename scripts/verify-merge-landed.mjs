@@ -1,12 +1,9 @@
 /**
  * After a merge into `main`, assert the branch's tip actually landed.
  *
- * #48 merged the commit before three fixes that were pushed while the merge was
- * running; one was a real bug fix, and it was noticed only because someone
- * checked by hand. Branch protection should now close that window before the
- * merge — a push invalidates the required check and greys the button out — so
- * this exists to confirm that it does, automatically, rather than waiting to
- * find out the same way as last time.
+ * A push landing mid-merge can leave commits behind. Branch protection should
+ * close that window by invalidating the required check; this confirms it did,
+ * rather than leaving it to be spotted by hand.
  *
  *   node scripts/verify-merge-landed.mjs <merge-sha>
  *

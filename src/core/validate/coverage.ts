@@ -1,15 +1,13 @@
 /**
- * Coverage: every inside cell should end up on some segment. `unvisited` cells
- * (S1's parity-absorption mechanism, CONTRACTS.md "Mask -> HamiltonianPath")
- * are the one sanctioned exception — they are inside but deliberately never on
- * the path, so they must account for the whole shortfall, not merely most of
- * it, before it is written off as tolerable generation slop.
+ * Every inside cell should end up on some segment. `unvisited` cells are the
+ * one exception, and must account for the whole shortfall rather than most of
+ * it before the rest is written off as tolerable slop.
  */
 
 import type { Board, Mask } from '../types.js';
 import { BoardInvariantError } from '../types.js';
 
-/** Coverage below this fraction of inside cells fails validation (PRD §3.1). */
+/** Coverage below this fraction of inside cells fails validation. */
 export const MIN_COVERAGE = 0.99;
 
 export function checkCoverage(board: Board, mask: Mask): void {
@@ -45,10 +43,8 @@ export function checkCoverage(board: Board, mask: Mask): void {
         });
       }
     } else if (inside && !unvisited) {
-      // Inside, not on the path, and not sanctioned by unvisited: a genuine
-      // coverage gap. Named individually rather than only as an aggregate
-      // percentage, because "which cell" is what the next agent needs to
-      // reproduce it.
+      // Named individually rather than rolled into the percentage below:
+      // "which cell" is what reproducing the gap needs.
       throw new BoardInvariantError(
         `cell ${cell} is inside the mask, not covered by any segment, and not marked unvisited`,
         { cell },

@@ -1,30 +1,15 @@
 /**
- * Randomized local search for an acyclic head assignment (issue #10, PRD
- * §4.2 step 4): build the blocking digraph, find its SCCs, flip a segment
- * inside a non-trivial one, recheck. Not 2-SAT - acyclicity is a global
- * property of the whole digraph, not a clause over pairs of literals - so
- * this is a search over the (mostly 2^n, larger where a length-1 segment
- * contributes 4 choices instead of 2) space of orientation choices, not a
- * solver.
+ * Randomized local search for an acyclic head assignment: find the SCCs, flip
+ * a segment inside a non-trivial one, recheck.
  *
- * Boxed by **iteration count**, not wall-clock time: `src/core/` is a pure
- * function of `(seed, params)` (ADR-0004), and a millisecond budget would
- * make the same seed converge or not depending on the machine it runs on.
- * `Date.now`/`performance.now` are lint errors in this directory for the same
- * reason. `maxIterations` is the whole budget.
+ * Boxed by iteration count, not wall-clock time — a millisecond budget would
+ * make the same seed converge or not depending on the machine.
  *
- * Every flip requires a genuinely global recheck - acyclicity is a property
- * of the whole graph, not of the flipped node alone - so Tarjan runs in
- * full every iteration; there is no way to check "did this flip fix it"
- * more cheaply than that. What *is* local to the flip is which row of the
- * blocking digraph can have changed: occupancy (which cells belong to which
- * segment) never changes, only where the flipped segment's own ray starts
- * and which way it points, so only that segment's own row can differ (see
- * incrementalRow.ts). The graph is therefore kept as one CSR buffer with
- * slack reserved per row, so a flip overwrites its own row's slot in place
- * (`tryUpdateRow` below) instead of re-flattening every row's content into a
- * fresh array on every iteration - `Tarjan`'s own working arrays are reused
- * across calls the same way, via `TarjanScratch`.
+ * Acyclicity is a property of the whole graph, so every flip needs a full
+ * Tarjan run. What is local to a flip is which *row* can have changed:
+ * occupancy never moves, only where the flipped segment's ray starts and
+ * points, so only its own row differs. The graph is therefore one CSR buffer
+ * with slack per row, and a flip overwrites its row in place.
  */
 
 import type { Rng } from '../rng.js';
@@ -39,19 +24,10 @@ import { createTarjanScratch, cyclicNodes, tarjanSCC } from './tarjan.js';
 import type { CsrGraph, TarjanResult, TarjanScratch } from './tarjan.js';
 
 /**
- * A time budget, not a convergence target - and an unresolved one. On the
- * trivial boustrophedon fixture (`makePath`) this converges reliably even
- * at 100x100; on a real spanning-tree contour path (`buildContourPath`,
- * landed since this issue's brief was written) it very rarely does at any
- * size this issue measured, because a bendy real path packs segments into a
- * far denser blocking graph - which also makes each iteration itself
- * costlier, not just convergence rarer. Growing this box does not fix that
- * within a 1s generation budget: this issue's report has the numbers for
- * both path sources, and picking a properly-tuned value (likely
- * segmentCount- or density-aware, not a flat constant) needs the real
- * generator pipeline and harness this issue does not have access to. Until
- * then, reverse construction (#11) is not a rare fallback - on real
- * geometry it is close to the default outcome.
+ * A budget, not a convergence target, and an untuned one. On a boustrophedon
+ * fixture this converges reliably; on a real contour path it rarely does, so
+ * reverse construction is close to the default outcome rather than a rare
+ * fallback. A tuned value is likely density-aware rather than a flat constant.
  */
 export const DEFAULT_MAX_ITERATIONS = 2000;
 
@@ -59,7 +35,7 @@ export interface LocalSearchStats {
   readonly converged: boolean;
   /** Flips attempted before converging or giving up. */
   readonly iterations: number;
-  /** Always equal to `iterations` for this search (one flip per iteration); kept distinct in case a future variant flips more than one segment per step. */
+  /** Equal to `iterations` here, one flip per iteration. */
   readonly flips: number;
   readonly initialSccCount: number;
   /** 0 when converged. */
@@ -78,12 +54,10 @@ export interface LocalSearchOptions {
 }
 
 /**
- * A blocking digraph stored with slack: `capacity[k]` slots are reserved for
- * segment `k`'s row starting at `edgeStart[k]`, of which `edgeCount[k]` are
- * currently used (0-based ids, matching `CsrGraph`). A flip that does not
- * grow its row past its reserved capacity is a plain in-place overwrite of
- * that row's slots - every other row's bytes are untouched, so no
- * whole-graph flatten is needed to keep `edgeTarget` valid.
+ * A blocking digraph stored with slack: `capacity[k]` slots reserved for
+ * segment `k`'s row at `edgeStart[k]`, of which `edgeCount[k]` are used
+ * (0-based ids). A row that grows within its capacity is overwritten in place,
+ * leaving every other row's bytes untouched.
  */
 interface SlackCsr {
   edgeStart: Uint32Array;
@@ -92,7 +66,7 @@ interface SlackCsr {
   capacity: Uint32Array;
 }
 
-/** Extra room reserved per row so an ordinary flip (row shrinks or grows a little) never forces a rebuild. */
+/** Extra room per row, so an ordinary flip does not force a rebuild. */
 function reserveCapacity(len: number): number {
   return Math.max(8, len * 2);
 }
@@ -149,10 +123,8 @@ export function orientByLocalSearch(
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const candidates = computeHeadCandidates(segments, width);
 
-  // Orientation bit per segment: index into `candidates.head`/`dir`/`reversed`
-  // (not segment-local). Randomized rather than always the first candidate,
-  // so a re-run with a fresh rng draw is not stuck re-exploring the same
-  // starting point.
+  // Index into `candidates.head`/`dir`/`reversed`, not segment-local.
+  // Randomized so a re-run with a fresh rng draw starts somewhere else.
   const choice = new Uint32Array(segmentCount);
   for (let k = 0; k < segmentCount; k++) {
     const from = candidates.candStart[k] as number;
@@ -190,10 +162,8 @@ export function orientByLocalSearch(
 
   let tarjan = runTarjan();
   let cyclicCount = collectCyclicCount(asCsrGraph(slack, segmentCount), tarjan);
-  // cyclicFlags is only valid to read *after* collectCyclicCount has populated
-  // it for the current tarjan result - computing this before that call (as an
-  // earlier version of this function did) always reads a stale, freshly
-  // zeroed buffer and silently reports 0.
+  // cyclicFlags is only valid after collectCyclicCount has populated it for
+  // the current tarjan result; read earlier it is a stale zeroed buffer.
   const initialSccCount = countDistinctCyclicComponents(cyclicFlags, tarjan, segmentCount);
   let iterations = 0;
 
@@ -213,10 +183,9 @@ export function orientByLocalSearch(
       height,
     );
     if (!tryUpdateRow(slack, pick, row)) {
-      // Rare: pick's blocker count outgrew its reserved slack. Rebuilding
-      // from a fresh full scan is correctness-safe and self-healing - the
-      // new reservation is sized off the row that just overflowed, so the
-      // same segment does not repeatedly force this path.
+      // pick's blocker count outgrew its reserved slack. The rebuild sizes the
+      // new reservation off the row that overflowed, so the same segment does
+      // not force this path repeatedly.
       slack = buildSlackCsr(buildBlockingGraph(graphInput), segmentCount);
     }
 
@@ -275,9 +244,8 @@ function applyOne(
 
 /**
  * Replace segment `k`'s selected candidate with a different one, uniformly at
- * random among the others (there is nothing to flip *to* for a length-1
- * segment's 4-way choice unless "different from current" is the rule, the
- * same way it is for the ordinary 2-way case).
+ * random among the others — "different from current" being the rule for the
+ * length-1 segment's 4-way choice as much as the ordinary 2-way one.
  */
 function flipCandidate(rng: Rng, candStart: Uint32Array, choice: Uint32Array, k: number): void {
   const from = candStart[k] as number;

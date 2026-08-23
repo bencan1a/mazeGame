@@ -1,20 +1,13 @@
-/**
- * Largest 4-connected component extraction (PRD §4.2 step 1.2 and 1.4). Used
- * twice by the repair pipeline: once on the raw blob, and again after the
- * morphological open, which can split the region.
- */
+/** Largest 4-connected component extraction. */
 
 import { DIRECTIONS, NO_CELL, step } from '../grid.js';
 import type { Blob } from './blob.js';
 
 /**
  * Zeroes every cell outside the largest 4-connected component of `grid.inside`.
- * A tie between two equally large components keeps whichever one row-major
- * scan order finds first — deterministic, not meaningful beyond that.
- *
- * A grid with no inside cells is returned unchanged rather than throwing:
- * "nothing to keep" is a valid, if useless, input, and the caller decides
- * whether an empty result is fatal.
+ * A tie keeps whichever component row-major scan order finds first —
+ * deterministic, not meaningful beyond that. A grid with no inside cells comes
+ * back unchanged rather than throwing.
  */
 export function largestComponent(grid: Blob): Blob {
   const { width, height, inside } = grid;
@@ -42,10 +35,7 @@ export function largestComponent(grid: Blob): Blob {
 
 /**
  * Flood-fills the 4-connected component of `inside` cells containing `start`.
- * `seen` is marked for every visited cell (so a caller sweeping all cells
- * does not revisit a component it already measured); `mark`, if given, also
- * gets those cells set to 1 (used to materialise the winning component once
- * it is known, without a second seen array).
+ * Every visited cell is set in `seen`, and in `mark` too when it is given.
  */
 function floodFill(
   start: number,

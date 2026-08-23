@@ -287,7 +287,7 @@ describe('malformed boards are reported, not survived', () => {
   }
 
   it('catches a blocker listed twice, which the ray can never produce', () => {
-    // The contract de-duplicates, so [3, 3] is not another spelling of [3].
+    // Edges de-duplicate, so [3, 3] is not another spelling of [3].
     const board = withEdges(ACYCLIC_BOARD, [[3, 3], [1], []]);
 
     expect(boardStructureViolations(board)).toContainEqual(
@@ -309,9 +309,10 @@ describe('malformed boards are reported, not survived', () => {
     expect(greedyClearOrder(board)).toBeNull();
   });
 
-  it('catches a direction outside 0..3 instead of walking the ray forever', () => {
-    // segDir is a Uint8Array, so a -1 written into it arrives here as 255, and
-    // step() answers NaN for it — which is never NO_CELL, so the walk never ends.
+  it('catches a direction outside 0..3 rather than reporting no blockers', () => {
+    // segDir is a Uint8Array, so a -1 written into it arrives here as 255. The
+    // ray walk finds nothing for it, which would read as "free" rather than
+    // "corrupt" unless the direction is checked.
     const segDir = Uint8Array.from(ACYCLIC_BOARD.segDir);
     segDir[0] = 255;
 

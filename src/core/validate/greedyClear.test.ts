@@ -45,19 +45,15 @@ describe.each([
 
 describe('greedyClear as a topological sort', () => {
   it('never orders a segment before a blocker it depends on', () => {
-    // Property test over synthetic acyclic boards built purely from the CSR
-    // shape greedyClear reads (edgeStart/edgeTarget), independent of any real
-    // segment geometry — this checks the Kahn's-algorithm contract itself:
-    // "k -> j" means j is removed before k, for every edge in the graph.
+    // Synthetic boards built from the edge CSR alone, with no real segment
+    // geometry: for every edge k -> j, j must be removed before k.
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 12 }),
         fc.integer({ min: 0, max: 2 ** 30 }),
         (n, seed) => {
-          // A random DAG: segment k may only depend on a lower-numbered segment,
-          // which is acyclic by construction and lets the test know the answer
-          // (greedyClear must consume all n) without re-implementing Kahn's
-          // algorithm to check it.
+          // Segment k may only depend on a lower-numbered segment, so the graph
+          // is acyclic by construction and all n must clear.
           const rng = createRng(seed);
           const perSegment: number[][] = Array.from({ length: n }, () => []);
           for (let k = 2; k <= n; k++) {
@@ -86,7 +82,7 @@ describe('greedyClear as a topological sort', () => {
   });
 });
 
-/** A minimal Board whose only real content is the blocking-edge CSR: everything greedyClear reads. */
+/** A Board whose only real content is the blocking-edge CSR. */
 function boardFromEdges(perSegment: readonly number[][]): Board {
   const n = perSegment.length;
   const edgeStart = new Uint32Array(n + 1);
@@ -102,10 +98,8 @@ function boardFromEdges(perSegment: readonly number[][]): Board {
   return {
     width: 1,
     height: n,
-    // Spread the defaults rather than listing every field: a bare literal
-    // stops compiling the moment GenParams gains a required field, which is
-    // how this broke when fillFraction landed. Only what this test cares
-    // about is overridden.
+    // Spread the defaults: a bare literal stops compiling the moment GenParams
+    // gains a required field.
     params: { ...DEFAULT_GEN_PARAMS, gridSize: n, meanPieceLength: 1, minStraightRun: 1 },
     segmentCount: n,
     occupancy: new Uint16Array(n),

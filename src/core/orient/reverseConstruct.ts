@@ -1,51 +1,23 @@
 /**
- * Reverse construction (#11): the orientation fallback for when local search
- * (#10) does not converge (docs/CONTRACTS.md "orientation (S3)", R2).
+ * The orientation fallback for when local search does not converge.
  *
- * Segmentation has already fixed which cells each segment owns (`segStart`/
- * `segCells`); orientation's only freedom is which endpoint is the head, and
- * `segDir` follows from the geometry of the terminal stroke at that end. So
- * each segment has exactly two candidate (head, dir) pairs — except a
- * single-cell segment, which has no terminal stroke to read a direction off
- * either end and so has all four directions as candidates instead.
+ * Segmentation has already fixed which cells each segment owns, so
+ * orientation's only freedom is which endpoint is the head, with `segDir`
+ * following from the terminal stroke there.
  *
- * The PRD's framing ("slide segments in from the edge") is a construction
- * process; what this function actually runs is its mirror image, a **greedy
- * peel**: repeatedly take a still-present segment that has a candidate whose
- * exit ray is clear of every other still-present segment, fix that candidate
- * as its orientation, and remove it. Acyclicity falls out for free either way
- * you read the resulting order: a segment peeled at step t only ever depended
- * on segments already peeled before t (blockers before dependents), so there
- * is no cycle for `buildBlockingGraph` to find in the `segHead`/`segDir` this
- * produces. Read in reverse, that same order is the insertion order the PRD
- * describes, and — because every edge `id -> blocker` then has `id` after
- * `blocker` reversed to `blocker` after `id` — it is also a topological order
- * of the blocking digraph in the standard source-before-target sense. See
- * `ReverseConstructSuccess.peelOrder` for the precise claim; the two readings
- * are inverses of each other, not independent facts, so only one of them can
- * be "peelOrder itself" and it is the removal reading.
+ * A greedy peel: repeatedly take a still-present segment with a candidate
+ * whose exit ray is clear of every other still-present segment, fix that
+ * candidate, remove it. A segment peeled at step t depended only on segments
+ * peeled before t, so the result has no cycle to find.
  *
- * A candidate's blocker set (which other segments sit on its ray) is a fixed
- * property of geometry — cells never move, only presence does — so it is
- * computed once per candidate against the untouched `occupancy`, and peeling
- * a segment only ever decrements a *count* of not-yet-peeled blockers for the
- * candidates waiting on it (Kahn's algorithm, the same shape `greedyClear`
- * uses). That makes this a single pass over the candidates' rays rather than
- * an O(segments^2) rescan of "what's left" after every removal.
+ * A candidate's blocker set is fixed geometry — cells never move, only
+ * presence does — so it is computed once against the untouched `occupancy`,
+ * and peeling decrements a count of not-yet-peeled blockers rather than
+ * rescanning what is left.
  *
- * The peel is also *complete* over this fixed candidate set, not merely
- * best-effort: if any combination of endpoint choices makes the whole board's
- * blocking digraph acyclic, this function finds an acyclic one (not
- * necessarily that same combination, but one that works). Proof sketch: fix
- * such a satisfying combination and suppose, for contradiction, the peel
- * stalls with a non-empty set R of segments still unresolved. R's induced
- * blocking digraph under that satisfying combination is a subgraph of an
- * acyclic graph, hence acyclic itself, hence has a segment r whose blockers
- * under that combination all lie outside R — i.e. already peeled. That makes
- * r's corresponding candidate ready at this exact point in the peel
- * (`remaining` counts only still-present blockers), contradicting "stalled".
- * So `ok: false` means no acyclic orientation exists for this segmentation at
- * all — the fix is re-segmenting or re-pathing, not retrying orientation.
+ * The peel is complete over that candidate set: `ok: false` means no acyclic
+ * orientation exists for this segmentation at all, so the recovery is
+ * re-segmenting or re-pathing, not retrying orientation.
  */
 
 import { NO_CELL, directionBetween, step } from '../grid.js';
@@ -60,31 +32,21 @@ export interface ReverseConstructSuccess {
   /** Exit direction per segment. Length n. */
   readonly segDir: Uint8Array;
   /**
-   * **Authoritative, contract-mandated** (docs/CONTRACTS.md "orientation",
-   * issue #71): 1 means segment k's cells must be emitted in reverse of the
-   * segmenter's order before writing them into `Board.segCells`, so `segHead`
-   * ends up as the slice's *last* cell — the invariant
-   * `src/core/validate/structure.ts` enforces. This is the field #10's
-   * `orientSegments` fallback seam reads; `segCells` below is a convenience
-   * derived from it, not a second source of truth.
+   * Authoritative. 1 means segment k's cells must be emitted in reverse of the
+   * segmenter's order, so `segHead` ends up as the slice's last cell.
+   * `segCells` below is derived from this, not a second source of truth.
    */
   readonly segReversed: Uint8Array;
   /**
    * Cells per segment, CSR-aligned with the input `segStart`, with
-   * `segReversed` already applied: a convenience for a caller that wants a
-   * ready-to-assemble `Board.segCells` without reading the flag itself.
-   * **Apply one or the other, never both** — reversing an already-reversed
-   * slice silently un-reverses it, which is exactly the "quiet failure mode"
-   * CONTRACTS.md warns about, just reintroduced one layer up.
+   * `segReversed` already applied. Use this or the flag, never both —
+   * reversing an already-reversed slice silently un-reverses it.
    */
   readonly segCells: Uint32Array;
   /**
    * Segment ids in the order the peel removed them: every blocker appears
-   * before the segments it blocks. Reversed, this is both the insertion
-   * order the PRD describes, and a topological order of the blocking digraph
-   * `buildBlockingGraph` will derive from `segHead`/`segDir` in the standard
-   * sense (edge `id -> blocker` has `id` before `blocker`) — this array
-   * itself is the removal order, which is that same order's inverse.
+   * before the segments it blocks. Reversed, it is a topological order of the
+   * blocking digraph in the usual source-before-target sense.
    */
   readonly peelOrder: Uint32Array;
 }
@@ -92,11 +54,9 @@ export interface ReverseConstructSuccess {
 export interface ReverseConstructFailure {
   readonly ok: false;
   /**
-   * Segment ids that never had a candidate whose ray cleared: no acyclic
-   * orientation exists for this segmentation at all (see the module-level
-   * completeness argument above), so the recovery is re-segmenting or
-   * re-pathing, not retrying orientation. Expected to be rare-to-never (see
-   * the property test), not a normal outcome to route around silently.
+   * Segment ids that never had a candidate whose ray cleared. Not a normal
+   * outcome to route around silently — see the module comment on what it
+   * means.
    */
   readonly stuck: Uint32Array;
 }
@@ -104,13 +64,8 @@ export interface ReverseConstructFailure {
 export type ReverseConstructResult = ReverseConstructSuccess | ReverseConstructFailure;
 
 /**
- * The fallback entry point #10 calls when local search times out.
- *
- * `segments` takes the CSR pair `segmentPath` produces (a `Pick`, not the
- * full `SegmentedPath`, since a caller assembling a partial board naturally
- * has just these two arrays rather than a complete type). `occupancy` is
- * cell -> segment id (0 empty), matching `Board.occupancy`, already fixed by
- * segmentation and independent of any orientation choice.
+ * `occupancy` is cell -> segment id, 0 empty — fixed by segmentation and
+ * independent of any orientation choice.
  */
 export function reverseConstruct(
   segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
@@ -168,9 +123,8 @@ export function reverseConstruct(
   const peelOrder = new Uint32Array(n);
   let filled = 0;
 
-  // Ready candidates, order-free: which one is picked when several qualify is
-  // an explicit, seeded choice (a quality knob, not incidental to iteration
-  // order), via swap-removal so the pick stays O(1).
+  // Which candidate is picked when several qualify is an explicit seeded
+  // choice, not incidental to iteration order. Swap-removal keeps it O(1).
   const ready: number[] = [];
   for (let c = 0; c < candidateCount; c++) if (remaining[c] === 0) ready.push(c);
 
@@ -227,12 +181,9 @@ interface Candidates {
 }
 
 /**
- * Two head/direction candidates per segment (its two endpoints, each paired
- * with the direction of its own terminal stroke), or four for a single-cell
- * segment, which has no terminal stroke at all — its neighbours in the
- * original Hamiltonian path belong to the *adjacent* segments, not this one,
- * so nothing here constrains its exit direction and every one of N/E/S/W is
- * geometrically valid.
+ * Two candidates per segment — its two endpoints, each paired with its own
+ * terminal stroke — or four for a single-cell segment, which has no terminal
+ * stroke and so is unconstrained in all of N/E/S/W.
  */
 function buildCandidates(segStart: Uint32Array, segCells: Uint32Array, width: number): Candidates {
   const n = segStart.length - 1;

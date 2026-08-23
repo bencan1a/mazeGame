@@ -1,10 +1,7 @@
 /**
- * Seeded PRNG. The only source of randomness allowed inside src/core — ESLint
- * bans Math.random there, because a board must be a pure function of its seed.
- *
  * sfc32, seeded through splitmix32 so that adjacent integer seeds (1, 2, 3 ...)
- * produce uncorrelated streams. Boards are keyed by small integer seeds, so this
- * matters more than it usually would.
+ * produce uncorrelated streams. Boards are keyed by small integer seeds, so
+ * that matters more here than it usually would.
  */
 
 export interface Rng {

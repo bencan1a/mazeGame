@@ -1,10 +1,4 @@
-/**
- * Synthetic masks, paths and boards.
- *
- * This is the mechanism that lets the streams run in parallel: every stage is
- * developed against a synthetic version of its own input instead of waiting for
- * the stage upstream of it.
- */
+/** Synthetic masks, paths and boards. */
 
 export { fromRows, toRows } from './art.js';
 export {

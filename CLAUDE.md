@@ -161,15 +161,35 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 - Directions: `0=N 1=E 2=S 3=W`.
 - Generator work needs **property-based** invariant tests (`fast-check`), not
   only examples. The invariants are listed in `docs/CONTRACTS.md`.
-- **Write fewer comments.** A comment earns its place only if it says something
-  genuinely non-obvious — a constraint from elsewhere, a rejected alternative, a
-  bound that is not visible locally. If a competent reader would work it out
-  from the code in a few seconds, delete it. "Explains why" is not enough of a
+- **Write fewer comments.** A comment earns its place only when it says
+  something a reader cannot check against the lines beside it and would not
+  work out from the code in a few seconds. "Explains why" is not enough of a
   filter: most wrong comments are nominally why.
+- **A comment may not point outside its own file.** No PRD sections, ADR
+  numbers, issue or AC numbers, stream or risk labels (`S1`..`S7`, `R1`..`R3`),
+  no paths into `docs/`. Nothing keeps a citation in step with what it cites,
+  so it is the part most likely to outlive whatever it described. Reference
+  material belongs in `docs/`; a decision worth recording is an ADR, not a
+  paragraph in a file header. `npm run lint` fails on these —
+  `eslint-rules/no-comment-cross-references.js`.
+- **Four things never go in a comment**, however well they explain:
+  - a bound or a proof written out in prose — put the check in code, or let
+    the test carry it;
+  - a rejected alternative;
+  - an invariant said to be guaranteed somewhere else — where the guarantee
+    matters, the check in code _is_ the guarantee, and prose beside it is a
+    second copy, free to drift out of agreement with it;
+  - the history of the code: what an earlier version did, what a review found,
+    what a measurement read on somebody's machine.
+- **What does earn its place**: a layout convention a type cannot express
+  (1-based ids, CSR offsets, `tail -> head` order); language or platform
+  behaviour that reads as a bug otherwise (a `Direction` in a `Uint8Array`
+  arriving as 255, `NaN` surviving a clamp); and the derivation behind a
+  hand-computed expected value in a test.
 - **A comment that misdescribes the code is a defect, ranked with a logic
   error, not a nit.** Nothing executes prose, so a confident wrong comment
   survives review that wrong code would not, and then misleads whoever trusts
-  it. Volume is what makes wrongness likely — hence the rule above.
+  it. Volume is what makes wrongness likely — hence the rules above.
 
 ## Working here
 

@@ -39,9 +39,8 @@ describe('checkCoverage', () => {
   });
 
   it('names the cell when an inside cell is neither covered nor explained by unvisited', () => {
-    // Zero out one cell's occupancy directly: coverage.ts only reads
-    // occupancy and the mask, so this is a genuine generation gap without
-    // needing to keep the segment CSR consistent (that is structure.ts's job).
+    // Zeroing occupancy alone leaves the segment CSR inconsistent, which is
+    // fine here: only occupancy and the mask are read.
     const occupancy = Uint16Array.from(board.occupancy);
     occupancy[0] = 0;
     const gappyBoard = { ...board, occupancy };
@@ -63,10 +62,8 @@ describe('checkCoverage', () => {
   });
 
   it('fails the coverage floor when too much of the mask is left uncovered by unvisited cells', () => {
-    // 9-cell mask with one cell marked unvisited: coverage 8/9 ~= 88.9%, well
-    // under the 99% floor, even though every uncovered cell is legitimately
-    // unvisited. This is what keeps the floor meaningful at toy sizes instead
-    // of being satisfied by S1 exceeding its own 1-3 cell absorption budget.
+    // 9-cell mask with one cell unvisited: coverage 8/9 ~= 88.9%, under the
+    // floor, even though the uncovered cell is legitimately unvisited.
     const small = makeMask(['###', '#o#', '###'].join('\n'));
     const smallBoard = {
       ...board,

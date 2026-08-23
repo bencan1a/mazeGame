@@ -21,8 +21,7 @@ import type {
  * the graph at all, so seeding it to land on (or avoid) the one bad
  * combination is what makes both branches reachable deterministically,
  * rather than relying on the search itself failing to fix a graph this
- * small. Seeds re-derived for the current rng draw sequence if this ever
- * needs updating - see this file's git history for the small script used.
+ * small. The seeds below are tied to the current rng draw sequence.
  */
 const WIDTH = 4;
 const HEIGHT = 1;
