@@ -5,7 +5,8 @@ import { DIRECTIONS, NO_CELL, parityOf, step, toIndex } from '../grid.js';
 import type { Mask } from '../types.js';
 import type { Blob } from './blob.js';
 import { generateBlob, upscale2x } from './blob.js';
-import { MaskRepairError, repairMask } from './repair.js';
+import { MaskRepairError } from './errors.js';
+import { repairMask } from './repair.js';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 });
 const gridSizeArb = fc.integer({ min: 20, max: 100 });
@@ -77,7 +78,11 @@ describe('repairMask acceptance criteria', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+    // NUM_RUNS at up to gridSize 100 measures well under 5s idle, but not
+    // reliably so once the whole suite runs in parallel under coverage
+    // (issue #3 review; issue #4 review reproduced it again post-merge).
+    // Budget, not hang — see blob.test.ts's identical fix.
+  }, 20_000);
 
   it('never leaves an inside cell with fewer than 2 inside-neighbours (guaranteed by upscale2x writing whole 2x2 blocks, not by repair itself)', () => {
     let ran = 0;
@@ -100,7 +105,7 @@ describe('repairMask acceptance criteria', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 
   it('pathCellCount matches the actual count of inside-and-not-unvisited cells', () => {
     let ran = 0;
@@ -119,9 +124,9 @@ describe('repairMask acceptance criteria', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 
-  it('leaves unvisited all-zero — parity absorption is separate work (#4)', () => {
+  it('leaves unvisited all-zero — absorbParity (#4) finds nothing to absorb on this pipeline', () => {
     let ran = 0;
     fc.assert(
       fc.property(seedArb, gridSizeArb, fillFractionArb, (seed, gridSize, fillFraction) => {
@@ -134,9 +139,9 @@ describe('repairMask acceptance criteria', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 
-  it('satisfies every S1 postcondition maskViolations checks (except parity, deferred to #4)', () => {
+  it('satisfies every S1 postcondition maskViolations checks, parity included', () => {
     let ran = 0;
     fc.assert(
       fc.property(seedArb, gridSizeArb, fillFractionArb, (seed, gridSize, fillFraction) => {
@@ -144,13 +149,12 @@ describe('repairMask acceptance criteria', () => {
         const mask = attemptRepair(blob);
         if (mask === null) return;
         ran++;
-        const violations = maskViolations(mask).filter((v) => !v.includes('checkerboard parity'));
-        expect(violations).toEqual([]);
+        expect(maskViolations(mask)).toEqual([]);
       }),
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 });
 
 describe('repairMask: half-resolution repair keeps checkerboard parity at 0', () => {
@@ -176,7 +180,7 @@ describe('repairMask: half-resolution repair keeps checkerboard parity at 0', ()
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 });
 
 describe('repairMask: block alignment survives repair', () => {
@@ -206,7 +210,7 @@ describe('repairMask: block alignment survives repair', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-  });
+  }, 20_000);
 });
 
 describe('repairMask determinism', () => {
@@ -224,7 +228,7 @@ describe('repairMask determinism', () => {
       }),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 20_000);
 });
 
 describe('repairMask edge cases', () => {
@@ -294,7 +298,7 @@ describe('repairMask edge cases', () => {
 
     const mask = repairMask(blob);
     expect(componentCount(mask.width, mask.height, mask.inside)).toBe(1);
-    expect(maskViolations(mask).filter((v) => !v.includes('parity'))).toEqual([]);
+    expect(maskViolations(mask)).toEqual([]); // block-aligned input, so absorbParity has nothing to do
     // The bigger (left) lobe survives...
     expect(mask.inside[toIndex(2, 2, mask.width)]).toBe(1);
     // ...the smaller (right) lobe does not.
