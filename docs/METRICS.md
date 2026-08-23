@@ -23,8 +23,15 @@ dialled from measurements instead.
 | `edgeCount`                         | Blocking edges                                                                           | Memory pressure at large sizes                    |
 | `generationMs`                      | Wall clock for `generateBoard`                                                           | PRD §2 goal 3: under 1s at 100×100                |
 
-`dagDepth` and the free-set statistics both fall out of the topological sort
-validation already runs. Compute them there; do not walk the graph twice.
+`dagDepth` and the free-set statistics all fall out of one topological sort, so
+`computeMetrics` runs Kahn's algorithm once and reads every one of them off that
+result rather than walking the digraph per statistic.
+
+That sort is not shared with `validateBoard`'s, which has already run on any
+board that reached the harness: a `Board` carries no record of it, so a caller
+that validates and then measures pays for two. Measured at 0.54ms on a
+639-segment 100x100 board against generation's ~150ms, which is why the second
+pass buys simplicity rather than costing anything worth plumbing around.
 
 `shortOfTarget` and `belowMinimum` are not derivable from a finished `Board` —
 they are what the peel _wanted_ versus what it got. They reach the harness on
