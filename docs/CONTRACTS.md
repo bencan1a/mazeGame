@@ -115,21 +115,37 @@ Two implementations, and both are in scope:
 
 1. **Local search** — build graph, Tarjan SCC, flip a segment inside a
    non-trivial SCC, recheck. Time-boxed.
-2. **Reverse construction** — start empty and slide segments in from the edge.
-   The reversed insertion order is a guaranteed-valid removal order, so
-   acyclicity is free by construction.
+2. **Reverse construction** — implemented as a **peel over the full board**,
+   not as insertion into an empty one. Repeatedly take any remaining segment
+   whose exit ray is clear of the segments still present, fix that endpoint as
+   its head, and remove it. The peel order is a valid removal order, so
+   reversing it gives the PRD's insertion order and acyclicity is free by
+   construction.
+
+   The direction matters, and not only for exposition. Removals only ever
+   unblock, which is what makes the peel safe. Insertion is the anti-monotone
+   mirror — the placed set only grows, so a segment's ray only becomes more
+   constrained — and a greedy insertion order is not in general the reverse of
+   a valid removal order. Greedy insertion would need backtracking to match
+   what the peel gets for free.
 
 Reverse construction **trades away no packing density**. Segmentation is
 upstream and fixed, so both implementations place identical cells in identical
 positions; there is nothing for orientation to pack. What it trades is puzzle
 quality — DAG depth and the free-set profile.
 
-It is also **complete** over the candidate set: if any acyclic orientation of a
-given segmentation exists, the peel finds one. Take the first segment of a valid
-removal order that has not been peeled — all its blockers are already gone, so
-it is ready. So a failure means no acyclic orientation of _those cells_ exists,
-and the recovery is re-segmenting or re-pathing. Never retry orientation with a
-different seed; there is nothing for a different seed to find.
+The peel is also **complete** over the candidate set: if any acyclic
+orientation of a given segmentation exists, the peel finds one, whichever
+eligible segment it happens to pick. Take any valid removal order and consider
+its first segment not yet peeled — every segment blocking it comes earlier in
+that order, so all of them are already gone and it is eligible now. The peel
+therefore never strands. So a failure means no acyclic orientation of _those
+cells_ exists, and the recovery is re-segmenting or re-pathing. Never retry
+orientation with a different seed; there is nothing for a different seed to
+find.
+
+This completeness is a property of the peel direction specifically. It would
+not survive a rewrite to greedy insertion.
 
 Fallback from 1 to 2 must be automatic and must be recorded in
 `BoardMetrics.orientationFallback`, because "how often do we fall back" is data

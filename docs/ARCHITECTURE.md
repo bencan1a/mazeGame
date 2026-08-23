@@ -88,9 +88,10 @@ randomizer: take an endpoint, pick a random neighbour, reverse the tail.
 segment has no terminal stroke, so all four directions are legal for it). Pick an
 assignment making the blocking digraph acyclic. This is _not_ 2-SAT — acyclicity
 is not a binary clause — so it is randomized local search over Tarjan SCCs, with
-reverse construction (slide segments in from the edge; reversed insertion order
-is a guaranteed-valid removal order) as the fallback. That fallback is complete
-over the candidate set, so it fails only when the segmentation admits no acyclic
+reverse construction as the fallback — a peel over the full board (repeatedly
+remove a segment whose exit ray is clear of those still present), whose reversed
+order is the insertion order the PRD describes. The peel is complete over the
+candidate set, so it fails only when the segmentation admits no acyclic
 orientation at all — at which point the recovery is re-segmenting or re-pathing,
 not retrying. See [CONTRACTS.md](./CONTRACTS.md). Choosing the far
 endpoint reverses the segment, which the orienter must report — see
