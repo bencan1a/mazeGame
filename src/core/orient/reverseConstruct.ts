@@ -55,20 +55,29 @@ import type { SegmentedPath } from '../segment/segmentPath.js';
 
 export interface ReverseConstructSuccess {
   readonly ok: true;
-  /**
-   * Cells per segment, CSR-aligned with the input `segStart`, each segment's
-   * slice reordered tail -> head to match the chosen head. `Board.segCells`
-   * (src/core/validate/structure.ts) requires the last cell of a segment's
-   * slice to be its head; the input `segCells` only satisfies that for
-   * whichever of the two candidates happens to agree with the path's own
-   * walk direction; this array is corrected so either candidate is safe to
-   * assemble into a `Board` directly.
-   */
-  readonly segCells: Uint32Array;
-  /** Head cell index per segment — the last cell of `segCells`'s slice. Length n. */
+  /** Head cell index per segment. Length n. */
   readonly segHead: Uint32Array;
   /** Exit direction per segment. Length n. */
   readonly segDir: Uint8Array;
+  /**
+   * **Authoritative, contract-mandated** (docs/CONTRACTS.md "orientation",
+   * issue #71): 1 means segment k's cells must be emitted in reverse of the
+   * segmenter's order before writing them into `Board.segCells`, so `segHead`
+   * ends up as the slice's *last* cell — the invariant
+   * `src/core/validate/structure.ts` enforces. This is the field #10's
+   * `orientSegments` fallback seam reads; `segCells` below is a convenience
+   * derived from it, not a second source of truth.
+   */
+  readonly segReversed: Uint8Array;
+  /**
+   * Cells per segment, CSR-aligned with the input `segStart`, with
+   * `segReversed` already applied: a convenience for a caller that wants a
+   * ready-to-assemble `Board.segCells` without reading the flag itself.
+   * **Apply one or the other, never both** — reversing an already-reversed
+   * slice silently un-reverses it, which is exactly the "quiet failure mode"
+   * CONTRACTS.md warns about, just reintroduced one layer up.
+   */
+  readonly segCells: Uint32Array;
   /**
    * Segment ids in the order the peel removed them: every blocker appears
    * before the segments it blocks. Reversed, this is both the insertion
@@ -116,9 +125,10 @@ export function reverseConstruct(
   if (n === 0) {
     return {
       ok: true,
-      segCells: new Uint32Array(0),
       segHead: new Uint32Array(0),
       segDir: new Uint8Array(0),
+      segReversed: new Uint8Array(0),
+      segCells: new Uint32Array(0),
       peelOrder: new Uint32Array(0),
     };
   }
@@ -152,7 +162,7 @@ export function reverseConstruct(
   }
 
   const resolved = new Uint8Array(n);
-  const reversedFlag = new Uint8Array(n);
+  const segReversed = new Uint8Array(n);
   const segHead = new Uint32Array(n);
   const segDir = new Uint8Array(n);
   const peelOrder = new Uint32Array(n);
@@ -177,7 +187,7 @@ export function reverseConstruct(
     resolved[id - 1] = 1;
     segHead[id - 1] = candHead[c] as number;
     segDir[id - 1] = candDir[c] as number;
-    reversedFlag[id - 1] = candReversed[c] as number;
+    segReversed[id - 1] = candReversed[c] as number;
     peelOrder[filled++] = id;
 
     for (const waiter of waitingOn[id] as number[]) {
@@ -197,14 +207,14 @@ export function reverseConstruct(
   for (let id = 1; id <= n; id++) {
     const from = segStart[id - 1] as number;
     const to = segStart[id] as number;
-    if (reversedFlag[id - 1] === 1) {
+    if (segReversed[id - 1] === 1) {
       for (let k = from; k < to; k++) outCells[k] = segCells[to - 1 - (k - from)] as number;
     } else {
       for (let k = from; k < to; k++) outCells[k] = segCells[k] as number;
     }
   }
 
-  return { ok: true, segCells: outCells, segHead, segDir, peelOrder };
+  return { ok: true, segHead, segDir, segReversed, segCells: outCells, peelOrder };
 }
 
 interface Candidates {

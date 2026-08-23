@@ -301,6 +301,30 @@ describe('assembles into a Board that validateBoard accepts', () => {
     }
     expect(tailChosenAsHead).toBeGreaterThan(0);
 
+    // segReversed is the contract-mandated field (#10's fallback seam reads
+    // it, not segCells); segCells is a convenience already-reversed copy.
+    // They must never drift apart: segReversed[k] === 1 exactly when this
+    // segment's corrected slice is the reverse of the input slice.
+    for (let id = 1; id <= segmentCount; id++) {
+      const from = segmented.segStart[id - 1] as number;
+      const to = segmented.segStart[id] as number;
+      const inputSlice = Array.from(segmented.segCells.subarray(from, to));
+      const correctedSlice = Array.from(result.segCells.subarray(from, to));
+      const isReversedSlice =
+        inputSlice.length === correctedSlice.length &&
+        inputSlice.every((cell, i) => cell === correctedSlice[correctedSlice.length - 1 - i]);
+      const isSameSlice = inputSlice.every((cell, i) => cell === correctedSlice[i]);
+      // A 1-cell segment's slice is trivially its own reverse - both
+      // characterisations agree, so segReversed can only be checked against
+      // the "already in the right order" reading for those.
+      if (inputSlice.length <= 1) {
+        expect(result.segReversed[id - 1]).toBe(0);
+      } else {
+        expect(isReversedSlice).toBe(!isSameSlice);
+        expect(result.segReversed[id - 1]).toBe(isReversedSlice ? 1 : 0);
+      }
+    }
+
     assertOrientationMatchesGeometry(segmented.segStart, segmented.segCells, result, width);
     assertPeelWasValid(result, segmented.segStart, occupancy, width, height);
 
@@ -317,9 +341,10 @@ describe('edge cases', () => {
     const result = reverseConstruct({ segStart, segCells }, occupancy, 3, 3, createRng(1));
     expect(result).toEqual({
       ok: true,
-      segCells: new Uint32Array(0),
       segHead: new Uint32Array(0),
       segDir: new Uint8Array(0),
+      segReversed: new Uint8Array(0),
+      segCells: new Uint32Array(0),
       peelOrder: new Uint32Array(0),
     });
   });
