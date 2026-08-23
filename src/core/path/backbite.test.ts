@@ -170,11 +170,42 @@ describe('buildBackbitePath: time box', () => {
     if (result.ok) return;
     expect(result.reason).toContain('not one 4-connected piece');
   });
+
+  it('reports ok: false immediately for a checkerboard imbalance greater than 1', () => {
+    // A full 6x6 grid (balanced 18/18) with three same-colour cells absorbed
+    // — an imbalance of 3, which no routing can fix. None of the three
+    // removals drops any neighbour below 2 remaining path-cell neighbours, so
+    // this is a pure parity failure, not also a dead-end or connectivity one.
+    const mask = makeMask(['######', '#o#o##', '######', '#o####', '######', '######'].join('\n'));
+    const result = buildBackbitePath(mask, createRng(1));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('checkerboard parity');
+  });
 });
 
 describe('buildBackbitePath: dev invariant checking', () => {
   it('does not throw with validateEveryMove enabled on a healthy region', () => {
     const mask = makeMask({ width: 9, height: 7 });
     expect(() => buildBackbitePath(mask, createRng(3), { validateEveryMove: true })).not.toThrow();
+  });
+});
+
+describe('buildBackbitePath: stallLimit-driven restarts', () => {
+  it('still produces a valid Hamiltonian path when a tiny stallLimit forces many restarts', () => {
+    // stallLimit: 8 is far below the default (60 * pathCellCount = 2160 for
+    // this 6x6 mask) and measured to force dozens of restarts before growth
+    // completes, not merely make them possible — this exercises the restart
+    // path deliberately rather than relying on it firing incidentally inside
+    // some other test's random walk.
+    const mask = makeMask({ width: 6, height: 6 });
+    const result = buildBackbitePath(mask, createRng(1), {
+      stallLimit: 8,
+      maxGrowthMoves: 200_000,
+      validateEveryMove: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(pathViolations(result.path, mask)).toEqual([]);
   });
 });
