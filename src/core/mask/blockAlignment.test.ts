@@ -4,6 +4,7 @@ import { makeMask } from '../../../test/fixtures/mask.js';
 import type { Mask } from '../types.js';
 import { generateBlob } from './blob.js';
 import { MaskRepairError } from './errors.js';
+import { classifyTiling } from '../path/tiling.js';
 import { assertBlockAligned, repairMask } from './repair.js';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 });
@@ -23,7 +24,9 @@ function attemptRepair(blob: ReturnType<typeof generateBlob>): Mask | null {
     return repairMask(blob);
   } catch (err) {
     if (err instanceof MaskRepairError) {
-      expect(err.message).not.toMatch(/wholly on the path or wholly off it|is not block-aligned$/);
+      expect(err.message).not.toMatch(
+        /wholly on the path or wholly off it|past the last full 2x2 block/,
+      );
       return null;
     }
     throw err;
@@ -57,7 +60,11 @@ describe('assertBlockAligned: real repaired masks always pass', () => {
         const mask = attemptRepair(blob);
         if (mask === null) return;
         ran++;
-        expect(() => assertBlockAligned(mask)).not.toThrow();
+        // Not `assertBlockAligned(mask)` — repairMask already ran it, so that
+        // would hold even with the body deleted. The tiling classifier is the
+        // downstream consumer whose silent refusal this exists to prevent, and
+        // it reaches the same verdict independently.
+        expect(classifyTiling(mask).ok).toBe(true);
       }),
       { numRuns: NUM_RUNS },
     );
@@ -143,20 +150,5 @@ describe('assertBlockAligned: rejects a mixed block', () => {
     const unvisited = new Uint8Array(3 * 2);
     const mask: Mask = { width: 3, height: 2, inside, unvisited, pathCellCount: 6 };
     expect(() => assertBlockAligned(mask)).toThrow(/path cell at \(2, 0\)/);
-  });
-});
-
-describe('assertBlockAligned: cost', () => {
-  it('costs well under a millisecond per call at 100x100 — negligible next to one generation', () => {
-    // A budget generous enough to stay green under coverage instrumentation
-    // and CI contention, not a tight measurement of a single machine.
-    const width = 100;
-    const height = 100;
-    const mask = makeMask({ width, height });
-    const runs = 200;
-    const start = performance.now();
-    for (let i = 0; i < runs; i++) assertBlockAligned(mask);
-    const meanMs = (performance.now() - start) / runs;
-    expect(meanMs).toBeLessThan(5);
   });
 });

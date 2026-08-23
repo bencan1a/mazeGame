@@ -87,8 +87,8 @@ export function assertBlockAligned(mask: Mask): void {
 
   for (let y = 0; y < height; y++) {
     const yCovered = y < coveredHeight;
-    for (let x = 0; x < width; x++) {
-      if (yCovered && x < coveredWidth) continue;
+    if (yCovered && coveredWidth === width) continue;
+    for (let x = yCovered ? coveredWidth : 0; x < width; x++) {
       const index = toIndex(x, y, width);
       if (isPathCell(index)) {
         throw new MaskRepairError(
@@ -104,27 +104,19 @@ export function assertBlockAligned(mask: Mask): void {
     const y0 = by * 2;
     for (let bx = 0; bx < halfWidth; bx++) {
       const x0 = bx * 2;
-      const corners: ReadonlyArray<readonly [string, number, number]> = [
-        ['NW', x0, y0],
-        ['NE', x0 + 1, y0],
-        ['SW', x0, y0 + 1],
-        ['SE', x0 + 1, y0 + 1],
-      ];
-      let pathCount = 0;
-      for (const [, x, y] of corners) if (isPathCell(toIndex(x, y, width))) pathCount++;
-      if (pathCount !== 0 && pathCount !== 4) {
-        const detail = corners
-          .map(
-            ([label, x, y]) =>
-              `${label}(${x}, ${y})=${isPathCell(toIndex(x, y, width)) ? 'path' : 'off'}`,
-          )
-          .join(' ');
-        throw new MaskRepairError(
-          `repaired mask block (${bx}, ${by}) at full-res origin (${x0}, ${y0}) has ${pathCount} ` +
-            `of 4 cells on the path: ${detail} — every 2x2 block must be wholly on the path or ` +
-            'wholly off it',
-        );
-      }
+      const nw = isPathCell(toIndex(x0, y0, width));
+      const ne = isPathCell(toIndex(x0 + 1, y0, width));
+      const sw = isPathCell(toIndex(x0, y0 + 1, width));
+      const se = isPathCell(toIndex(x0 + 1, y0 + 1, width));
+      const pathCount = Number(nw) + Number(ne) + Number(sw) + Number(se);
+      if (pathCount === 0 || pathCount === 4) continue;
+      const label = (on: boolean): string => (on ? 'path' : 'off');
+      throw new MaskRepairError(
+        `repaired mask block (${bx}, ${by}) at full-res origin (${x0}, ${y0}) has ${pathCount} ` +
+          `of 4 cells on the path: NW(${x0}, ${y0})=${label(nw)} NE(${x0 + 1}, ${y0})=${label(ne)} ` +
+          `SW(${x0}, ${y0 + 1})=${label(sw)} SE(${x0 + 1}, ${y0 + 1})=${label(se)} — every 2x2 ` +
+          'block must be wholly on the path or wholly off it',
+      );
     }
   }
 }
@@ -146,8 +138,8 @@ function downsampleToHalfRes(blob: Blob): Blob {
 
   for (let y = 0; y < height; y++) {
     const yCovered = y < coveredHeight;
-    for (let x = 0; x < width; x++) {
-      if (yCovered && x < coveredWidth) continue;
+    if (yCovered && coveredWidth === width) continue;
+    for (let x = yCovered ? coveredWidth : 0; x < width; x++) {
       if (inside[toIndex(x, y, width)] === 1) {
         throw new MaskRepairError(
           `mask repair received a ${width}x${height} blob with an inside cell at (${x}, ${y}), ` +
