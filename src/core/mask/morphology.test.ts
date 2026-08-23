@@ -73,7 +73,7 @@ describe('morphologicalOpen', () => {
     // outside regardless of the spur, so the corner never gets full
     // 4-neighbour support and cannot regrow the spur in the dilate step —
     // unlike a spur off a flat edge, whose base often does gain full support
-    // from the spur itself (see the morphology.ts module comment).
+    // from the spur itself.
     const grid = blobFromRows(['.#....', '.####.', '.####.', '.####.', '.####.', '......']);
     const opened = morphologicalOpen(grid);
     expect(opened.inside[toIndex(1, 0, 6)]).toBe(0); // the spur cell
@@ -82,10 +82,8 @@ describe('morphologicalOpen', () => {
 
   it('does not, by itself, remove every single-cell spur (documented limitation)', () => {
     // A spur off a flat edge: the base cell (1, 3) gains a 4th neighbour
-    // (the spur itself) and so can survive erosion and regrow the spur in
-    // the dilate step. `upscale2x` still guarantees every full-resolution
-    // cell has >= 2 inside neighbours regardless (see repair.ts), so this is
-    // a property of `morphologicalOpen` in isolation, not a repair defect.
+    // (the spur itself) and so survives erosion and regrows the spur in the
+    // dilate step. A property of `morphologicalOpen` alone.
     const grid = blobFromRows(['####', '####', '####', '####', '.#..']);
     const opened = morphologicalOpen(grid);
     expect(opened.inside[toIndex(1, 4, 4)]).toBe(1); // the spur survives

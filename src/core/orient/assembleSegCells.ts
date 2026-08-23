@@ -1,15 +1,6 @@
 /**
- * Turns a `SegmentedPath` plus per-segment `segReversed` flags into the
- * `segCells` array a real `Board` needs.
- *
- * `segmentPath` hands every segment's cells in one fixed order - the order
- * the Hamiltonian path visited them - but `src/core/validate/structure.ts`
- * requires each segment's slice to run tail -> head, with `segHead` equal to
- * the slice's *last* cell. Whichever orienter (`orientByLocalSearch` here,
- * `reverseConstruct` in issue #11) picked the endpoint that was *not*
- * already last marks that segment `segReversed`, and this is where that
- * flag actually gets applied - reversing a slice in place, not rebuilding it
- * cell by cell from scratch.
+ * Applies the per-segment `segReversed` flags to a `SegmentedPath`, reversing
+ * each flagged slice in place so every segment runs tail -> head.
  */
 
 import type { SegmentedPath } from '../segment/segmentPath.js';

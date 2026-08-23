@@ -304,7 +304,7 @@ describe('assembles into a Board that validateBoard accepts', () => {
     }
     expect(reversedCount).toBeGreaterThan(0);
 
-    // segReversed is the contract-mandated field (#10's fallback seam reads
+    // segReversed is the authoritative field (the fallback seam reads
     // it, not segCells); segCells is a convenience already-reversed copy.
     // They must never drift apart: segReversed[k] === 1 exactly when this
     // segment's corrected slice is the reverse of the input slice.

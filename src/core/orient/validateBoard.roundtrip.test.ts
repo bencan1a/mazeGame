@@ -1,16 +1,11 @@
 /**
- * Proves the fix for the head/segCells ordering trap flagged in issue #10's
- * review: `docs/CONTRACTS.md` says the head is "one of the segment's two
- * endpoints", but `src/core/validate/structure.ts` enforces the stricter
- * rule that `Board.segCells` runs tail -> head, so `segHead` must equal each
- * segment's *last* cell. Picking the other endpoint as head is only correct
- * if that segment's slice is reversed before it goes into the final Board -
- * `segReversed` (headOptions.ts) says which, `assembleSegCells` applies it.
+ * The head is either endpoint, but `Board.segCells` must run tail -> head, so
+ * choosing the endpoint that is not already last is only correct if that
+ * segment's slice is reversed first.
  *
- * Acyclicity tests (index.property.test.ts, localSearch.test.ts) do not
- * catch an ordering bug here: the blocking graph is unaffected by which cell
- * order a segment's own body is listed in. Only assembling a real `Board`
- * and running the actual structure gate (`validateBoard`) does.
+ * An acyclicity test cannot catch a bug in that: the blocking graph does not
+ * depend on the order a segment's own body is listed in. Only assembling a
+ * real `Board` and running `validateBoard` does.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';

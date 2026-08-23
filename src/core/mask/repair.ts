@@ -1,20 +1,7 @@
 /**
- * Mask repair (PRD §4.2 steps 1.2-1.6): largest component, then morphological
- * open, then largest component again, then hole fill, then checkerboard
- * parity absorption (`absorbParity`, issue #4) to set `unvisited`.
- *
- * Repairs at half resolution, then upscales with `upscale2x`, rather than
- * repairing the already-upscaled full-resolution grid — see `blob.ts`
- * (module doc and `upscale2x`) for why block alignment matters and how
- * upscaling preserves it. Because `upscale2x` only ever writes whole 2x2
- * blocks, every full-resolution inside cell it produces already has at least
- * two inside 4-neighbours (its block-mate plus at least one neighbouring
- * block) regardless of the half-resolution region's shape — the finished
- * `Mask` needs no separate pass to enforce that.
- *
- * This assumes the input `Blob` is 2x2-block-aligned to offset (0, 0), which
- * is true of every `generateBlob` output; `downsampleToHalfRes` throws
- * rather than silently dropping cells if it is not (see there).
+ * Repairs at half resolution and upscales afterwards, so that every operation
+ * moves whole 2x2 blocks; see docs/adr/0009-half-resolution-silhouette.md.
+ * The input `Blob` must therefore be block-aligned to offset (0, 0).
  */
 
 import { toIndex } from '../grid.js';
@@ -37,23 +24,16 @@ export interface RepairOptions {
 }
 
 /**
- * Small relative to a real board's area (PRD grid sizes 20..100, so 10..50
- * half-resolution cells per edge): filling a hole up to this many cells
- * closes an incidental gap the open step can leave between two lobes,
- * without swallowing a hole that spans a meaningful fraction of the region.
+ * Large enough to close an incidental gap the open step leaves between two
+ * lobes, small enough not to swallow a hole spanning a real fraction of the
+ * region. In half-resolution cells.
  */
 const DEFAULT_HOLE_AREA_THRESHOLD = 4;
 
 /**
- * Runs the largest-component / morphological-open / largest-component /
- * hole-fill pipeline over a raw `Blob` and returns a `Mask`.
- *
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
- * 2-cell-thick interior for the open step to preserve. It can also throw
- * `MaskRepairError` from `absorbParity`, on a checkerboard imbalance too
- * large to absorb into `unvisited` — see that module; on this generator's
- * own output it measures as never happening (parity.test.ts's guard test),
- * since every step above stays 2x2-block-aligned.
+ * 2-cell-thick interior for the open step to preserve — or if `absorbParity`
+ * finds an imbalance too large to absorb.
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;
@@ -82,17 +62,12 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
 }
 
 /**
- * OR-reduces each 2x2 block of a block-aligned `Blob` into one half-resolution
- * cell — the inverse of `upscale2x` when every block is uniformly all-in or
- * all-out, which `generateBlob` guarantees.
+ * OR-reduces each 2x2 block into one half-resolution cell — the inverse of
+ * `upscale2x` when every block is uniformly all-in or all-out.
  *
- * An odd `width` or `height` leaves one full-resolution row and/or column
- * (past `2 * halfWidth`/`2 * halfHeight`) that belongs to no block and so
- * cannot be represented at half resolution at all. `generateBlob` guarantees
- * that strip is empty, but this function does not trust that blindly: it
- * throws `MaskRepairError` if the strip holds any inside cell, rather than
- * silently dropping it, so a future non-block-aligned input fails loudly
- * instead of losing area without a trace.
+ * An odd `width` or `height` leaves a row and/or column belonging to no block,
+ * which cannot be represented at half resolution. Throws if that strip holds
+ * an inside cell, rather than dropping it and losing area without a trace.
  */
 function downsampleToHalfRes(blob: Blob): Blob {
   const { width, height, inside } = blob;

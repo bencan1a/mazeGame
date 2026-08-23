@@ -143,11 +143,10 @@ export interface BoardMetrics {
   /**
    * Smallest free set at a step where something was still blocked. Steps where
    * every remaining segment is free — always including the last — are endgame,
-   * not bottleneck, and counting them makes this 1 on every board. See
-   * docs/METRICS.md.
+   * not bottleneck, and counting them makes this 1 on every board.
    */
   readonly minFreeSetSize: number;
-  /** Whether orientation fell back to reverse construction (R2). */
+  /** Whether orientation fell back to reverse construction. */
   readonly orientationFallback: boolean;
   /** Blocking edges. */
   readonly edgeCount: number;

@@ -82,13 +82,9 @@ function leafyCorridor(spineLength: number, toothCount: number): Mask {
 const spineArb = fc.integer({ min: 4, max: 60 }).map((n) => n - (n % 2)); // even
 const toothArb = fc.integer({ min: 0, max: 8 });
 
-// The acceptance criterion asks for 500 random blobs; that many are cheap
-// when the property under test is a small synthetic shape (below), but this
-// one drives the full generateBlob + repairMask pipeline every run, which
-// repair.test.ts's own property tests cap at 80 for CPU headroom under
-// coverage instrumentation (issue #3 review). Matching that cap here, not
-// 500, keeps this file from being the thing that pushes sibling test files
-// over their timeout when the whole suite runs in parallel.
+// Lower than the synthetic-shape properties below because this one drives the
+// full generateBlob + repairMask pipeline every run, and the suite runs in
+// parallel under coverage instrumentation.
 const HEAVY_NUM_RUNS = 80;
 const NUM_RUNS = 500;
 
@@ -132,11 +128,10 @@ describe('absorbParity: guard case (this generator + repair never needs it)', ()
 
 describe('absorbParity: minimal absorption over leafy-corridor fixtures', () => {
   it('adds exactly max(0, |d| - 1) cells, all majority-colour, keeping one component', () => {
-    // Counts runs that actually absorb (1 <= needed <= 3), not every run
-    // fc executes: toothCount 0-1 needs nothing (needed === 0) and this
-    // property still passes on those trivially, so counting every run (as
-    // an earlier version did) cannot tell a suite full of no-ops apart from
-    // one that exercises absorption.
+    // Counts runs that actually absorb (1 <= needed <= 3), not every run fc
+    // executes: toothCount 0-1 needs nothing and passes trivially, so a total
+    // run count cannot tell a suite of no-ops from one that exercises
+    // absorption.
     let absorbing = 0;
     fc.assert(
       fc.property(spineArb, toothArb, (spineLength, toothCount) => {

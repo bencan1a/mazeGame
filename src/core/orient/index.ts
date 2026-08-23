@@ -1,19 +1,8 @@
 /**
- * Orientation entry point (issue #10, docs/CONTRACTS.md "orientation"):
- * choose a head for every segment such that the resulting blocking digraph is
- * acyclic.
- *
- * Two implementations, per docs/CONTRACTS.md:
- *   1. Randomized local search (localSearch.ts) - the default, tried first.
- *   2. Reverse construction (issue #11, `reverseConstruct.ts`) - correct by
- *      construction, the mandated fallback when local search's iteration box
- *      expires (R2, docs/PLAN.md).
- *
- * #11 is landing in parallel on its own branch and does not own this file, so
- * the fallback is an injected dependency (`options.fallback`) rather than an
- * import: this module is fully testable today against a stub, and wiring the
- * real implementation in later is a one-line change at the call site (see
- * `ReverseConstructOrienter` below for the exact shape #11 must match).
+ * Choose a head for every segment such that the blocking digraph is acyclic:
+ * randomized local search first, reverse construction when its iteration box
+ * expires. The fallback is injected rather than imported so this module can be
+ * tested against a stub.
  */
 
 import type { Rng } from '../rng.js';
@@ -25,29 +14,22 @@ export interface OrientationResult {
   readonly segHead: Uint32Array;
   readonly segDir: Uint8Array;
   /**
-   * 1 = the caller must reverse this segment's `segCells` slice before
-   * writing it into `Board.segCells`, so `segHead` ends up as the slice's
-   * *last* cell - the invariant `src/core/validate/structure.ts` enforces.
-   * `segmentPath` hands every segment's cells in one fixed (path-visit)
-   * order; whichever endpoint is *not* already last needs this.
+   * 1 = reverse this segment's `segCells` slice before writing it into
+   * `Board.segCells`, so `segHead` ends up as the slice's last cell.
+   * `segmentPath` emits one fixed order; the endpoint that is not already
+   * last needs this.
    */
   readonly segReversed: Uint8Array;
 }
 
-/**
- * The result shape reverse construction (issue #11, `reverseConstruct.ts`)
- * produces. That module, not this one, is the source of truth for this
- * shape - it is declared here only so this file can type-check the injected
- * fallback without importing across the branch boundary; keep it in sync
- * with #11's actual export rather than the other way around.
- */
+/** The result shape `reverseConstruct` produces. */
 export interface ReverseConstructOk extends OrientationResult {
   readonly ok: true;
   /** Insertion order, reversed, gives a valid removal order by construction. */
   readonly peelOrder: Uint32Array;
 }
 
-/** Reverse construction could not place every segment (geometry-dependent; see #11). */
+/** Reverse construction could not place every segment. */
 export interface ReverseConstructStuck {
   readonly ok: false;
   readonly stuck: Uint32Array;
@@ -55,7 +37,7 @@ export interface ReverseConstructStuck {
 
 export type ReverseConstructResult = ReverseConstructOk | ReverseConstructStuck;
 
-/** Same argument order as `orientSegments` itself, minus the options bag - reverse construction has no iteration box to configure. */
+/** Same argument order as `orientSegments`, minus the options bag. */
 export type ReverseConstructOrienter = (
   segments: Pick<SegmentedPath, 'segStart' | 'segCells'>,
   occupancy: Uint16Array,
@@ -65,16 +47,13 @@ export type ReverseConstructOrienter = (
 ) => ReverseConstructResult;
 
 export interface OrientSegmentsOptions {
-  /** Overrides `localSearch.ts`'s `DEFAULT_MAX_ITERATIONS`. */
+  /** Overrides `DEFAULT_MAX_ITERATIONS`. */
   readonly maxIterations?: number;
   /**
-   * Reverse construction (issue #11), injected. Required, not optional: AC #4
-   * says the fallback is automatic, and on real board geometry local search
-   * fails to converge often enough (see this issue's report) that a forgotten
-   * injection would surface as a thrown error out of the generator, not a
-   * rare edge case. A caller that genuinely wants to see local search's raw
-   * failure (tests exercising that path) can still pass a stub that itself
-   * throws or reports `{ ok: false, ... }`.
+   * Required, not optional: local search fails to converge often enough on
+   * real geometry that a forgotten injection would throw out of the generator
+   * rather than being a rare edge case. A caller that wants to see local
+   * search's raw failure passes a stub that reports `{ ok: false }`.
    */
   readonly fallback: ReverseConstructOrienter;
 }
@@ -82,12 +61,8 @@ export interface OrientSegmentsOptions {
 export interface OrientSegmentsResult extends OrientationResult {
   /**
    * True when local search's iteration box expired and reverse construction
-   * produced the result instead. AC #4 asks this be "recorded in metrics";
-   * `BoardMetrics` (src/core/types.ts) is a shared contract file this stream
-   * cannot edit unilaterally, so this flag is returned here for the caller
-   * (generate.ts, once it exists) to plumb into a new metrics field behind
-   * its own contract-change issue. See this issue's report for the exact
-   * field this needs.
+   * produced the result instead. The caller plumbs this into
+   * `BoardMetrics.orientationFallback`.
    */
   readonly usedFallback: boolean;
   readonly localSearch: LocalSearchStats;

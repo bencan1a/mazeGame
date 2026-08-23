@@ -1,23 +1,19 @@
 /**
  * Recompute exactly one segment's outgoing blocking row.
  *
- * Occupancy (which cells belong to which segment) never changes when a
- * segment flips between its two legal heads - only where its own ray starts
- * and which way it points does - so flipping segment `id` can only change
- * `id`'s own row. That is the whole justification for recomputing one row
- * instead of calling `buildBlockingGraph` for every flip.
+ * Occupancy never changes when a segment flips between its legal heads — only
+ * where its own ray starts and points — so flipping `id` can only change
+ * `id`'s row.
  *
- * Must reproduce that function's per-segment loop body exactly (own cells
- * never block, a doubly-crossed ray is one edge, output sorted); a silent
- * divergence here is a board that looks acyclic but isn't.
- * `incrementalRow.test.ts` is the actual guarantee, diffing this against a
- * from-scratch rebuild after every step of long random flip sequences.
+ * Must reproduce `buildBlockingGraph`'s per-segment loop body exactly: own
+ * cells never block, a doubly-crossed ray is one edge, output sorted. A silent
+ * divergence here is a board that looks acyclic and is not.
  */
 
 import { NO_CELL, step } from '../grid.js';
 import type { Direction } from '../types.js';
 
-/** `blocking.ts` has its own copy of this same one-line check, for the same reason: see the throw below. */
+/** `blocking.ts` carries the same check, for the reason in the throw below. */
 function isDirection(dir: number): dir is Direction {
   return dir === 0 || dir === 1 || dir === 2 || dir === 3;
 }
@@ -30,11 +26,9 @@ export function recomputeRow(
   width: number,
   height: number,
 ): Uint32Array {
-  // buildBlockingGraph throws here rather than silently walking a ray from a
-  // corrupt direction (segDir is a Uint8Array; a stray write arrives as some
-  // byte outside 0..3, not a type error) - matching that means a bug
-  // upstream surfaces as a loud, attributable error in either function, not
-  // as an empty row in this one and a thrown one in that one.
+  // segDir is a Uint8Array, so a stray write arrives as a byte outside 0..3
+  // rather than a type error. Throwing matches buildBlockingGraph, so an
+  // upstream bug surfaces the same way whichever function sees it first.
   if (!isDirection(dir)) {
     throw new Error(`segment ${id} has direction ${String(dir)}, expected 0..3`);
   }

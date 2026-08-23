@@ -12,10 +12,8 @@ const seedArb = fc.integer({ min: 0, max: 1_000_000 });
 const gridSizeArb = fc.integer({ min: 20, max: 100 });
 const fillFractionArb = fc.double({ min: 0.05, max: 0.85, noNaN: true });
 
-// Property tests over random blobs run this many times each; small enough to
-// stay comfortably under vitest's default per-test timeout even under
-// coverage instrumentation (see issue #3 review), while still exercising a
-// spread of grid sizes and fill fractions.
+// Small enough to stay under the default per-test timeout even under coverage
+// instrumentation, while still spanning a range of sizes and fill fractions.
 const NUM_RUNS = 80;
 
 /**
@@ -78,10 +76,8 @@ describe('repairMask acceptance criteria', () => {
       { numRuns: NUM_RUNS },
     );
     expect(ran).toBeGreaterThan(NUM_RUNS / 2);
-    // NUM_RUNS at up to gridSize 100 measures well under 5s idle, but not
-    // reliably so once the whole suite runs in parallel under coverage
-    // (issue #3 review; issue #4 review reproduced it again post-merge).
-    // Budget, not hang — see blob.test.ts's identical fix.
+    // Comfortable idle, but not once the whole suite runs in parallel under
+    // coverage. A budget, not a hang.
   }, 20_000);
 
   it('never leaves an inside cell with fewer than 2 inside-neighbours (guaranteed by upscale2x writing whole 2x2 blocks, not by repair itself)', () => {
@@ -159,8 +155,8 @@ describe('repairMask acceptance criteria', () => {
 
 describe('repairMask: half-resolution repair keeps checkerboard parity at 0', () => {
   it('|black - white| is exactly 0 after repair, not merely within {0, ±1}', () => {
-    // Empirical confirmation issue #3 asks for: parity absorption (#4) should
-    // have nothing left to do downstream of this generator + repair pair.
+    // Parity absorption should have nothing left to do downstream of this
+    // generator and repair pair.
     let ran = 0;
     fc.assert(
       fc.property(seedArb, gridSizeArb, fillFractionArb, (seed, gridSize, fillFraction) => {
@@ -250,10 +246,9 @@ describe('repairMask edge cases', () => {
   });
 
   it('throws on a real generateBlob output too small to have any 2-cell-thick interior', () => {
-    // Measured directly (see the issue #3 report): a gridSize-20 blob at the
-    // GenParams floor of fillFraction 0.05 is small enough that morphological
-    // open erases it entirely. This is a real, if rare, consequence of the
-    // documented GenParams range, not a hand-built pathology.
+    // A gridSize-20 blob at the fillFraction floor of 0.05 is small enough
+    // that morphological open erases it entirely — a real consequence of the
+    // parameter range, not a hand-built pathology.
     const blob = generateBlob({ seed: 0, gridSize: 20, fillFraction: 0.05 });
     expect(() => repairMask(blob)).toThrow(MaskRepairError);
   });
@@ -279,7 +274,7 @@ describe('repairMask edge cases', () => {
     // connected raw blob into two disconnected lobes. Only the second
     // largestComponent call (after the open) drops the smaller lobe; without
     // it both lobes would still be present but disconnected, which is
-    // exactly what mutation-testing the issue #3 review found untested.
+    // exactly the case a mutation of that second call would slip through.
     const halfWidth = 11;
     const halfHeight = 5;
     const halfInside = new Uint8Array(halfWidth * halfHeight);

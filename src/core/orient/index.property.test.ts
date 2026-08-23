@@ -1,15 +1,11 @@
 /**
- * AC #5 (issue #10): "over 500 boards, the resulting digraph is always
- * acyclic." Built against `makePath` (a boustrophedon over a full
- * rectangle), per this issue's brief - S2's Hamiltonian path (#6/#5) is a
- * different stream and not required for this stage's own contract, which
- * only promises acyclicity given *some* Hamiltonian path cut into segments.
+ * Over 500 boards the resulting digraph is always acyclic. A boustrophedon
+ * over a full rectangle is enough: this stage promises acyclicity given *some*
+ * Hamiltonian path cut into segments, whatever produced it.
  *
- * Reverse construction (#11) is not wired here - a stub fallback keeps
- * `orientSegments` total even on the rare board where local search's
- * iteration box expires, so this test can assert the postcondition
- * unconditionally rather than skipping boards that would need the real
- * fallback.
+ * The fallback is a stub, which keeps `orientSegments` total even where local
+ * search's iteration box expires, so the postcondition can be asserted
+ * unconditionally rather than skipping those boards.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';

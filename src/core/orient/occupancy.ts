@@ -1,12 +1,4 @@
-/**
- * Stamp a `SegmentedPath`'s cells with 1-based segment ids.
- *
- * `orientSegments`'s contract (docs/CONTRACTS.md "orientation") takes
- * `occupancy` as a caller-supplied argument, so this stage does not have to
- * build one — but every test and measurement here does, and so will the real
- * pipeline wiring once it exists. Kept as one small, honest function instead
- * of copy-pasted into every test file that needs an occupancy array.
- */
+/** Stamp a `SegmentedPath`'s cells with 1-based segment ids. */
 
 import type { SegmentedPath } from '../segment/segmentPath.js';
 

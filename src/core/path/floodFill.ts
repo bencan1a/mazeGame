@@ -1,8 +1,6 @@
 /**
  * Cells reachable from `start` by 4-adjacency, restricted to cells where
- * `member[i] === 1`. Shared by tiling.ts (are the region's 2x2 blocks one
- * piece?) and backbite.ts (are the region's path cells one piece?) — same
- * walk, different membership array and grid dimensions.
+ * `member[i] === 1`.
  */
 
 import { DIRECTIONS, NO_CELL, step } from '../grid.js';

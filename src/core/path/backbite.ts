@@ -1,56 +1,24 @@
 /**
- * Backbite: the fallback Hamiltonian path builder (PRD 4.2 step 2,
- * docs/CONTRACTS.md `Mask -> HamiltonianPath`), for regions the spanning-tree
- * contour method (contour.ts) cannot tile into 2x2 blocks — expected to be
- * common, since parity absorption (#4) can leave an `unvisited` hole that
- * breaks tiling without breaking connectivity.
+ * Backbite: the fallback Hamiltonian path builder, for regions the contour
+ * method cannot tile into 2x2 blocks.
  *
- * The path is kept as a position array `pathCells` (the walk, in order) plus
- * its inverse `pathIndex` (cell -> position, -1 if the cell is not yet on the
- * path). Every move picks an endpoint — `pathCells[0]` (the tail) or
- * `pathCells[length - 1]` (the head), 50/50 — and a uniformly random
- * 4-neighbour of it that the mask allows on the path at all (on-path or not):
+ * The path is a position array `pathCells` plus its inverse `pathIndex`
+ * (cell -> position, -1 when off the path). Every move picks an endpoint —
+ * tail or head, 50/50 — and a uniformly random 4-neighbour of it:
  *
- *   - Not yet on the path (`pathIndex[neighbour] === -1`): append it. This is
- *     growth; it is the only way `length` increases. At the head this is
- *     `pathCells[length] = neighbour` — O(1). A fixed array has no O(1) way to
- *     prepend, so growth at the tail is the one case that pays a full reversal
- *     of `pathCells[0 .. length - 1]` first, which relabels the tail as the
- *     head and turns the append into the O(1) case above. Growth only ever
- *     happens `pathCellCount - 1` times in total, so this cost is paid rarely
- *     relative to the total move count, not on every move.
- *   - Already on the path at position `p`: adding the edge (endpoint,
- *     neighbour) closes a cycle. The only rewrite that turns that back into a
- *     simple path is to reverse the arc strictly between the endpoint and
- *     `p`: `pathCells[p+1 .. length-1]` at the head, or `pathCells[0 .. p-1]`
- *     at the tail. `reverseRange` no-ops by itself when that arc is empty
- *     (`p === length - 2` at the head, `p === 1` at the tail — picking the
- *     endpoint's current path-neighbour again, which is legal and does
- *     nothing), so neither case needs a guard of its own.
+ *   - Off the path: append it. This is growth, the only way `length` rises.
+ *     At the head that is O(1); a fixed array has no O(1) prepend, so growth
+ *     at the tail first reverses the whole path to relabel the tail as head.
+ *   - On the path at position `p`: the new edge closes a cycle, and the only
+ *     rewrite back to a simple path reverses the arc strictly between the
+ *     endpoint and `p` — `[p+1, length-1]` at the head, `[0, p-1]` at the
+ *     tail. That arc is empty when the neighbour picked is the endpoint's
+ *     current path-neighbour, and `reverseRange` no-ops on it, so neither
+ *     case needs its own guard.
  *
- * An earlier version of this file flipped the *entire* array on every move,
- * before even knowing whether the move would touch it, on the theory that
- * relabelling which end is "the head" cost no more than the reversal a
- * backbite move already pays. Measured false: on a full 100x100 rectangle
- * (seed 1, default mixing) that cost 2526ms; picking the end first and
- * reversing only the arc a move actually needs brings the same call down to
- * 600-1200ms depending on seed — a large, reproducible win, though the
- * remaining cost is still real (see DEFAULT_MAX_GROWTH_MOVES_PER_CELL on why
- * it is inherently up to quadratic in `pathCellCount`).
- *
- * Once `length === mask.pathCellCount` every mask path cell is already on the
- * path, so `pathIndex[neighbour]` is never `-1` again — growth moves and
- * mixing moves are the same code, mixing just runs once growth stops
- * happening on its own.
- *
- * Growth alone can permanently trap: once the covered cells wall off an
- * uncovered pocket so that no cell adjacent to it can ever occupy an endpoint
- * position, no sequence of backbite moves reaches it, because the moves only
- * reorder the *covered* vertex set — they never touch the uncovered one. The
- * fix is the standard one: detect a long run of moves with no growth and
- * restart from a fresh random start cell. See DEFAULT_STALL_LIMIT_PER_CELL for
- * the measured effect, which is real but modest, not the difference between
- * working and not.
+ * Growth alone can trap: once covered cells wall off an uncovered pocket, no
+ * move reaches it, because moves only reorder the covered vertex set. A long
+ * run without growth therefore restarts from a fresh random cell.
  */
 
 import { DIRECTIONS, NO_CELL, directionBetween, parityOf, step as gridStep } from '../grid.js';
@@ -61,7 +29,7 @@ import { floodFillCount } from './floodFill.js';
 export interface BackbiteOk {
   readonly ok: true;
   readonly path: HamiltonianPath;
-  /** Growth + mixing moves actually taken. Reported for the tuning sweep in issue #6. */
+  /** Growth + mixing moves actually taken. */
   readonly moves: number;
 }
 
@@ -73,65 +41,32 @@ export interface BackbiteFailed {
 export type BackbiteResult = BackbiteOk | BackbiteFailed;
 
 /**
- * Mixing moves run after growth first completes, to move the path away from
- * whatever order growth happened to produce and toward near-uniform among
- * Hamiltonian paths on the region. Scaled by cell count because a bigger
- * region needs more moves to mix by the same relative amount.
- *
- * 8x is deliberately small next to growth's own cost (see
- * DEFAULT_MAX_GROWTH_MOVES_PER_CELL — growth alone typically runs 10-60x
- * `pathCellCount` moves, more on hard shapes), so the default mixing pass
- * adds only a modest fraction to total moves while still visibly reshuffling
- * a board that already covers every cell.
+ * Mixing moves run once growth completes, to move the path away from whatever
+ * order growth produced and toward near-uniform among the region's
+ * Hamiltonian paths. Scaled by cell count, and small next to growth's own
+ * cost, so mixing adds only a modest fraction to the total.
  */
 export const DEFAULT_MIXING_MOVES_PER_CELL = 8;
 
 /**
- * Upper bound on growth moves before giving up, as a multiple of
- * `pathCellCount`. Growth is a randomized process with no worst-case bound in
- * theory, so this is a time box, not an estimate — it exists purely to turn a
- * pathological region into a clean `ok: false` instead of a runaway loop.
+ * Growth-move budget, as a multiple of `pathCellCount`. Growth is randomized
+ * with no worst-case bound, so this is a box rather than an estimate: it turns
+ * a pathological region into a clean `ok: false` instead of a runaway loop.
  *
- * Measured growth-to-completion cost (moves / pathCellCount, successful
- * attempts only, 15 seeds per shape) grows with region size and varies a lot
- * by shape: full rectangles ~7.5x mean / ~13x max at 10x10, rising to ~26x
- * mean / ~48-56x max at 100x100; a rectangle with 3 parity-legal holes goes
- * higher, ~57x mean / ~113x max at 100x100. A narrow ring (a 2-cell-wide
- * border band — the hardest shape found, well outside what a real silhouette
- * looks like) reached ~161x mean / ~377x max at 100x100 and, on one seed in
- * fifteen, exhausted this exact 400x budget. So 400x is not a comfortable
- * multiple above every shape this method could ever see, only above every
- * *realistic* one measured; a region that exhausts it reports `ok: false` and
- * the generator pipeline retries with a new seed rather than blocking on this
- * call succeeding, which is the intended escape hatch for the shapes this
- * margin does not cover.
- *
- * The move-count box is exact and deterministic, but each move costs up to
- * O(pathCellCount) (the reversal), so wall-clock cost is at worst quadratic in
- * `pathCellCount` even after the per-move fix in this file. Lowering this
- * default further would not help the case that actually costs the most wall
- * clock time — an infeasible region — since findInfeasibility now rejects
- * those in O(pathCellCount) before any of this budget is spent; it would only
- * cost success rate on the legitimate hard shapes above.
+ * It clears every realistic shape measured but not every conceivable one — a
+ * region that exhausts it reports `ok: false`, and the caller retries with a
+ * new seed rather than depending on this call succeeding.
  */
 export const DEFAULT_MAX_GROWTH_MOVES_PER_CELL = 400;
 
 /**
- * Consecutive moves with no growth before abandoning the current attempt and
- * restarting from a fresh random cell (see the file header on trapping).
+ * Consecutive moves without growth before restarting from a fresh random cell.
  *
- * Not tuned to an observed trapping threshold — sweeping this from 1x to 120x
- * `pathCellCount` on the 80-case property-test corpus in
- * backbite.property.test.ts produces the identical 76/80 pass rate at every
- * setting, and disabling restarts entirely (stallLimit so large it never
- * fires) drops that to 74/80 — restarts fix exactly 2 of the 80 cases,
- * regardless of how generous the limit is otherwise. Restarting is real,
- * cheap insurance (a restart clears only the live path, so it costs O(path
- * length), well under the moves it sits between) for whatever fraction of
- * regions do trap, but this codebase has not found an input where the exact limit
- * matters; 60x is simply a value comfortably larger than the handful of moves
- * a healthy attempt needs between growth events, chosen so restarts fire on
- * genuine stalls and not on ordinary slow patches.
+ * Not tuned to an observed trapping threshold: no input has been found where
+ * the exact value changes the outcome, only whether restarts happen at all.
+ * It is simply comfortably larger than the handful of moves a healthy attempt
+ * needs between growth events, so restarts fire on genuine stalls rather than
+ * on ordinary slow patches.
  */
 export const DEFAULT_STALL_LIMIT_PER_CELL = 60;
 
@@ -143,10 +78,8 @@ export interface BackbiteOptions {
   /** Moves without growth before restarting from a new start cell. Default `DEFAULT_STALL_LIMIT_PER_CELL * pathCellCount`. */
   readonly stallLimit?: number;
   /**
-   * Check path invariants after every move, not only at the end (issue #6 AC).
-   * O(pathCellCount) per move, so it is opt-in — tests and property tests turn
-   * it on; nothing in `src/core` enables it by default, so production pays
-   * nothing for it.
+   * Check path invariants after every move rather than only at the end.
+   * O(pathCellCount) per move, so it is opt-in.
    */
   readonly validateEveryMove?: boolean;
 }
@@ -204,11 +137,9 @@ export function buildBackbitePath(
   const pathCells = new Uint32Array(target);
   const pathIndex = new Int32Array(size).fill(-1);
 
-  // Clears only the cells currently on the path, so a restart is O(live path
-  // length) rather than O(width * height). The distinction matters for a
-  // sparse silhouette in a large grid, which is the shape this builder exists
-  // to handle: there, the grid-wide reset can cost more than the moves it
-  // sits between.
+  // Clears only the cells currently on the path, so a restart costs O(live
+  // path length) rather than O(width * height) — which for a sparse silhouette
+  // in a large grid can exceed the moves the restart sits between.
   const restart = (liveLength: number): void => {
     for (let i = 0; i < liveLength; i++) pathIndex[pathCells[i] as number] = -1;
     const start = pathCellList[rng.int(target)] as number;
@@ -218,8 +149,7 @@ export function buildBackbitePath(
   restart(0);
   let length = 1;
 
-  // Reused per-move scratch for the endpoint's candidate neighbours, so the
-  // hot loop does not allocate — the same discipline spanningTree.ts uses.
+  // Reused per-move scratch, so the hot loop does not allocate.
   const candidates = new Int32Array(4);
 
   let moves = 0;
@@ -236,16 +166,13 @@ export function buildBackbitePath(
       };
     }
     if (movesSinceGrowth >= stallLimit) {
-      // Growth trapped itself: some uncovered pocket is walled off from both
-      // current endpoints and every reachable reordering of them (see file
-      // header). Restarting from a new cell is cheap next to the budget above
-      // and empirically resolves most such cases.
+      // Growth trapped itself: an uncovered pocket is walled off from both
+      // endpoints and every reachable reordering of them.
       restart(length);
       length = 1;
       movesSinceGrowth = 0;
-      // Charged to the budget like any other move. Without this the branch
-      // iterates for free, and a stallLimit low enough to fire every time
-      // spins the loop forever instead of reaching the time box above.
+      // Charged to the budget like any other move: without this, a stallLimit
+      // low enough to fire every time iterates for free and never terminates.
       moves++;
       continue;
     }
@@ -270,25 +197,19 @@ export function buildBackbitePath(
 }
 
 /**
- * Cheap necessary conditions for a Hamiltonian path to exist at all, checked
- * up front so an actually-infeasible region fails immediately instead of
- * burning the growth budget on restarts that can never succeed:
+ * Cheap necessary conditions for a Hamiltonian path to exist, checked up front
+ * so an infeasible region fails immediately instead of burning the growth
+ * budget on restarts that cannot succeed:
  *
- *   - Checkerboard parity (docs/CONTRACTS.md's `|black - white| <= 1`): a
- *     Hamiltonian path alternates colour on every step, so its two colour
- *     counts can differ by at most one no matter how it is routed. This is
- *     the cheapest check and also the one that matters most in practice — an
- *     imbalanced region is unsolvable by any routing at all, but without this
- *     check growth cannot know that and instead retries until the move
- *     budget runs out (measured: 28s at 100x100 for a 3-cell imbalance).
- *   - A path cell with zero path-cell neighbours can never be reached at all.
- *   - A path cell with exactly one path-cell neighbour (a dead end) can only
- *     ever be a path *endpoint* — there is only room for two of those.
+ *   - Checkerboard parity: a path alternates colour every step, so the two
+ *     counts can differ by at most one however it is routed.
+ *   - A path cell with no path-cell neighbours can never be reached.
+ *   - A path cell with exactly one (a dead end) can only be an endpoint, and
+ *     there is room for two.
  *   - The path cells are not one 4-connected piece.
  *
- * None of these is sufficient (plenty of regions that pass all four still
- * have no Hamiltonian path), so passing this does not guarantee growth
- * succeeds — it only means growth is not provably doomed before it starts.
+ * None is sufficient, so passing this only means growth is not provably
+ * doomed before it starts.
  */
 function findInfeasibility(
   isPathCell: Uint8Array,
@@ -342,7 +263,7 @@ function findInfeasibility(
 
 /**
  * One growth-or-backbite move at a randomly chosen endpoint. Returns the new
- * length. See the file header for the derivation of which arc gets reversed.
+ * length.
  */
 function backbiteMove(
   isPathCell: Uint8Array,
@@ -368,9 +289,7 @@ function backbiteMove(
   const p = pathIndex[neighbour] as number;
 
   if (p === -1) {
-    // Growth. The tail has no O(1) prepend, so relabel it as the head first —
-    // see the file header on why this is rare relative to the total move
-    // count, not paid on every move.
+    // Growth. The tail has no O(1) prepend, so relabel it as the head first.
     if (atTail) reverseRange(pathCells, pathIndex, 0, length - 1);
     pathCells[length] = neighbour;
     pathIndex[neighbour] = length;
@@ -396,14 +315,10 @@ function reverseRange(pathCells: Uint32Array, pathIndex: Int32Array, lo: number,
 }
 
 /**
- * The S2 postconditions restricted to a path still under construction: no
+ * The path postconditions restricted to a path still under construction: no
  * repeats, every entry a mask path cell, consecutive entries 4-neighbours.
- * `cells.length === pathCellCount` is checked by the caller once growth ends,
- * since it is not true of a partial path by definition.
- *
- * Lives here rather than in test/fixtures/postconditions.ts because it runs
- * inside the algorithm (opt-in via `validateEveryMove`), and src/core cannot
- * depend on test code.
+ * Length is checked by the caller once growth ends, since it is not true of a
+ * partial path by definition.
  */
 function assertPartialPathInvariants(
   pathCells: Uint32Array,

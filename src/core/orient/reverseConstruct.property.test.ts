@@ -1,42 +1,18 @@
 /**
- * The acceptance criterion (#11): over many boards at realistic sizes, the
- * greedy peel always succeeds, and its output really can be assembled into a
- * board whose blocking digraph is acyclic and covers every segment.
+ * Over many boards at realistic sizes, the greedy peel succeeds and its output
+ * assembles into a board whose blocking digraph is acyclic.
  *
- * This stream builds against fixtures rather than waiting on S1/S2's real
- * mask/path generation (docs/WORKFLOW.md). The headline sizes (40x40,
- * 100x100) use a full rectangle mask (`makeMask`) walked by the boustrophedon
- * fixture path (`makePath`) and cut by the real `segmentPath` (this stream's
- * own module) — varying `meanPieceLength`, `pieceLengthVariance` and
- * `minStraightRun` gives genuinely different segmentations to orient. A
- * separate, smaller check runs the same pipeline over a concave silhouette
- * (`PLUS_MASK`) instead: a full rectangle is the densest packing there is,
- * but it is also perfectly uniform, and the one failure mode this module has
- * (a closed ring of mutual dependencies — see reverseConstruct.test.ts) is
- * exactly the shape a concave silhouette produces far more readily than a
- * serpentine ever does. It is readily enough, in fact, that this check found
- * a real instance: a 4x4 PLUS_MASK cut with very short pieces
- * (meanPieceLength 2, seed 999995) produces two 4-cell arms that only ever
+ * The headline sizes walk a full rectangle with the boustrophedon fixture and
+ * cut it with the real `segmentPath`, varying the piece-length parameters for
+ * genuinely different segmentations. A rectangle is the densest packing but
+ * also perfectly uniform, so a smaller tier runs the same pipeline over a
+ * concave silhouette, which produces this module's one failure mode — a
+ * closed ring of mutual dependencies — far more readily.
+ *
+ * That tier therefore counts `ok: false` instead of forbidding it: a 4x4
+ * PLUS_MASK cut into very short pieces really can give two arms that only
  * point at each other, with no acyclic orientation for either endpoint
- * choice — confirmed by hand and matching the completeness proof below (no
- * candidate ever reaches zero blockers, so nothing can ever be first). That
- * is `ok: false` doing exactly its job, not a defect, so the PLUS_MASK tier
- * tolerates it and counts it instead of asserting 100% success; the headline
- * sizes above make no such allowance because a full rectangle has never
- * produced one and the issue's acceptance criterion says "always".
- *
- * Every case is a per-run `expect`, not a counted-and-reported-at-the-end
- * aggregate (`src/core/path/contour.property.test.ts` is the house pattern):
- * `fc.assert`/`fc.property` buys real value a hand-rolled loop cannot — a
- * failure shrinks to a minimal counterexample instead of just naming which
- * seed among many broke. The headline tiers report nothing extra because
- * they have measured 100% success and a ratio that can only ever read
- * "100%" is not information. The PLUS_MASK tier is the one exception: it
- * still runs under `fc.assert` (so a genuine defect still shrinks), but a
- * correctly-reported `stuck` result is treated as an acceptable outcome and
- * tallied via `console.info` rather than failing the test, because that rate
- * is real, measured data (not always 0, not always 100%), which is exactly
- * what the earlier review round asked this file to stop pretending about.
+ * choice. The headline tiers make no such allowance.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
@@ -301,7 +277,7 @@ describe('reverseConstruct property: a concave silhouette, not just a uniform re
   it('always yields an acyclic, fully-oriented, geometrically-consistent board over PLUS_MASK', () => {
     // A hand-checked Hamiltonian path over PLUS_MASK (['.##.','####','####','.##.']):
     // no fixture builds one for a non-rectangular mask, so this walks it by hand
-    // and lets makePathFromCells check the S2 postconditions.
+    // and lets makePathFromCells check the path postconditions.
     const width = 4;
     const height = 4;
     const idx = (x: number, y: number): number => y * width + x;
