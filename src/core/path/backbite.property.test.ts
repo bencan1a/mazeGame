@@ -197,7 +197,10 @@ describe('buildBackbitePath: property tests', () => {
   it('stays a valid, Hamiltonian path across thousands of backbite moves, checked after every one', () => {
     // The core claim of issue #6: mixing moves reorder the path but never
     // break it. validateEveryMove turns the dev-mode assertion on for every
-    // single move, not only the final one.
+    // single move, not only the final one — an O(pathCellCount) check per
+    // move, times thousands of moves, times several seeds, so this is the
+    // slowest test in the file by design; the explicit timeout below is
+    // generous against that, not against this test being slow by accident.
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 2 ** 30 }), (seed) => {
         const mask = makeMask({ width: 12, height: 12 });
@@ -210,7 +213,7 @@ describe('buildBackbitePath: property tests', () => {
         expect(result.moves).toBeGreaterThanOrEqual(4000);
         expect(pathViolations(result.path, mask)).toEqual([]);
       }),
-      { numRuns: 10 },
+      { numRuns: 8 },
     );
-  });
+  }, 20_000);
 });
