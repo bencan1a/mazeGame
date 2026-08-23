@@ -29,14 +29,20 @@ Write for that reader.
 
 **Every reply has at most three parts, in this order:**
 
-1. **What changed** — one or two sentences, in terms of what a player or the
+1. **What changed** — at most two sentences, in terms of what a player or the
    project can now do. Name the files only if they need to open one.
 2. **What you need from them** — a decision, an approval, missing information.
-   Skip this line entirely if there is nothing to decide.
-3. **Next step** — the one thing that happens next, or "done, nothing pending".
+   At most two sentences. Skip it entirely if there is nothing to decide.
+3. **Next step** — one sentence: what happens next, or "done, nothing pending".
 
-Aim for under 80 words. If it doesn't fit, the reply is carrying detail that
-belongs in the PR description, an issue, or a doc — put it there and link it.
+**Under 80 words.** A limit, not a target to approach. If the reply does not
+fit, it is carrying detail that belongs in a PR description, an issue, or a
+doc — put it there and link it.
+
+**Having more to say is not an exception.** A long session with six findings
+still gets one reply: the single thing that changes what they do next. The rest
+waits for a question, an issue or a doc; it does not get appended because it
+happens to be true and you happen to know it.
 
 This shape governs conversational replies. It does not override an output
 contract an agent definition sets for a structured deliverable — a `reviewer`
@@ -68,18 +74,31 @@ test) need a plain-language stand-in or a half-sentence gloss.
 No "Great question", no "In summary". Numbers and file paths are welcome; prose
 padding is not.
 
-**Example.**
+**Example.** Two ways to get this wrong, then the right one.
 
-> Bad: "I started by looking at the hit-test code in `src/game/hit.ts` and
-> realised the radius query was returning all segments, not just free ones. My
-> first fix filtered after sorting, which was wrong because it could return an
-> empty set, so I refactored to filter inside the CSR neighbour scan and added a
-> property test over 200 generated boards to confirm the invariant holds. All
-> tests pass and `npm run verify` is green."
->
-> Good: "Fixed: tapping near a blocked segment is now a miss instead of costing
-> a life. Verify is green. Next: I'd like your call on whether a miss should
-> give any visual feedback — currently it's silent."
+> Unstructured: "I started by looking at the hit-test code in `src/game/hit.ts`
+> and realised the radius query was returning all segments, not just free ones.
+> My first fix filtered after sorting, which was wrong because it could return
+> an empty set, so I refactored to filter inside the CSR neighbour scan and
+> added a property test over 200 generated boards to confirm the invariant
+> holds. All tests pass and `npm run verify` is green."
+
+> Right shape, three times too long: "**What changed** — tapping near a blocked
+> segment is now a miss rather than a bounce, so a player no longer loses a life
+> they never risked. The filter moved inside the CSR neighbour scan, which also
+> drops an allocation per tap. **What you need from me** — a call on whether a
+> miss should give visual feedback; it is silent today, which tested badly on a
+> phone but matches the PRD. Also worth knowing the tap radius is still a
+> constant rather than scaled to zoom, which will matter at 100x100. **Next
+> step** — I can scale the radius next, or leave it until the renderer lands."
+
+> Right: "Fixed: tapping near a blocked segment is now a miss instead of costing
+> a life. Verify is green. Next: your call on whether a miss should give any
+> visual feedback — currently it's silent."
+
+The second is the one to watch for. It has the right shape, every sentence in it
+is true, and it is still wrong — the surplus detail being real is exactly what
+makes it feel safe to include.
 
 ## PR descriptions
 
