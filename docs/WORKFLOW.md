@@ -87,16 +87,25 @@ Shared files are the one place where parallel work can genuinely break. So:
    affects.
 2. Wait for the human to accept it. This is the one place where blocking on a
    human is correct.
-3. **Adding a required field to a shared type? Grep the tree for literal
-   constructions of that type and fix every one in the same PR.** A field that
-   spreads from a defaults object costs nothing; the moment one caller names
-   every field instead, the same change stops compiling. That is not
-   hypothetical — #52's own issue said so in writing, nobody grepped, and #53
-   plus #57 broke `main` in the same batch of merges. `grep -rn 'GenParams'`
-   over `src`, `test` and `scripts`, and read each hit: a spread is fine, a
-   literal is a fix you owe. Prefer making the field optional with a default, or
-   have callers spread `DEFAULT_GEN_PARAMS`, so the next change does not have to
-   repeat this.
+3. **Adding a required field to a shared type? Find every literal construction
+   of that type and fix them in the same PR.** A caller that spreads a defaults
+   object costs nothing; one that names every field instead stops compiling the
+   moment the field exists. That is not hypothetical — #52's own issue said so
+   in writing, nobody checked, and #53 plus #57 broke `main` in the same batch
+   of merges.
+
+   `npm run typecheck` is the check that actually finds them: TypeScript reports
+   every literal in the tree that is now missing a required property. Do not
+   grep for the type name — a literal passed as an argument infers its type from
+   the parameter and never has to mention it. `grep -rn 'BlobParams'` in this
+   repo returns two lines in `blob.ts` and misses all 22 literal calls in
+   `blob.test.ts`. If you grep, grep a **field name** (`grep -rn 'gridSize:'`).
+
+   Neither catches a literal on someone else's open branch, which is what broke
+   #62 — that is what the up-to-date branch requirement is for. The way to make
+   it impossible is an optional field with a default, or callers spreading
+   `DEFAULT_GEN_PARAMS`.
+
 4. Land the type change and the fixture updates in a **single small PR**, on its
    own, with no feature work attached.
 5. Say so in the issues of every stream affected.

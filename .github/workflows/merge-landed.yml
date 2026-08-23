@@ -10,8 +10,11 @@ permissions:
   contents: read
   pull-requests: read
 
+# Keyed per commit, not per workflow: a constant group holds one run plus one
+# pending, so a third merge in a burst evicts the queued one and that commit is
+# never checked — silently, as a cancelled run.
 concurrency:
-  group: merge-landed
+  group: merge-landed-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
