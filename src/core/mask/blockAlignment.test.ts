@@ -25,7 +25,7 @@ function attemptRepair(blob: ReturnType<typeof generateBlob>): Mask | null {
   } catch (err) {
     if (err instanceof MaskRepairError) {
       expect(err.message).not.toMatch(
-        /wholly on the path or wholly off it|past the last full 2x2 block/,
+        /wholly on the path or wholly off it|past the last full 2x2 block|is not block-aligned/,
       );
       return null;
     }
