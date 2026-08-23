@@ -4,30 +4,21 @@
  * Checkerboard parity absorption (step 1.6, `unvisited`) is separate work
  * (#4); this module always returns `unvisited` all-zero.
  *
- * Repairs at half resolution, then upscales, rather than repairing the
- * already-upscaled full-resolution grid. `generateBlob` (#58) draws its raw
- * silhouette on a half-resolution lattice and upscales every cell into a
- * whole 2x2 block, which is what lets the spanning-tree contour path method
- * (#5) tile the region at all — a region not built from whole blocks falls
- * through to the (currently unimplemented, #6) backbite fallback. Eroding,
- * dilating, or filling a hole in a single full-resolution cell can turn a
- * whole block into a partial one and break that alignment; doing the same
- * operations at half resolution and upscaling the *result* with the same
- * whole-block mapping cannot, because every write is still in whole-block
- * units. It is also a quarter of the cells to visit. The trade is that
- * repaired outlines stay pixelated at 2-cell resolution, which `generateBlob`
- * already accepted for the same reason.
+ * Repairs at half resolution, then upscales with `upscale2x`, rather than
+ * repairing the already-upscaled full-resolution grid — see `blob.ts`
+ * (module doc and `upscale2x`) for why block alignment matters and how
+ * upscaling preserves it. Because `upscale2x` only ever writes whole 2x2
+ * blocks, every full-resolution inside cell it produces already has at least
+ * two inside 4-neighbours (its block-mate plus at least one neighbouring
+ * block) regardless of the half-resolution region's shape — the finished
+ * `Mask` needs no separate pass to enforce that.
  *
  * This assumes the input `Blob` is 2x2-block-aligned to offset (0, 0), which
- * is true of every `generateBlob` output. `downsampleToHalfRes` OR-reduces
- * each block rather than sampling one corner, so a not-quite-aligned input
- * would still downsample to *something* representable at half resolution
- * (rounding a partially-set block up to full) instead of silently losing
- * whichever corner it happened to sample — but block alignment of the input
- * is what makes that downsampling lossless rather than merely safe.
+ * is true of every `generateBlob` output; `downsampleToHalfRes` throws
+ * rather than silently dropping cells if it is not (see there).
  */
 
-import { DIRECTIONS, NO_CELL, step, toIndex } from '../grid.js';
+import { toIndex } from '../grid.js';
 import type { Mask } from '../types.js';
 import { type Blob, upscale2x } from './blob.js';
 import { largestComponent } from './components.js';
@@ -52,23 +43,24 @@ export interface RepairOptions {
  */
 const DEFAULT_HOLE_AREA_THRESHOLD = 4;
 
+/** Thrown when a raw blob cannot be repaired into a usable `Mask`. */
+export class MaskRepairError extends Error {
+  constructor(
+    message: string,
+    readonly detail?: unknown,
+  ) {
+    super(message);
+    this.name = 'MaskRepairError';
+  }
+}
+
 /**
  * Runs the largest-component / morphological-open / largest-component /
  * hole-fill pipeline over a raw `Blob` and returns a `Mask`.
  *
- * Beyond what the PRD names, this also prunes any cell left with fewer than
- * two inside 4-neighbours after the open and hole-fill: opening is
- * anti-extensive (its result is always a subset of the input) but is not, on
- * its own, guaranteed to remove a single-cell stub whose attachment point has
- * full 4-neighbour support — that cell can regrow in the dilate step. Pruning
- * only ever removes degree-0 or degree-1 cells from the inside-cell adjacency
- * graph, which cannot disconnect an already-connected region (removing a leaf
- * never disconnects the graph it is a leaf of), so no further
- * largest-component pass is needed afterwards.
- *
- * Throws if repair removes every cell — a raw blob with no 2-cell-thick
- * interior for the open step to preserve. `unvisited` is always all-zero:
- * parity absorption is #4.
+ * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
+ * 2-cell-thick interior for the open step to preserve. `unvisited` is always
+ * all-zero: parity absorption is #4.
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;
@@ -78,10 +70,9 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   half = morphologicalOpen(half);
   half = largestComponent(half);
   half = fillHoles(half, holeAreaThreshold);
-  half = pruneNarrowCells(half);
 
   if (countInside(half.inside) === 0) {
-    throw new Error(
+    throw new MaskRepairError(
       'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
         'survive the morphological open; try a larger gridSize or fillFraction',
     );
@@ -99,15 +90,38 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
 
 /**
  * OR-reduces each 2x2 block of a block-aligned `Blob` into one half-resolution
- * cell. The inverse of `upscale2x` when every block is uniformly all-in or
+ * cell — the inverse of `upscale2x` when every block is uniformly all-in or
  * all-out, which `generateBlob` guarantees.
+ *
+ * An odd `width` or `height` leaves one full-resolution row and/or column
+ * (past `2 * halfWidth`/`2 * halfHeight`) that belongs to no block and so
+ * cannot be represented at half resolution at all. `generateBlob` guarantees
+ * that strip is empty, but this function does not trust that blindly: it
+ * throws `MaskRepairError` if the strip holds any inside cell, rather than
+ * silently dropping it, so a future non-block-aligned input fails loudly
+ * instead of losing area without a trace.
  */
 function downsampleToHalfRes(blob: Blob): Blob {
   const { width, height, inside } = blob;
   const halfWidth = Math.floor(width / 2);
   const halfHeight = Math.floor(height / 2);
-  const out = new Uint8Array(halfWidth * halfHeight);
+  const coveredWidth = halfWidth * 2;
+  const coveredHeight = halfHeight * 2;
 
+  for (let y = 0; y < height; y++) {
+    const yCovered = y < coveredHeight;
+    for (let x = 0; x < width; x++) {
+      if (yCovered && x < coveredWidth) continue;
+      if (inside[toIndex(x, y, width)] === 1) {
+        throw new MaskRepairError(
+          `mask repair received a ${width}x${height} blob with an inside cell at (${x}, ${y}), ` +
+            'in the leftover row/column no 2x2 block covers; the input is not block-aligned',
+        );
+      }
+    }
+  }
+
+  const out = new Uint8Array(halfWidth * halfHeight);
   for (let hy = 0; hy < halfHeight; hy++) {
     const y0 = hy * 2;
     for (let hx = 0; hx < halfWidth; hx++) {
@@ -117,54 +131,11 @@ function downsampleToHalfRes(blob: Blob): Blob {
         inside[toIndex(x0 + 1, y0, width)] === 1 ||
         inside[toIndex(x0, y0 + 1, width)] === 1 ||
         inside[toIndex(x0 + 1, y0 + 1, width)] === 1;
-      out[hy * halfWidth + hx] = anyInside ? 1 : 0;
+      out[toIndex(hx, hy, halfWidth)] = anyInside ? 1 : 0;
     }
   }
 
   return { width: halfWidth, height: halfHeight, inside: out };
-}
-
-/**
- * Removes, to a fixed point, every inside cell with fewer than two inside
- * 4-neighbours — the invariant `docs/CONTRACTS.md` requires of the finished
- * `Mask`. See the module doc comment for why morphological open alone does
- * not guarantee it and why this cannot disconnect an already-connected
- * region.
- */
-function pruneNarrowCells(grid: Blob): Blob {
-  const { width, height, inside } = grid;
-  const size = width * height;
-  const alive = inside.slice();
-  const degree = new Uint8Array(size);
-  const queue: number[] = [];
-
-  for (let i = 0; i < size; i++) {
-    if (alive[i] !== 1) continue;
-    let count = 0;
-    for (const dir of DIRECTIONS) {
-      const n = step(i, dir, width, height);
-      if (n !== NO_CELL && alive[n] === 1) count++;
-    }
-    degree[i] = count;
-    if (count < 2) queue.push(i);
-  }
-
-  while (queue.length > 0) {
-    const cell = queue.pop() as number;
-    // Cells can be queued more than once (each drop below the threshold
-    // re-queues), so a cell already removed by an earlier pop is a no-op.
-    if (alive[cell] !== 1) continue;
-    alive[cell] = 0;
-    for (const dir of DIRECTIONS) {
-      const n = step(cell, dir, width, height);
-      if (n === NO_CELL || alive[n] !== 1) continue;
-      const remaining = (degree[n] as number) - 1;
-      degree[n] = remaining;
-      if (remaining < 2) queue.push(n);
-    }
-  }
-
-  return { width, height, inside: alive };
 }
 
 function countInside(inside: Uint8Array): number {

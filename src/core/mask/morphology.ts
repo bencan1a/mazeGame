@@ -13,12 +13,7 @@
  * deliberate consequence of the plus SE, not a bug to special-case.
  *
  * Opening (erode then dilate with the *same* SE) is anti-extensive — its
- * result is always a subset of the input — but it is not guaranteed to
- * remove every cell with fewer than two inside neighbours on its own (a
- * single-cell stub whose one attachment point has full 4-neighbour support
- * can regrow in the dilate step). `repair.ts` follows this with an explicit
- * pruning pass for that reason; this module only implements the classical
- * operation the PRD names.
+ * result is always a subset of the input.
  */
 
 import { DIRECTIONS, NO_CELL, step } from '../grid.js';
