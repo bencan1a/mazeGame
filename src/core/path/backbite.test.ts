@@ -208,4 +208,17 @@ describe('buildBackbitePath: stallLimit-driven restarts', () => {
     if (!result.ok) return;
     expect(pathViolations(result.path, mask)).toEqual([]);
   });
+
+  it('still terminates when a caller passes stallLimit 0', () => {
+    // 0 survives the ?? default. Unclamped, the restart branch fires before
+    // any move is made and continues without consuming budget, so the growth
+    // loop spins forever — vitest's own timeout does not interrupt it,
+    // because the loop never yields.
+    const mask = makeMask({ width: 4, height: 4 });
+    const result = buildBackbitePath(mask, createRng(1), {
+      stallLimit: 0,
+      maxGrowthMoves: 500,
+    });
+    expect(result.ok).toBe(false);
+  }, 5_000);
 });

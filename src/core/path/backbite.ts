@@ -194,7 +194,10 @@ export function buildBackbitePath(
 
   const mixingMoves = options.mixingMoves ?? DEFAULT_MIXING_MOVES_PER_CELL * target;
   const maxGrowthMoves = options.maxGrowthMoves ?? DEFAULT_MAX_GROWTH_MOVES_PER_CELL * target;
-  const stallLimit = options.stallLimit ?? DEFAULT_STALL_LIMIT_PER_CELL * target;
+  // Clamped to >= 1: at 0 the restart branch below fires before any move is
+  // made and `continue`s without consuming budget, so the growth loop spins
+  // forever and the time box is never reached.
+  const stallLimit = Math.max(1, options.stallLimit ?? DEFAULT_STALL_LIMIT_PER_CELL * target);
   const validateEveryMove = options.validateEveryMove ?? false;
 
   const pathCells = new Uint32Array(target);
@@ -233,6 +236,7 @@ export function buildBackbitePath(
       restart();
       length = 1;
       movesSinceGrowth = 0;
+      moves++;
       continue;
     }
     const before = length;
