@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { DIRECTIONS, NO_CELL, step } from '../grid.js';
+import { DIRECTIONS, NO_CELL, parityOf, step } from '../grid.js';
 import { createRng } from '../rng.js';
 import type { Rng } from '../rng.js';
 import type { Mask } from '../types.js';
@@ -50,12 +50,19 @@ function randomConnectedBlocks(
 
 /**
  * Expand a block footprint to full resolution, then absorb up to
- * `holeBudget` individual cells as `unvisited` — each only if doing so leaves
- * every one of its neighbours with at least 2 remaining path-cell neighbours,
- * mirroring the parity-absorption guarantee (docs/CONTRACTS.md) and breaking
- * 2x2 tiling on purpose (a block with one absorbed corner is neither full nor
- * empty). This is the shape backbite is actually expected to handle: a
- * would-be-tileable region with a couple of holes knocked into it.
+ * `holeBudget` individual cells as `unvisited` — each only if it leaves every
+ * one of its neighbours with at least 2 remaining path-cell neighbours *and*
+ * keeps the checkerboard balanced (`|black - white| <= 1`, docs/CONTRACTS.md).
+ * A full block region is always exactly balanced (every 2x2 block contributes
+ * one black and one white pair), so a hole is only accepted if removing it
+ * would not push the imbalance past 1 — in practice this means holes alternate
+ * colour. Skipping the parity guard here used to let this generator produce
+ * masks with no Hamiltonian path at all (three same-colour holes is an
+ * imbalance of 3), which is not a shape backbite is expected to solve — S1
+ * promises `buildMask` never emits one — so those were never a fair test of
+ * the builder. This is the shape backbite is actually expected to handle: a
+ * would-be-tileable, contract-legal region with a couple of holes knocked
+ * into it.
  */
 function maskFromBlocksWithHoles(
   blockFull: Uint8Array,
@@ -97,10 +104,18 @@ function maskFromBlocksWithHoles(
 
   let holes = 0;
   let attempts = 0;
+  let blackRemoved = 0;
+  let whiteRemoved = 0;
   while (holes < holeBudget && attempts < width * height) {
     attempts++;
     const i = rng.int(width * height);
     if (inside[i] !== 1 || unvisited[i] === 1) continue;
+
+    const isBlack = parityOf(i, width) === 0;
+    const nextBlackRemoved = blackRemoved + (isBlack ? 1 : 0);
+    const nextWhiteRemoved = whiteRemoved + (isBlack ? 0 : 1);
+    if (Math.abs(nextBlackRemoved - nextWhiteRemoved) > 1) continue;
+
     let safe = true;
     for (const dir of DIRECTIONS) {
       const n = step(i, dir, width, height);
@@ -110,9 +125,12 @@ function maskFromBlocksWithHoles(
       }
     }
     if (!safe) continue;
+
     unvisited[i] = 1;
     pathCellCount--;
     holes++;
+    blackRemoved = nextBlackRemoved;
+    whiteRemoved = nextWhiteRemoved;
   }
 
   return { width, height, inside, unvisited, pathCellCount };
@@ -120,12 +138,21 @@ function maskFromBlocksWithHoles(
 
 describe('buildBackbitePath: property tests', () => {
   // Growth is a randomized process (see backbite.ts's file header on
-  // trapping): a handful of the hardest hole placements genuinely fail within
-  // the default budget, which is the documented, correct behaviour (AC:
-  // "reports failure rather than spinning"), not a bug to eliminate. So this
-  // checks the thing that must always hold — every *successful* result is a
-  // genuine Hamiltonian path — and separately that failure is the exception,
-  // not the rule, across a wide variety of shapes.
+  // trapping), so a handful of attempts can genuinely exhaust the move
+  // budget or land on a disconnected region (an unlucky hole can sever the
+  // one-cell bridge between two halves of a block shape) — that is the
+  // documented, correct behaviour (AC: "reports failure rather than
+  // spinning"), not a bug to eliminate. So this checks the thing that must
+  // always hold — every *successful* result is a genuine Hamiltonian path —
+  // and separately that failure is rare, not the norm.
+  //
+  // On this exact 80-case corpus (fc.sample with seed 1, fixed below) the
+  // measured rate is 76/80 = 95%: 2 disconnected-by-construction masks and 2
+  // that exhaust the growth budget. Forcing every move to operate at the head
+  // only (deleting endpoint alternation) drops that to 67/80 = 83.75% on this
+  // same corpus, so 0.9 sits with real margin below the correct rate and real
+  // margin above that mutant — it has to mean something between those two
+  // numbers, not just be a low bar nothing can fail.
   it('produces a Hamiltonian path over random irregular block regions, holes included, on the large majority of attempts', () => {
     const paramArb = fc.tuple(
       fc.integer({ min: 3, max: 10 }),
@@ -152,7 +179,7 @@ describe('buildBackbitePath: property tests', () => {
     }
 
     expect(attempted).toBeGreaterThan(0);
-    expect(succeeded / attempted).toBeGreaterThanOrEqual(0.7);
+    expect(succeeded / attempted).toBeGreaterThanOrEqual(0.9);
   });
 
   it('never throws building a path over any fixture mask, tileable or not', () => {
