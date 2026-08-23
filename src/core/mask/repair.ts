@@ -33,11 +33,9 @@ const DEFAULT_HOLE_AREA_THRESHOLD = 4;
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
  * 2-cell-thick interior for the open step to preserve — if `absorbParity`
  * finds an imbalance too large to absorb, or if the repaired mask's path
- * cells fail to partition into whole 2x2 blocks at lattice offset (0, 0).
- * Repairing at half resolution before the upscale is supposed to make the
- * last case unreachable; the check turns a broken guarantee into a loud,
- * retried failure here instead of a mask that only fails later, silently,
- * inside `classifyTiling`.
+ * cells fail to partition into whole 2x2 blocks at lattice offset (0, 0). The
+ * last of those would otherwise surface only as `classifyTiling` declining and
+ * the contour method quietly never being used.
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;

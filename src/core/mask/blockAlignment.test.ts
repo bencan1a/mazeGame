@@ -51,7 +51,7 @@ function rectAsciiWithOverride(
   return rows.join('\n');
 }
 
-describe('assertBlockAligned: real repaired masks always pass', () => {
+describe('repairMask output satisfies the tiling classifier that consumes it', () => {
   it('never rejects a mask repairMask actually returned, over hundreds of random blobs', () => {
     let ran = 0;
     fc.assert(
@@ -60,10 +60,6 @@ describe('assertBlockAligned: real repaired masks always pass', () => {
         const mask = attemptRepair(blob);
         if (mask === null) return;
         ran++;
-        // Not `assertBlockAligned(mask)` — repairMask already ran it, so that
-        // would hold even with the body deleted. The tiling classifier is the
-        // downstream consumer whose silent refusal this exists to prevent, and
-        // it reaches the same verdict independently.
         expect(classifyTiling(mask).ok).toBe(true);
       }),
       { numRuns: NUM_RUNS },
