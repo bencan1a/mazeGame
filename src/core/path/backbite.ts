@@ -194,9 +194,10 @@ export function buildBackbitePath(
 
   const mixingMoves = options.mixingMoves ?? DEFAULT_MIXING_MOVES_PER_CELL * target;
   const maxGrowthMoves = options.maxGrowthMoves ?? DEFAULT_MAX_GROWTH_MOVES_PER_CELL * target;
-  // Clamped to >= 1: at 0 the restart branch below fires before any move is
-  // made and `continue`s without consuming budget, so the growth loop spins
-  // forever and the time box is never reached.
+  // Clamped to >= 1 because 0 survives the ?? default and makes growth
+  // structurally impossible: the restart branch below would fire before every
+  // move, so the path could never reach length 2. Termination is guaranteed by
+  // that branch charging the move budget, not by this clamp.
   const stallLimit = Math.max(1, options.stallLimit ?? DEFAULT_STALL_LIMIT_PER_CELL * target);
   const validateEveryMove = options.validateEveryMove ?? false;
 
@@ -242,6 +243,9 @@ export function buildBackbitePath(
       restart(length);
       length = 1;
       movesSinceGrowth = 0;
+      // Charged to the budget like any other move. Without this the branch
+      // iterates for free, and a stallLimit low enough to fire every time
+      // spins the loop forever instead of reaching the time box above.
       moves++;
       continue;
     }

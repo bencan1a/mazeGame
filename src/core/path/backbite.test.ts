@@ -210,10 +210,10 @@ describe('buildBackbitePath: stallLimit-driven restarts', () => {
   });
 
   it('still terminates when a caller passes stallLimit 0', () => {
-    // 0 survives the ?? default. Unclamped, the restart branch fires before
-    // any move is made and continues without consuming budget, so the growth
-    // loop spins forever — vitest's own timeout does not interrupt it,
-    // because the loop never yields.
+    // 0 survives the ?? default and makes growth structurally impossible, so
+    // the only correct outcome is a reported failure. This pins termination,
+    // which the budget charge in the restart branch provides; it does not
+    // distinguish the clamp, since either guard alone reaches the budget.
     const mask = makeMask({ width: 4, height: 4 });
     const result = buildBackbitePath(mask, createRng(1), {
       stallLimit: 0,
