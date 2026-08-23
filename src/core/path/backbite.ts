@@ -7,49 +7,56 @@
  *
  * The path is kept as a position array `pathCells` (the walk, in order) plus
  * its inverse `pathIndex` (cell -> position, -1 if the cell is not yet on the
- * path). Every move operates on the current head, `pathCells[length - 1]`:
- * pick a uniformly random 4-neighbour of the head that the mask allows on the
- * path at all (on-path or not).
+ * path). Every move picks an endpoint — `pathCells[0]` (the tail) or
+ * `pathCells[length - 1]` (the head), 50/50 — and a uniformly random
+ * 4-neighbour of it that the mask allows on the path at all (on-path or not):
  *
  *   - Not yet on the path (`pathIndex[neighbour] === -1`): append it. This is
- *     growth; it is the only way `length` increases.
- *   - Already on the path at position `p`: adding the edge (head, neighbour)
- *     closes a cycle through positions `p..length-1`. The only rewrite that
- *     turns that back into a simple path is to reverse the subarray
- *     `pathCells[p+1 .. length-1]` in place — this drops the old edge
- *     `(p, p+1)`, keeps every other edge, and adds exactly the new one. When
- *     `p === length - 2`, "the old edge at p+1" *is* the edge we were about to
- *     add, so the reversal is a length-1 no-op: picking the head's current
- *     path-neighbour again is legal and simply does nothing.
+ *     growth; it is the only way `length` increases. At the head this is
+ *     `pathCells[length] = neighbour` — O(1). A fixed array has no O(1) way to
+ *     prepend, so growth at the tail is the one case that pays a full reversal
+ *     of `pathCells[0 .. length - 1]` first, which relabels the tail as the
+ *     head and turns the append into the O(1) case above. Growth only ever
+ *     happens `pathCellCount - 1` times in total, so this cost is paid rarely
+ *     relative to the total move count, not on every move.
+ *   - Already on the path at position `p`: adding the edge (endpoint,
+ *     neighbour) closes a cycle. The only rewrite that turns that back into a
+ *     simple path is to reverse the arc strictly between the endpoint and
+ *     `p`: `pathCells[p+1 .. length-1]` at the head, or `pathCells[0 .. p-1]`
+ *     at the tail. `reverseRange` no-ops by itself when that arc is empty
+ *     (`p === length - 2` at the head, `p === 1` at the tail — picking the
+ *     endpoint's current path-neighbour again, which is legal and does
+ *     nothing), so neither case needs a guard of its own.
  *
- * A move at the *other* endpoint (`pathCells[0]`) needs the mirror-image
- * rewrite (reverse `pathCells[0 .. p-1]`). Rather than duplicate the branch,
- * each move first reverses the whole array with 50/50 probability, which
- * relabels "the other endpoint" as `pathCells[length - 1]` and lets every move
- * use the single head-only rewrite above. That reversal is the same
- * O(length) cost the move already pays for the subarray case, so it does not
- * change the asymptotics.
+ * An earlier version of this file flipped the *entire* array on every move,
+ * before even knowing whether the move would touch it, on the theory that
+ * relabelling which end is "the head" cost no more than the reversal a
+ * backbite move already pays. Measured false: on a full 100x100 rectangle
+ * (seed 1, default mixing) that cost 2526ms; picking the end first and
+ * reversing only the arc a move actually needs brings the same call down to
+ * 600-1200ms depending on seed — a large, reproducible win, though the
+ * remaining cost is still real (see DEFAULT_MAX_GROWTH_MOVES_PER_CELL on why
+ * it is inherently up to quadratic in `pathCellCount`).
  *
  * Once `length === mask.pathCellCount` every mask path cell is already on the
  * path, so `pathIndex[neighbour]` is never `-1` again — growth moves and
  * mixing moves are the same code, mixing just runs once growth stops
  * happening on its own.
  *
- * Growth alone can permanently trap on branchy or peninsula-heavy regions:
- * once the covered cells wall off an uncovered pocket so that no cell
- * adjacent to it can ever occupy an endpoint position, no sequence of
- * backbite moves reaches it, because the moves only reorder the *covered*
- * vertex set — they never touch the uncovered one. The measured sweep for
- * this issue hit exactly this on an irregular ~45%-fill blob, permanently
- * stuck partway with zero progress over 50 million further moves. The fix
- * used here is the standard one: detect a long run with no growth and
- * restart from a fresh random start cell, which almost always avoids
- * whatever the previous walk trapped itself against.
+ * Growth alone can permanently trap: once the covered cells wall off an
+ * uncovered pocket so that no cell adjacent to it can ever occupy an endpoint
+ * position, no sequence of backbite moves reaches it, because the moves only
+ * reorder the *covered* vertex set — they never touch the uncovered one. The
+ * fix is the standard one: detect a long run of moves with no growth and
+ * restart from a fresh random start cell. See DEFAULT_STALL_LIMIT_PER_CELL for
+ * the measured effect, which is real but modest, not the difference between
+ * working and not.
  */
 
-import { DIRECTIONS, NO_CELL, directionBetween, step as gridStep } from '../grid.js';
+import { DIRECTIONS, NO_CELL, directionBetween, parityOf, step as gridStep } from '../grid.js';
 import type { Rng } from '../rng.js';
 import type { HamiltonianPath, Mask } from '../types.js';
+import { floodFillCount } from './floodFill.js';
 
 export interface BackbiteOk {
   readonly ok: true;
@@ -71,10 +78,11 @@ export type BackbiteResult = BackbiteOk | BackbiteFailed;
  * Hamiltonian paths on the region. Scaled by cell count because a bigger
  * region needs more moves to mix by the same relative amount.
  *
- * Chosen from the sweep in issue #6 (`test/fixtures` shapes and random
- * irregular regions, sizes 20..100): growth itself averages a small multiple
- * of `pathCellCount` moves, so a mixing budget of the same order is cheap
- * relative to growth while still visibly reshuffling small boards.
+ * 8x is deliberately small next to growth's own cost (see
+ * DEFAULT_MAX_GROWTH_MOVES_PER_CELL — growth alone typically runs 10-60x
+ * `pathCellCount` moves, more on hard shapes), so the default mixing pass
+ * adds only a modest fraction to total moves while still visibly reshuffling
+ * a board that already covers every cell.
  */
 export const DEFAULT_MIXING_MOVES_PER_CELL = 8;
 
@@ -83,23 +91,47 @@ export const DEFAULT_MIXING_MOVES_PER_CELL = 8;
  * `pathCellCount`. Growth is a randomized process with no worst-case bound in
  * theory, so this is a time box, not an estimate — it exists purely to turn a
  * pathological region into a clean `ok: false` instead of a runaway loop.
- * Sized from the sweep in issue #6: a full rectangle needs on the order of
- * 10-25x `pathCellCount` moves, a region with a few parity-absorption holes
- * or an irregular non-tileable shape typically 20-110x, and the worst
- * (non-degenerate) region seen needed close to 180x. This is set well above
- * that observed ceiling so a solvable region essentially never hits it; a
- * region that does is a genuine "report and let the caller retry with a new
- * seed" case, per docs/CONTRACTS.md and the retry the generator pipeline
- * already does on any generation failure.
+ *
+ * Measured growth-to-completion cost (moves / pathCellCount, successful
+ * attempts only, 15 seeds per shape) grows with region size and varies a lot
+ * by shape: full rectangles ~7.5x mean / ~13x max at 10x10, rising to ~26x
+ * mean / ~48-56x max at 100x100; a rectangle with 3 parity-legal holes goes
+ * higher, ~57x mean / ~113x max at 100x100. A narrow ring (a 2-cell-wide
+ * border band — the hardest shape found, well outside what a real silhouette
+ * looks like) reached ~161x mean / ~377x max at 100x100 and, on one seed in
+ * fifteen, exhausted this exact 400x budget. So 400x is not a comfortable
+ * multiple above every shape this method could ever see, only above every
+ * *realistic* one measured; a region that exhausts it reports `ok: false` and
+ * the generator pipeline retries with a new seed rather than blocking on this
+ * call succeeding, which is the intended escape hatch for the shapes this
+ * margin does not cover.
+ *
+ * The move-count box is exact and deterministic, but each move costs up to
+ * O(pathCellCount) (the reversal), so wall-clock cost is at worst quadratic in
+ * `pathCellCount` even after the per-move fix in this file. Lowering this
+ * default further would not help the case that actually costs the most wall
+ * clock time — an infeasible region — since findInfeasibility now rejects
+ * those in O(pathCellCount) before any of this budget is spent; it would only
+ * cost success rate on the legitimate hard shapes above.
  */
 export const DEFAULT_MAX_GROWTH_MOVES_PER_CELL = 400;
 
 /**
  * Consecutive moves with no growth before abandoning the current attempt and
  * restarting from a fresh random cell (see the file header on trapping).
- * Sized from the same sweep: successful attempts on hard shapes kept growing
- * within a small multiple of `pathCellCount` moves of any given length, so a
- * stall well beyond that is a trap, not merely a slow patch.
+ *
+ * Not tuned to an observed trapping threshold — sweeping this from 1x to 120x
+ * `pathCellCount` on the 80-case property-test corpus in
+ * backbite.property.test.ts produces the identical 76/80 pass rate at every
+ * setting, and disabling restarts entirely (stallLimit so large it never
+ * fires) drops that to 74/80 — restarts fix exactly 2 of the 80 cases,
+ * regardless of how generous the limit is otherwise. Restarting is real,
+ * cheap insurance (a restart costs one O(pathCellCount) array reset,
+ * negligible next to the move budget above) for whatever fraction of regions
+ * do trap, but this codebase has not found an input where the exact limit
+ * matters; 60x is simply a value comfortably larger than the handful of moves
+ * a healthy attempt needs between growth events, chosen so restarts fire on
+ * genuine stalls and not on ordinary slow patches.
  */
 export const DEFAULT_STALL_LIMIT_PER_CELL = 60;
 
@@ -124,8 +156,9 @@ export interface BackbiteOptions {
  *
  * Unlike the contour method, this places no shape requirement on the region
  * beyond what a Hamiltonian path needs at all: `pathCellCount` cells, one
- * 4-connected component, no path cell with zero path-cell neighbours. A
- * region that fails that is reported as `ok: false`, not thrown.
+ * 4-connected component, balanced checkerboard parity, no path cell with zero
+ * or more-than-two-dead-ends-worth of path-cell neighbours. A region that
+ * fails that is reported as `ok: false`, not thrown.
  */
 export function buildBackbitePath(
   mask: Mask,
@@ -176,8 +209,8 @@ export function buildBackbitePath(
   restart();
   let length = 1;
 
-  // Reused per-move scratch for the head's candidate neighbours, so the hot
-  // loop does not allocate — the same discipline spanningTree.ts uses.
+  // Reused per-move scratch for the endpoint's candidate neighbours, so the
+  // hot loop does not allocate — the same discipline spanningTree.ts uses.
   const candidates = new Int32Array(4);
 
   let moves = 0;
@@ -196,7 +229,7 @@ export function buildBackbitePath(
       // Growth trapped itself: some uncovered pocket is walled off from both
       // current endpoints and every reachable reordering of them (see file
       // header). Restarting from a new cell is cheap next to the budget above
-      // and empirically resolves it.
+      // and empirically resolves most such cases.
       restart();
       length = 1;
       movesSinceGrowth = 0;
@@ -223,17 +256,25 @@ export function buildBackbitePath(
 }
 
 /**
- * Two cheap necessary conditions for a Hamiltonian path to exist at all, checked
+ * Cheap necessary conditions for a Hamiltonian path to exist at all, checked
  * up front so an actually-infeasible region fails immediately instead of
- * burning the whole growth budget on restarts that can never succeed:
+ * burning the growth budget on restarts that can never succeed:
  *
+ *   - Checkerboard parity (docs/CONTRACTS.md's `|black - white| <= 1`): a
+ *     Hamiltonian path alternates colour on every step, so its two colour
+ *     counts can differ by at most one no matter how it is routed. This is
+ *     the cheapest check and also the one that matters most in practice — an
+ *     imbalanced region is unsolvable by any routing at all, but without this
+ *     check growth cannot know that and instead retries until the move
+ *     budget runs out (measured: 28s at 100x100 for a 3-cell imbalance).
  *   - A path cell with zero path-cell neighbours can never be reached at all.
  *   - A path cell with exactly one path-cell neighbour (a dead end) can only
  *     ever be a path *endpoint* — there is only room for two of those.
+ *   - The path cells are not one 4-connected piece.
  *
- * Neither condition is sufficient (plenty of regions that pass both still have
- * no Hamiltonian path), so passing this does not guarantee growth succeeds —
- * it only means growth is not provably doomed before it starts.
+ * None of these is sufficient (plenty of regions that pass all four still
+ * have no Hamiltonian path), so passing this does not guarantee growth
+ * succeeds — it only means growth is not provably doomed before it starts.
  */
 function findInfeasibility(
   isPathCell: Uint8Array,
@@ -242,8 +283,13 @@ function findInfeasibility(
   height: number,
 ): string | null {
   let deadEnds = 0;
+  let black = 0;
+  let white = 0;
   for (let k = 0; k < pathCellList.length; k++) {
     const cell = pathCellList[k] as number;
+    if (parityOf(cell, width) === 0) black++;
+    else white++;
+
     let degree = 0;
     for (const dir of DIRECTIONS) {
       const neighbour = gridStep(cell, dir, width, height);
@@ -254,6 +300,14 @@ function findInfeasibility(
     }
     if (degree === 1) deadEnds++;
   }
+
+  if (Math.abs(black - white) > 1) {
+    return (
+      `checkerboard parity is off by ${Math.abs(black - white)} (${black} vs ${white} cells); ` +
+      'a Hamiltonian path alternates colour every step, so an imbalance greater than 1 makes ' +
+      'the region infeasible'
+    );
+  }
   if (deadEnds > 2) {
     return (
       `${deadEnds} path cells have exactly one path-cell neighbour; a Hamiltonian path has ` +
@@ -261,7 +315,7 @@ function findInfeasibility(
     );
   }
 
-  const reached = floodFillPathCells(isPathCell, pathCellList[0] as number, width, height);
+  const reached = floodFillCount(isPathCell, width, height, pathCellList[0] as number);
   if (reached !== pathCellList.length) {
     return (
       `path cells are not one 4-connected piece: reached ${reached} of ${pathCellList.length} ` +
@@ -272,30 +326,10 @@ function findInfeasibility(
   return null;
 }
 
-function floodFillPathCells(
-  isPathCell: Uint8Array,
-  start: number,
-  width: number,
-  height: number,
-): number {
-  const seen = new Uint8Array(isPathCell.length);
-  seen[start] = 1;
-  const stack = [start];
-  let count = 1;
-  while (stack.length > 0) {
-    const cur = stack.pop() as number;
-    for (const dir of DIRECTIONS) {
-      const next = gridStep(cur, dir, width, height);
-      if (next === NO_CELL || seen[next] === 1 || isPathCell[next] !== 1) continue;
-      seen[next] = 1;
-      count++;
-      stack.push(next);
-    }
-  }
-  return count;
-}
-
-/** One growth-or-backbite move at a randomly chosen end. Returns the new length. */
+/**
+ * One growth-or-backbite move at a randomly chosen endpoint. Returns the new
+ * length. See the file header for the derivation of which arc gets reversed.
+ */
 function backbiteMove(
   isPathCell: Uint8Array,
   pathCells: Uint32Array,
@@ -306,13 +340,12 @@ function backbiteMove(
   height: number,
   candidates: Int32Array,
 ): number {
-  // Relabels "the other endpoint" as pathCells[length - 1] — see file header.
-  if (rng.chance(0.5)) reverseRange(pathCells, pathIndex, 0, length - 1);
+  const atTail = rng.chance(0.5);
+  const endpoint = (atTail ? pathCells[0] : pathCells[length - 1]) as number;
 
-  const head = pathCells[length - 1] as number;
   let count = 0;
   for (const dir of DIRECTIONS) {
-    const neighbour = gridStep(head, dir, width, height);
+    const neighbour = gridStep(endpoint, dir, width, height);
     if (neighbour !== NO_CELL && isPathCell[neighbour] === 1) candidates[count++] = neighbour;
   }
   if (count === 0) return length;
@@ -321,13 +354,17 @@ function backbiteMove(
   const p = pathIndex[neighbour] as number;
 
   if (p === -1) {
+    // Growth. The tail has no O(1) prepend, so relabel it as the head first —
+    // see the file header on why this is rare relative to the total move
+    // count, not paid on every move.
+    if (atTail) reverseRange(pathCells, pathIndex, 0, length - 1);
     pathCells[length] = neighbour;
     pathIndex[neighbour] = length;
     return length + 1;
   }
-  if (p === length - 2) return length; // reproduces the head's current edge; no-op.
 
-  reverseRange(pathCells, pathIndex, p + 1, length - 1);
+  if (atTail) reverseRange(pathCells, pathIndex, 0, p - 1);
+  else reverseRange(pathCells, pathIndex, p + 1, length - 1);
   return length;
 }
 

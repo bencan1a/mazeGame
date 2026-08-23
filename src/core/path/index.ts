@@ -9,4 +9,5 @@ export {
   buildBackbitePath,
   DEFAULT_MAX_GROWTH_MOVES_PER_CELL,
   DEFAULT_MIXING_MOVES_PER_CELL,
+  DEFAULT_STALL_LIMIT_PER_CELL,
 } from './backbite.js';
