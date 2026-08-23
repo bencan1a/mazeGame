@@ -109,6 +109,14 @@ export function generateBoardWithDiagnostics(
 ): GenerateBoardResult {
   const validate = options.validate ?? true;
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    // Zero or negative skips the loop entirely and reports "exhausted 0
+    // attempt(s)" with no reasons, which reads as a generation failure
+    // rather than the caller error it is.
+    throw new RangeError(
+      `generateBoard: maxAttempts must be a positive integer, got ${maxAttempts}`,
+    );
+  }
   const attemptFailures: string[] = [];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -119,7 +127,7 @@ export function generateBoardWithDiagnostics(
         board: outcome.board,
         diagnostics: {
           attempts: attempt + 1,
-          attemptFailures,
+          attemptFailures: [...attemptFailures],
           usedFallbackOrientation: outcome.usedFallback,
         },
       };

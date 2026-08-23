@@ -385,3 +385,22 @@ describe('generateBoard: 40x40 and 100x100 either produce a valid board or fail 
     assertExternallySound(board);
   });
 });
+
+describe('generateBoardWithDiagnostics: caller errors', () => {
+  it.each([0, -1, 1.5, Number.NaN])('rejects maxAttempts %p up front', (maxAttempts) => {
+    expect(() =>
+      generateBoardWithDiagnostics(
+        { ...DEFAULT_GEN_PARAMS, gridSize: 20, seed: 1 },
+        { maxAttempts },
+      ),
+    ).toThrow(RangeError);
+  });
+
+  it('hands back a diagnostics array the caller cannot mutate into ours', () => {
+    const result = generateBoardWithDiagnostics({ ...DEFAULT_GEN_PARAMS, gridSize: 20, seed: 1 });
+    const before = result.diagnostics.attemptFailures.length;
+    (result.diagnostics.attemptFailures as string[]).push('injected');
+    const again = generateBoardWithDiagnostics({ ...DEFAULT_GEN_PARAMS, gridSize: 20, seed: 1 });
+    expect(again.diagnostics.attemptFailures.length).toBe(before);
+  });
+});
