@@ -8,7 +8,7 @@ import type { Direction } from '../types.js';
 import type { BlockingGraphInput } from './blocking.js';
 import { buildBlockingGraph } from './blocking.js';
 
-describe('hand-checked fixtures (docs/CONTRACTS.md "blocking digraph")', () => {
+describe('hand-checked blocking-digraph fixtures', () => {
   // Hand-derived from the fixture pictures, not from this module's output.
   it('ACYCLIC_BOARD: a -> c (south), b -> a (east), c -> nothing (west, off the board)', () => {
     const graph = buildBlockingGraph(ACYCLIC_BOARD);
