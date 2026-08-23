@@ -31,8 +31,11 @@ const DEFAULT_HOLE_AREA_THRESHOLD = 4;
 
 /**
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
- * 2-cell-thick interior for the open step to preserve — or if `absorbParity`
- * finds an imbalance too large to absorb.
+ * 2-cell-thick interior for the open step to preserve — if `absorbParity`
+ * finds an imbalance too large to absorb, or if the repaired mask's path
+ * cells fail to partition into whole 2x2 blocks at lattice offset (0, 0). The
+ * last of those would otherwise surface only as `classifyTiling` declining and
+ * the contour method quietly never being used.
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;
@@ -51,13 +54,69 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   }
 
   const full = upscale2x(half, blob.width, blob.height);
-  return absorbParity({
+  const mask = absorbParity({
     width: full.width,
     height: full.height,
     inside: full.inside,
     unvisited: new Uint8Array(full.inside.length),
     pathCellCount: countInside(full.inside),
   });
+  assertBlockAligned(mask);
+  return mask;
+}
+
+/**
+ * Verifies that `mask`'s path cells (`inside && !unvisited`, the definition
+ * `classifyTiling` uses) partition into whole 2x2 blocks at lattice offset
+ * (0, 0): every block is entirely on the path or entirely off it, and no path
+ * cell sits in the row or column an odd `width`/`height` leaves outside every
+ * block. Throws `MaskRepairError` naming the first violation found, matching
+ * how the rest of this module already reports a repair that could not be
+ * completed.
+ */
+export function assertBlockAligned(mask: Mask): void {
+  const { width, height, inside, unvisited } = mask;
+  const halfWidth = Math.floor(width / 2);
+  const halfHeight = Math.floor(height / 2);
+  const coveredWidth = halfWidth * 2;
+  const coveredHeight = halfHeight * 2;
+
+  const isPathCell = (index: number): boolean => inside[index] === 1 && unvisited[index] !== 1;
+
+  for (let y = 0; y < height; y++) {
+    const yCovered = y < coveredHeight;
+    if (yCovered && coveredWidth === width) continue;
+    for (let x = yCovered ? coveredWidth : 0; x < width; x++) {
+      const index = toIndex(x, y, width);
+      if (isPathCell(index)) {
+        throw new MaskRepairError(
+          `repaired mask has a path cell at (${x}, ${y}), in the row/column past the last full ` +
+            `2x2 block at lattice offset (0, 0) of a ${width}x${height} mask — the repaired ` +
+            'region is not block-aligned',
+        );
+      }
+    }
+  }
+
+  for (let by = 0; by < halfHeight; by++) {
+    const y0 = by * 2;
+    for (let bx = 0; bx < halfWidth; bx++) {
+      const x0 = bx * 2;
+      const nw = isPathCell(toIndex(x0, y0, width));
+      const ne = isPathCell(toIndex(x0 + 1, y0, width));
+      const sw = isPathCell(toIndex(x0, y0 + 1, width));
+      const se = isPathCell(toIndex(x0 + 1, y0 + 1, width));
+      const pathCount = Number(nw) + Number(ne) + Number(sw) + Number(se);
+      if (pathCount === 0 || pathCount === 4) continue;
+      const label = (on: boolean): string => (on ? 'path' : 'off');
+      throw new MaskRepairError(
+        `repaired mask block (${bx}, ${by}) at full-res origin (${x0}, ${y0}) has ${pathCount} ` +
+          `of 4 cells on the path: NW(${x0}, ${y0})=${label(nw)} NE(${x0 + 1}, ${y0})=${label(ne)} ` +
+          `SW(${x0}, ${y0 + 1})=${label(sw)} SE(${x0 + 1}, ${y0 + 1})=${label(se)} — every 2x2 ` +
+          'block must be wholly on the path or wholly off it',
+      );
+    }
+  }
 }
 
 /**
@@ -77,8 +136,8 @@ function downsampleToHalfRes(blob: Blob): Blob {
 
   for (let y = 0; y < height; y++) {
     const yCovered = y < coveredHeight;
-    for (let x = 0; x < width; x++) {
-      if (yCovered && x < coveredWidth) continue;
+    if (yCovered && coveredWidth === width) continue;
+    for (let x = yCovered ? coveredWidth : 0; x < width; x++) {
       if (inside[toIndex(x, y, width)] === 1) {
         throw new MaskRepairError(
           `mask repair received a ${width}x${height} blob with an inside cell at (${x}, ${y}), ` +
