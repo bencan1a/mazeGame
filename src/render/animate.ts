@@ -153,22 +153,30 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
       ctx.lineTo(path.xs[i] as number, path.ys[i] as number);
     }
     ctx.stroke();
+    // The layer's context is reused across exits and `clearAnimationLayer`
+    // preserves it, so a dash left set here would apply to the next stroke.
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
   }
 
   if (windowStart >= path.totalLength) return;
   const leadArcLength = path.dashLength > 0 ? windowStart + path.dashLength : windowStart;
-  if (leadArcLength > path.totalLength) return;
+  // Past the path's end the head is off the board. It keeps travelling in the
+  // exit direction so the canvas clips it away, rather than the whole triangle
+  // disappearing in the frame its centre crosses the edge.
+  const overshoot = Math.max(0, leadArcLength - path.totalLength);
+  const clampedLead = Math.min(leadArcLength, path.totalLength);
 
   const uniformEdgeCount = path.edgeDirs.length - 1;
   const uniformLength = uniformEdgeCount * path.scale;
   let edgeIndex: number;
   let edgeT: number;
-  if (uniformEdgeCount > 0 && leadArcLength <= uniformLength) {
-    edgeIndex = Math.min(uniformEdgeCount - 1, Math.floor(leadArcLength / path.scale));
-    edgeT = (leadArcLength - edgeIndex * path.scale) / path.scale;
+  if (uniformEdgeCount > 0 && clampedLead <= uniformLength) {
+    edgeIndex = Math.min(uniformEdgeCount - 1, Math.floor(clampedLead / path.scale));
+    edgeT = (clampedLead - edgeIndex * path.scale) / path.scale;
   } else {
     edgeIndex = path.edgeDirs.length - 1;
-    edgeT = (leadArcLength - uniformLength) / (path.scale / 2);
+    edgeT = (clampedLead - uniformLength) / (path.scale / 2);
   }
   edgeT = Math.min(1, Math.max(0, edgeT));
 
@@ -176,9 +184,9 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
   const ay = path.ys[edgeIndex] as number;
   const bx = path.xs[edgeIndex + 1] as number;
   const by = path.ys[edgeIndex + 1] as number;
-  const leadX = ax + (bx - ax) * edgeT;
-  const leadY = ay + (by - ay) * edgeT;
   const leadDir = path.edgeDirs[edgeIndex] as Direction;
+  const leadX = ax + (bx - ax) * edgeT + (DX[leadDir] as number) * overshoot;
+  const leadY = ay + (by - ay) * edgeT + (DY[leadDir] as number) * overshoot;
 
   fillArrowheadAt(ctx, leadX, leadY, leadDir, path.scale, path.strokeColor);
 }
@@ -298,9 +306,16 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     onComplete();
   };
 
+  const startTime = scheduler.now();
+  const elapsed = (): number => scheduler.now() - startTime;
+
   const guardedOk = drawSegmentGuarded(layer.ctx, board, segmentId, viewport);
   clearAnimationLayer(layer);
   if (!guardedOk) {
+    // Armed before the frame is requested: a synchronous scheduler would
+    // otherwise settle the animation before there is anything to unsubscribe,
+    // and a hidden tab never delivers the frame at all.
+    unsubscribeVisible = scheduler.onVisible(() => complete());
     frameHandle = scheduler.requestFrame(() => complete());
     return { cancel: finish };
   }
@@ -315,12 +330,14 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     }
     return path;
   };
-  const startTime = scheduler.now();
   drawSnakeOutFrame(layer.ctx, path, 0);
 
-  const step = (time: number): void => {
+  // The frame timestamp and `scheduler.now()` need not share an origin, and a
+  // mismatch makes progress permanently negative, so elapsed time is read from
+  // one clock rather than differenced across two.
+  const step = (): void => {
     frameHandle = null;
-    const progress = (time - startTime) / durationMs;
+    const progress = elapsed() / durationMs;
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     if (progress >= 1) {
@@ -329,14 +346,14 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
       frameHandle = scheduler.requestFrame(step);
     }
   };
-  frameHandle = scheduler.requestFrame(step);
 
   unsubscribeVisible = scheduler.onVisible(() => {
-    if (scheduler.now() - startTime < durationMs) return;
+    if (elapsed() < durationMs) return;
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), 1);
     complete();
   });
+  frameHandle = scheduler.requestFrame(step);
 
   return { cancel: finish };
 }

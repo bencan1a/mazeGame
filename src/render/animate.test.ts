@@ -286,23 +286,27 @@ describe('drawSnakeOutFrame', () => {
     }
   });
 
-  it('hides the leading arrowhead once the head itself has left the board', () => {
+  it('carries the arrowhead off the board rather than dropping it at the edge', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
     // The head leads the dash window by the segment's own body length, so it
-    // clears the path's end well before the tail does.
+    // reaches the path's end well before the tail does, and keeps going.
     const headExitsAt = 1 - path.dashLength / path.totalLength;
+    const boardBottom = 40; // 4 cells at scale 10, and this segment exits south
 
-    const beforeCtx = new FakeCtx();
-    drawSnakeOutFrame(beforeCtx, path, headExitsAt / 2);
-    expect(beforeCtx.calls.some((c) => c.op === 'fill')).toBe(true);
+    const onBoard = new FakeCtx();
+    drawSnakeOutFrame(onBoard, path, headExitsAt / 2);
+    expect(onBoard.calls.some((c) => c.op === 'fill')).toBe(true);
 
-    const afterCtx = new FakeCtx();
-    drawSnakeOutFrame(afterCtx, path, Math.min(1, headExitsAt + 0.05));
-    expect(afterCtx.calls.some((c) => c.op === 'fill')).toBe(false);
-
-    const endCtx = new FakeCtx();
-    drawSnakeOutFrame(endCtx, path, 1);
-    expect(endCtx.calls.some((c) => c.op === 'fill')).toBe(false);
+    const past = new FakeCtx();
+    drawSnakeOutFrame(past, path, (headExitsAt + 1) / 2);
+    expect(past.calls.some((c) => c.op === 'fill')).toBe(true);
+    const strokeAt = past.calls.findIndex((c) => c.op === 'stroke');
+    const headYs = past.calls
+      .slice(strokeAt + 1)
+      .filter((c) => c.op === 'moveTo' || c.op === 'lineTo')
+      .map((c) => (c as { y: number }).y);
+    expect(headYs.length).toBeGreaterThan(0);
+    expect(Math.min(...headYs)).toBeGreaterThan(boardBottom);
   });
 
   it('keeps the arrowhead moving rather than parked while the head is still on the path', () => {
