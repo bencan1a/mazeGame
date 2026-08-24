@@ -10,7 +10,7 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { drawSegment, isLegibleAtScale } from './draw.js';
+import { ARROWHEAD_OVERHANG_CELLS, drawSegment, isLegibleAtScale } from './draw.js';
 import { createBufferViewport, createViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -268,14 +268,21 @@ function defaultCreateCanvas(): CanvasLike {
 }
 
 /**
- * Allocates the static offscreen buffer sized to hold the whole board,
- * degrading resolution until a drawn pixel reads back correctly.
+ * Allocates the static offscreen buffer sized to hold the whole board plus
+ * the arrowhead overhang at its edges, degrading resolution until a drawn
+ * pixel reads back correctly.
  */
 export function createStaticLayer(board: Board, options: StaticLayerOptions = {}): StaticLayer {
   const createCanvas = options.createCanvas ?? defaultCreateCanvas;
   const requestedPixelsPerCell =
     options.requestedPixelsPerCell ??
     recommendedPixelsPerCell(options.dpr ?? 1, options.maxZoom ?? DEFAULT_MAX_ZOOM);
+
+  // A head on the board's outer cell points outward, so its arrowhead
+  // reaches past the board's own edge; pad the buffer so that tip is not
+  // clipped, on every side.
+  const paddedWidth = board.width + 2 * ARROWHEAD_OVERHANG_CELLS;
+  const paddedHeight = board.height + 2 * ARROWHEAD_OVERHANG_CELLS;
 
   const canvas = createCanvas();
 
@@ -299,8 +306,8 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   };
 
   const { budget, attempts, ok } = planDegradation(
-    board.width,
-    board.height,
+    paddedWidth,
+    paddedHeight,
     requestedPixelsPerCell,
     probe,
     options,
@@ -314,7 +321,8 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   if (liveCtx === null) throw new Error('2d canvas context unavailable');
   const liveOk = ok && probeReadback(liveCtx, budget.widthPx, budget.heightPx);
 
-  const viewport = createBufferViewport(budget.pixelsPerCell);
+  const originPx = ARROWHEAD_OVERHANG_CELLS * budget.pixelsPerCell;
+  const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
   const legibleUnzoomed = isLegibleAtScale(createViewport({ scale: BASE_CSS_PIXELS_PER_CELL }));
   return {
     canvas,
@@ -339,8 +347,12 @@ export function redrawStaticLayer(
     if (removed.has(id)) continue;
     try {
       drawSegment(ctx, board, id, viewport);
-    } catch {
-      // A malformed segment loses itself, not the rest of the frame.
+    } catch (err) {
+      // Bad per-segment data (an out-of-range palette index or segDir)
+      // leaves this segment partly or fully undrawn instead of blanking
+      // the whole frame. Anything else — a dead canvas context, say —
+      // still propagates.
+      if (!(err instanceof RangeError)) throw err;
     }
   }
 }

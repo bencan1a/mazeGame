@@ -37,10 +37,14 @@ export interface FillContext2D {
 
 /** Line width as a fraction of one cell, scaled by the viewport at draw time. */
 export const LINE_WIDTH_CELLS = 0.3;
-/** Arrowhead length as a fraction of one cell, scaled by the viewport at draw time. */
-export const ARROWHEAD_LENGTH_CELLS = 0.55;
+/**
+ * Arrowhead length as a fraction of one cell, scaled by the viewport at draw
+ * time. Large enough that the board's resting (1x) zoom clears
+ * `MIN_LEGIBLE_ARROWHEAD_CSS_PX` — see `isLegibleAtScale`.
+ */
+export const ARROWHEAD_LENGTH_CELLS = 0.95;
 /** Arrowhead base width as a fraction of one cell, scaled by the viewport at draw time. */
-export const ARROWHEAD_WIDTH_CELLS = 0.4;
+export const ARROWHEAD_WIDTH_CELLS = 0.7;
 
 /**
  * CSS px an arrowhead needs to read as a direction on a real phone screen —
@@ -48,6 +52,16 @@ export const ARROWHEAD_WIDTH_CELLS = 0.4;
  * estimate; a device measurement replaces this one value.
  */
 export const MIN_LEGIBLE_ARROWHEAD_CSS_PX = 9;
+
+/**
+ * How far past its cell's outer edge an arrowhead's tip can reach, in
+ * cells. A border segment's head sits on the board's outer cell, so the
+ * static buffer needs this much pad on every side or the tip clips.
+ */
+export const ARROWHEAD_OVERHANG_CELLS = Math.max(
+  0,
+  LINE_WIDTH_CELLS / 2 + ARROWHEAD_LENGTH_CELLS - 0.5,
+);
 
 function requirePositiveFinite(value: number, name: string): void {
   if (!Number.isFinite(value) || value <= 0) {
