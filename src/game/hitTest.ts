@@ -3,9 +3,11 @@
  *
  * A direct hit reads `occupancy` once. When that cell is empty, out of
  * bounds, or the segment sitting on it is blocked, the radius search takes
- * over: it walks outward from the tapped cell and only ever considers a cell
- * whose segment `isFree` accepts, so a blocked segment is never a candidate
- * in the first place rather than a result that gets discarded afterward.
+ * over: it scans every cell in a bounding box around the tapped cell, wide
+ * enough to cover the radius, and keeps the one whose square is closest to
+ * the exact tap point — in CSS pixels, not cell count — among those whose
+ * segment `isFree` accepts. A cell holding a blocked segment is skipped,
+ * never returned as a fallback.
  */
 
 import type { Board, SegmentId } from '../core/types.js';
@@ -16,7 +18,7 @@ import { cssPixelToCell } from '../render/viewport.js';
 export type FreePredicate = (id: SegmentId) => boolean;
 
 export interface HitTestOptions {
-  /** Search radius, in CSS pixels, converted to cell space by the viewport's own scale. */
+  /** Search radius, in CSS pixels, measured from the tap point to each candidate cell's nearest edge. */
   readonly radiusCssPx?: number;
 }
 
@@ -54,8 +56,7 @@ export function hitTest(
     if (direct !== 0 && isFree(direct)) return direct;
   }
 
-  const cellRadius = radiusCssPx / viewport.scale;
-  return nearestFreeInRadius(board, center.x, center.y, cellRadius, isFree);
+  return nearestFreeInRadius(board, viewport, point, center.x, center.y, radiusCssPx, isFree);
 }
 
 function isInBounds(board: Board, x: number, y: number): boolean {
@@ -63,34 +64,54 @@ function isInBounds(board: Board, x: number, y: number): boolean {
 }
 
 /**
- * Scans the cells within `cellRadius` of `(cx, cy)`, in increasing distance,
- * and returns the nearest one whose segment `isFree` accepts. A cell holding
- * a blocked segment is skipped, never returned as a fallback.
+ * Distance, along one axis, from `value` to the nearest edge of the span
+ * `[start, start + size)` — 0 when `value` falls inside it.
+ */
+function clampedAxisDistance(value: number, start: number, size: number): number {
+  if (value < start) return start - value;
+  const end = start + size;
+  if (value > end) return value - end;
+  return 0;
+}
+
+/**
+ * Bounds a box of candidate cells around `(cx, cy)`, then keeps the one
+ * whose cell square is closest to `point`, in squared CSS-pixel distance,
+ * among those `isFree` accepts. `reach` is deliberately one cell wider than
+ * `radiusCssPx / scale` alone would give, since `point` can sit anywhere
+ * inside cell `(cx, cy)`, including right on the edge of its farthest
+ * reachable neighbour.
  */
 function nearestFreeInRadius(
   board: Board,
+  viewport: Viewport<'css'>,
+  point: CssPixel,
   cx: number,
   cy: number,
-  cellRadius: number,
+  radiusCssPx: number,
   isFree: FreePredicate,
 ): SegmentId | null {
-  if (cellRadius <= 0) return null;
+  if (radiusCssPx <= 0) return null;
 
-  const reach = Math.ceil(cellRadius);
+  const reach = Math.floor(radiusCssPx / viewport.scale) + 1;
   const xMin = Math.max(0, cx - reach);
   const xMax = Math.min(board.width - 1, cx + reach);
   const yMin = Math.max(0, cy - reach);
   const yMax = Math.min(board.height - 1, cy + reach);
-  const radiusSq = cellRadius * cellRadius;
+  const radiusSq = radiusCssPx * radiusCssPx;
 
   let bestId: SegmentId | null = null;
   let bestDistSq = Infinity;
 
   for (let y = yMin; y <= yMax; y++) {
-    const dy = y - cy;
+    const dy = clampedAxisDistance(point.y, viewport.originY + y * viewport.scale, viewport.scale);
     const rowOffset = y * board.width;
     for (let x = xMin; x <= xMax; x++) {
-      const dx = x - cx;
+      const dx = clampedAxisDistance(
+        point.x,
+        viewport.originX + x * viewport.scale,
+        viewport.scale,
+      );
       const distSq = dx * dx + dy * dy;
       if (distSq > radiusSq || distSq >= bestDistSq) continue;
 

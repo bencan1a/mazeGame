@@ -8,6 +8,7 @@ import { cell, cellCenterToCssPixel, createViewport, cssPixel } from '../render/
 import { createGameState, isFree } from './state.js';
 import type { GameState } from './state.js';
 import { DEFAULT_TAP_RADIUS_CSS_PX, hitTest } from './hitTest.js';
+import type { FreePredicate } from './hitTest.js';
 
 /**
  * Two single-cell segments, three cells apart on row 1: `a` at (1,1) exits
@@ -29,6 +30,15 @@ function stateWithRemoved(board: Board, removedIds: readonly number[]): GameStat
 
 const FREE_ID: SegmentId = 1; // 'a'
 const BLOCKED_ID: SegmentId = 2; // 'b'
+
+/** Two single-cell free segments in one row, `a` at cell 2 and `b` at cell 6. */
+const NEAREST_MATCH_ART = '..A...B.';
+
+function nearestMatchBoard(): Board {
+  return makeBoard({ art: NEAREST_MATCH_ART, dirs: { a: 'E', b: 'E' } });
+}
+
+const ALWAYS_FREE: FreePredicate = () => true;
 
 describe('hitTest: direct hit', () => {
   it('selects a free segment tapped directly', () => {
@@ -99,9 +109,9 @@ describe('hitTest: radius is a constant CSS-pixel size', () => {
     const state = stateWithRemoved(board, []);
     const isFreePred = (id: SegmentId) => isFree(state, id);
 
-    // The default radius is 24 CSS px, so it reaches 3 cells at scale 5
-    // (4.8 cells) but not at scale 10 (2.4 cells) — the same physical
-    // fingertip covers fewer cells once the board is zoomed in.
+    // `a`'s box is 12.5px from the tap at scale 5 but 25px at scale 10, on
+    // either side of the default 24px radius — the same 3-cell gap reads as
+    // reachable or not purely because the board is more zoomed in.
     const zoomedOut = createViewport({ scale: 5 });
     const tapZoomedOut = cellCenterToCssPixel(zoomedOut, B_CELL);
     expect(hitTest(board, zoomedOut, tapZoomedOut, isFreePred)).toBe(FREE_ID);
@@ -109,6 +119,36 @@ describe('hitTest: radius is a constant CSS-pixel size', () => {
     const zoomedIn = createViewport({ scale: 10 });
     const tapZoomedIn = cellCenterToCssPixel(zoomedIn, B_CELL);
     expect(hitTest(board, zoomedIn, tapZoomedIn, isFreePred)).toBeNull();
+  });
+});
+
+describe('hitTest: nearest match is pixel distance, not cell-index count', () => {
+  it('picks the pixel-nearer of two free segments the same number of cells away', () => {
+    const board = nearestMatchBoard();
+    const viewport = createViewport({ scale: 10 });
+
+    // Tap lands in the empty cell 4, two cell-indices from both `a` (cell 2)
+    // and `b` (cell 6) — a row-major or leftmost tie-break would pick `a`.
+    // `a`'s box is 19.9px away, `b`'s is 10.1px: `b` is the real answer.
+    const result = hitTest(board, viewport, cssPixel(49.9, 5), ALWAYS_FREE, {
+      radiusCssPx: 40,
+    });
+
+    expect(result).toBe(2); // 'b'
+  });
+
+  it('reaches a cell across a shared boundary even when the board is zoomed in past the radius', () => {
+    const board = nearestMatchBoard();
+    const viewport = createViewport({ scale: 100 });
+
+    // `a` occupies cell 2, spanning [200, 300) at this scale — far wider
+    // than the default 24px radius — but a tap 1px into its neighbour is
+    // still within 24px of `a`'s own edge.
+    const tapNearBoundary = cssPixel(301, 50);
+    expect(hitTest(board, viewport, tapNearBoundary, ALWAYS_FREE)).toBe(1);
+
+    const tapFarFromBoundary = cssPixel(350, 50);
+    expect(hitTest(board, viewport, tapFarFromBoundary, ALWAYS_FREE)).toBeNull();
   });
 });
 
