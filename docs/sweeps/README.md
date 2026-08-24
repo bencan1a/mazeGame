@@ -27,9 +27,11 @@ their tested ranges (tables below). **`bendProbability` does not move
 anything.** Every metric — `bendRate`, `segmentCount`, `dagDepth`,
 `meanFreeSetSize`, `edgeCount` — is identical to at least four decimal places
 across `bendProbability` 0.1 through 0.9. Only `generationMs` differs, and
-that's run-to-run runner noise. This matches the documented trap (issue #7):
-do not present this axis as tunable. It is currently a dead knob in the
-settings panel.
+that's run-to-run runner noise. **As measured here, the axis is not tunable
+and should not be offered as one.** That is a statement about the generator at
+the commit this sweep ran against, not a permanent property — issue #7 is the
+open work on making the parameter steer the path, and if it lands this section
+is the first thing to re-measure.
 
 ## Does generation hold under 1s at 100×100?
 
@@ -217,12 +219,10 @@ promote it.
 starting point — it does not contradict it, and it does not sharpen it to a
 single "best" cell, because "best" is a playtesting question this data
 cannot answer (more free segments is not reliably easier — see
-`METRICS.md`'s counterintuitive-metric note). I could not read issue #85's
-full text or comments this session — GitHub API access was disabled for this
-run (`GitHub access is not enabled for this session`) — so this answers the
-question `#85` asks only insofar as it was described to me secondhand, not
-against whatever specific concern is written there. Worth a follow-up pass
-once GitHub access is available.
+`METRICS.md`'s counterintuitive-metric note). This is a generator-internal
+check: it says the defaults are unremarkable against the space the generator
+can produce, and nothing about whether they resemble the reference art, which
+no measurement here touches.
 
 ## Recommended defaults for first playtest
 
@@ -255,9 +255,9 @@ it has no measured effect; leave it at its current value until #7 resolves.
 
 ## What I'm unsure about / left undone
 
-- Issue #85's actual text and comments — not read (GitHub API disabled this
-  session); the defaults verdict above is data-only and may not address
-  whatever specific question #85 raises.
+- **Nothing here compares the boards to `docs/reference/`.** The defaults were
+  matched to the art by eye; extracting a length distribution from the art
+  itself is unmeasured and is the open half of the defaults question.
 - The harness reports board-level `meanSegmentLength`, not a per-segment
   length distribution, so I could not directly confirm the #88 commit's claim
   of segments spanning "2..35 cells" at the shipped defaults — only that the
