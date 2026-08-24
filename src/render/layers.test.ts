@@ -553,6 +553,45 @@ describe('createStaticLayer', () => {
     expect(layer.legibleUnzoomed).toBe(false);
   });
 
+  it('uses board height too, so a narrow-but-tall board is not judged legible by width alone', () => {
+    // 10 wide, 80 tall: width alone gives 39 px/cell (legible), but the
+    // constraining height ratio at the reference viewport is 4.875 (not).
+    const board = { width: 10, height: 80 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(100_000_000),
+    });
+    expect(layer.legibleUnzoomed).toBe(false);
+  });
+
+  it('treats a missing or zero cssViewportWidth/cssViewportHeight as unmeasured rather than throwing', () => {
+    const board = ACYCLIC_BOARD;
+    // A platform measurement taken before layout (e.g. clientWidth) can
+    // legitimately read 0; createStaticLayer must not let that crash
+    // allocation of the buffer itself.
+    expect(() =>
+      createStaticLayer(board, {
+        requestedPixelsPerCell: 20,
+        createCanvas: fakeCanvasFactory(1_000_000),
+        cssViewportWidth: 0,
+        cssViewportHeight: 0,
+      }),
+    ).not.toThrow();
+
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+      cssViewportWidth: 0,
+      cssViewportHeight: 0,
+    });
+    // Falls back to the reference viewport, same as omitting both entirely.
+    const reference = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+    });
+    expect(layer.legibleUnzoomed).toBe(reference.legibleUnzoomed);
+  });
+
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {
     // 100 wide, 1 tall, one segment; only tiny allocations "succeed".
     const board = makeBoard({ art: `${'a'.repeat(99)}A`, params: { gridSize: 100 } });

@@ -7,6 +7,7 @@ import {
   REFERENCE_CSS_VIEWPORT_WIDTH,
   drawArrowhead,
   drawSegment,
+  drawSegmentGuarded,
   isBoardLegibleUnzoomed,
   isLegibleAtScale,
   strokeSegmentPolyline,
@@ -52,6 +53,13 @@ function makeFakeCtx(): StrokeContext2D & FillContext2D & { calls: Call[] } {
     },
   };
 }
+
+describe('arrowhead sizing stays within one cell', () => {
+  it('never lets ARROWHEAD_LENGTH_CELLS or ARROWHEAD_WIDTH_CELLS exceed 1, which is what keeps the triangle out of a neighbouring cell', () => {
+    expect(ARROWHEAD_LENGTH_CELLS).toBeLessThanOrEqual(1);
+    expect(ARROWHEAD_WIDTH_CELLS).toBeLessThanOrEqual(1);
+  });
+});
 
 describe('strokeSegmentPolyline', () => {
   const scale = 10;
@@ -301,6 +309,40 @@ describe('drawSegment', () => {
   });
 });
 
+describe('drawSegmentGuarded', () => {
+  it('draws normally and returns true for a healthy segment', () => {
+    const board = makeBoard(['aa', '.A'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale: 10 });
+
+    expect(drawSegmentGuarded(ctx, board, 1, viewport)).toBe(true);
+    expect(ctx.calls.at(-1)).toEqual({ op: 'fill' });
+  });
+
+  it('returns false instead of throwing for a malformed segDir', () => {
+    const board = makeBoard({ art: 'A', dirs: { a: 'N' } });
+    board.segDir[0] = 255;
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale: 10 });
+
+    expect(() => drawSegmentGuarded(ctx, board, 1, viewport)).not.toThrow();
+    expect(drawSegmentGuarded(ctx, board, 1, viewport)).toBe(false);
+  });
+
+  it('still propagates a failure that is not malformed segment data', () => {
+    const board = makeBoard({ art: 'A', dirs: { a: 'N' } });
+    const ctx: FillContext2D & StrokeContext2D = {
+      ...makeFakeCtx(),
+      stroke(): void {
+        throw new Error('context is lost');
+      },
+    };
+    const viewport = createViewport({ scale: 10 });
+
+    expect(() => drawSegmentGuarded(ctx, board, 1, viewport)).toThrow('context is lost');
+  });
+});
+
 describe('isLegibleAtScale', () => {
   it('is true once the arrowhead length reaches the legibility floor', () => {
     const scaleAtFloor = MIN_LEGIBLE_ARROWHEAD_CSS_PX / ARROWHEAD_LENGTH_CELLS;
@@ -328,47 +370,62 @@ describe('isLegibleAtScale', () => {
 });
 
 describe('isBoardLegibleUnzoomed', () => {
-  it('reports a ~40-cell board legible in the reference viewport (R4)', () => {
-    expect(isBoardLegibleUnzoomed(40)).toBe(true);
+  it('reports a ~40-cell square board legible in the reference viewport (R4)', () => {
+    expect(isBoardLegibleUnzoomed(40, 40)).toBe(true);
   });
 
-  it('reports a 100-cell board illegible in the reference viewport', () => {
-    expect(isBoardLegibleUnzoomed(100)).toBe(false);
+  it('reports a 100-cell square board illegible in the reference viewport', () => {
+    expect(isBoardLegibleUnzoomed(100, 100)).toBe(false);
+  });
+
+  it('uses the smaller of width/boardWidth and height/boardHeight, so a non-square board is not judged by its longer axis alone', () => {
+    // 10 wide, 80 tall: width alone gives 39 px/cell (legible), but the
+    // constraining height ratio is 390/80 = 4.875 px/cell (not) — this is
+    // the case a width-only check gets wrong.
+    expect(isBoardLegibleUnzoomed(10, 80)).toBe(false);
+    // A square board of the same width is legible at the same viewport.
+    expect(isBoardLegibleUnzoomed(10, 10)).toBe(true);
   });
 
   it('uses the actual available CSS size when given one, not just the default', () => {
-    // A 100-cell board is legible if the viewport is wide and tall enough.
+    // A 100-cell square board is legible if the viewport is wide and tall enough.
     const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
-    expect(isBoardLegibleUnzoomed(100, roomy, roomy)).toBe(true);
-    // A 20-cell board is illegible in a viewport too small in both axes.
+    expect(isBoardLegibleUnzoomed(100, 100, roomy, roomy)).toBe(true);
+    // A 20-cell square board is illegible in a viewport too small in both axes.
     const cramped = 20 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX - 1);
-    expect(isBoardLegibleUnzoomed(20, cramped, cramped)).toBe(false);
+    expect(isBoardLegibleUnzoomed(20, 20, cramped, cramped)).toBe(false);
   });
 
-  it('uses the smaller of width and height, so a wide-but-short landscape viewport is not legible by width alone', () => {
+  it('uses the smaller of the viewport width and height, so a wide-but-short landscape viewport is not legible by width alone', () => {
     // 60 cells across a landscape phone: width 844 alone gives ~14 px/cell
     // (legible), but the constraining height of 390 gives ~6.5 (not).
-    expect(isBoardLegibleUnzoomed(60, 844, 390)).toBe(false);
+    expect(isBoardLegibleUnzoomed(60, 60, 844, 390)).toBe(false);
     // With a tall-enough height too, the same width does report legible —
     // confirming it was the height, not the board, that flipped the answer.
-    expect(isBoardLegibleUnzoomed(60, 844, 844)).toBe(true);
+    expect(isBoardLegibleUnzoomed(60, 60, 844, 844)).toBe(true);
   });
 
   it('defaults both width and height to REFERENCE_CSS_VIEWPORT_WIDTH', () => {
-    expect(isBoardLegibleUnzoomed(40)).toBe(
-      isBoardLegibleUnzoomed(40, REFERENCE_CSS_VIEWPORT_WIDTH, REFERENCE_CSS_VIEWPORT_WIDTH),
+    expect(isBoardLegibleUnzoomed(40, 40)).toBe(
+      isBoardLegibleUnzoomed(40, 40, REFERENCE_CSS_VIEWPORT_WIDTH, REFERENCE_CSS_VIEWPORT_WIDTH),
     );
   });
 
   it.each([NaN, Infinity, 0, -1])('rejects a boardWidthCells of %p', (bad) => {
-    expect(() => isBoardLegibleUnzoomed(bad)).toThrow(RangeError);
+    expect(() => isBoardLegibleUnzoomed(bad, 40)).toThrow(RangeError);
   });
 
-  it.each([NaN, Infinity, 0, -1])('rejects an availableCssWidth of %p', (bad) => {
+  it.each([NaN, Infinity, 0, -1])('rejects a boardHeightCells of %p', (bad) => {
     expect(() => isBoardLegibleUnzoomed(40, bad)).toThrow(RangeError);
   });
 
+  it.each([NaN, Infinity, 0, -1])('rejects an availableCssWidth of %p', (bad) => {
+    expect(() => isBoardLegibleUnzoomed(40, 40, bad)).toThrow(RangeError);
+  });
+
   it.each([NaN, Infinity, 0, -1])('rejects an availableCssHeight of %p', (bad) => {
-    expect(() => isBoardLegibleUnzoomed(40, REFERENCE_CSS_VIEWPORT_WIDTH, bad)).toThrow(RangeError);
+    expect(() => isBoardLegibleUnzoomed(40, 40, REFERENCE_CSS_VIEWPORT_WIDTH, bad)).toThrow(
+      RangeError,
+    );
   });
 });

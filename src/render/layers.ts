@@ -10,7 +10,12 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { ARROWHEAD_OVERHANG_CELLS, drawSegment, isBoardLegibleUnzoomed } from './draw.js';
+import {
+  ARROWHEAD_OVERHANG_CELLS,
+  REFERENCE_CSS_VIEWPORT_WIDTH,
+  drawSegmentGuarded,
+  isBoardLegibleUnzoomed,
+} from './draw.js';
 import { createBufferViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -19,8 +24,14 @@ export const MIN_PIXELS_PER_CELL = 1;
 /** Backstop against a runaway ladder: enough rungs to halve from the cap to 1 several times over. */
 const MAX_DEGRADATION_ATTEMPTS = 64;
 
-/** CSS px per board cell at 1x zoom, 1x dpr — the static buffer's resting resolution. */
-export const BASE_CSS_PIXELS_PER_CELL = 10;
+/**
+ * Buffer-resolution baseline, in CSS px per board cell: what
+ * `recommendedPixelsPerCell` multiplies by the zoom ceiling and dpr to get
+ * the buffer's actual stored resolution. Not what the player sees at 1x
+ * zoom — the buffer is deliberately oversampled past the resting display
+ * scale so that zooming in needs no repaint.
+ */
+export const BUFFER_BASE_CSS_PIXELS_PER_CELL = 10;
 /** Zoom level the static buffer stays sharp up to before a `drawImage` blit would blur it. */
 export const DEFAULT_MAX_ZOOM = 3;
 
@@ -37,6 +48,17 @@ function requirePositiveFinite(value: number, name: string): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive finite number, got ${value}`);
   }
+}
+
+/**
+ * A viewport dimension the platform handed us (e.g. a `clientWidth` read
+ * before layout), rather than one the caller chose. Zero, missing, or
+ * non-finite means "cannot judge yet", not a programming error, so this
+ * absorbs it into `fallback` instead of throwing — an advisory boolean like
+ * `legibleUnzoomed` must never be able to take down buffer allocation.
+ */
+function resolveCssViewportDimension(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 /**
@@ -70,19 +92,20 @@ export function computeBufferBudget(
 }
 
 /**
- * What the board actually needs at rest: cells across a target CSS px per
- * cell times the zoom ceiling times dpr. `createStaticLayer` clamps this to
- * `MAX_CANVAS_DIMENSION` — this is the number it clamps, not the cap itself.
+ * The buffer resolution needed to stay sharp up to `maxZoom`: a
+ * buffer-resolution baseline in CSS px per cell, times the zoom ceiling,
+ * times dpr. `createStaticLayer` clamps this to `MAX_CANVAS_DIMENSION` —
+ * this is the number it clamps, not the cap itself.
  */
 export function recommendedPixelsPerCell(
   dpr: number,
   maxZoom: number = DEFAULT_MAX_ZOOM,
-  baseCssPixelsPerCell: number = BASE_CSS_PIXELS_PER_CELL,
+  bufferBaseCssPixelsPerCell: number = BUFFER_BASE_CSS_PIXELS_PER_CELL,
 ): number {
   requirePositiveFinite(dpr, 'dpr');
   requirePositiveFinite(maxZoom, 'maxZoom');
-  requirePositiveFinite(baseCssPixelsPerCell, 'baseCssPixelsPerCell');
-  return baseCssPixelsPerCell * maxZoom * dpr;
+  requirePositiveFinite(bufferBaseCssPixelsPerCell, 'bufferBaseCssPixelsPerCell');
+  return bufferBaseCssPixelsPerCell * maxZoom * dpr;
 }
 
 /**
@@ -269,9 +292,14 @@ export interface StaticLayerOptions extends DegradationOptions {
   readonly maxZoom?: number;
   /** Explicit override for what the buffer asks for, before the cap. Defaults to `recommendedPixelsPerCell(dpr, maxZoom)`. */
   readonly requestedPixelsPerCell?: number;
-  /** Actual CSS width the board will render into unzoomed, for `legibleUnzoomed`. Defaults to `REFERENCE_CSS_VIEWPORT_WIDTH`. */
+  /**
+   * Actual CSS width the board will render into unzoomed, for
+   * `legibleUnzoomed`. Advisory: often read from the platform (e.g. a
+   * `clientWidth` measured before layout), so zero, missing, or non-finite
+   * falls back to `REFERENCE_CSS_VIEWPORT_WIDTH` rather than throwing.
+   */
   readonly cssViewportWidth?: number;
-  /** Actual CSS height the board will render into unzoomed, for `legibleUnzoomed`. Defaults to `REFERENCE_CSS_VIEWPORT_WIDTH`. */
+  /** Actual CSS height the board will render into unzoomed, for `legibleUnzoomed`. Same fallback as `cssViewportWidth`. */
   readonly cssViewportHeight?: number;
   readonly createCanvas?: () => CanvasLike;
 }
@@ -340,8 +368,9 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
   const legibleUnzoomed = isBoardLegibleUnzoomed(
     board.width,
-    options.cssViewportWidth,
-    options.cssViewportHeight,
+    board.height,
+    resolveCssViewportDimension(options.cssViewportWidth, REFERENCE_CSS_VIEWPORT_WIDTH),
+    resolveCssViewportDimension(options.cssViewportHeight, REFERENCE_CSS_VIEWPORT_WIDTH),
   );
   return {
     canvas,
@@ -366,16 +395,7 @@ export function redrawStaticLayer(
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
-    try {
-      drawSegment(ctx, board, id, viewport);
-    } catch (err) {
-      // Bad per-segment data (an out-of-range palette index or segDir)
-      // leaves this segment partly or fully undrawn instead of blanking
-      // the whole frame. Anything else — a dead canvas context, say —
-      // still propagates.
-      if (!(err instanceof RangeError)) throw err;
-      droppedSegments.push(id);
-    }
+    if (!drawSegmentGuarded(ctx, board, id, viewport)) droppedSegments.push(id);
   }
 }
 
