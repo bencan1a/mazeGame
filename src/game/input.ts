@@ -7,9 +7,12 @@
  * Pan and pinch math live elsewhere; this module only classifies and hands
  * off deltas and focal points through injected callbacks. `PointerEventLike`
  * matches the real shape of `PointerEvent`, so no event adapter is needed —
- * but `clientX`/`clientY` are page-relative, not the canvas-local space
- * `hitTest` expects, so a caller whose canvas is not at the page's top-left
- * corner must supply `toCssPixel` to convert.
+ * but `clientX`/`clientY` are relative to the browser viewport's own
+ * top-left corner, not scroll-adjusted and not the canvas-local space
+ * `hitTest` expects, so a caller whose canvas element does not start at
+ * that corner must supply `toCssPixel` to convert (typically by
+ * subtracting a `getBoundingClientRect()` origin — adding scroll on top of
+ * that would double-count an offset `clientX`/`clientY` never included).
  */
 
 import type { CssPixel } from '../render/viewport.js';
@@ -39,14 +42,15 @@ export interface GestureArbiterOptions {
   /** Movement beyond this, measured in CSS pixels through `toCssPixel`, turns a pending tap into a drag. */
   readonly slopCssPx?: number;
   /**
-   * Converts page-relative pointer coordinates into the canvas-local
-   * `CssPixel` space `hitTest` reads. Defaults to the identity mapping,
-   * which is only correct when the canvas's top-left corner sits at the
-   * page origin — a caller with a header, a safe-area inset, or any other
-   * offset must supply its own, typically subtracting a bounding-rect
-   * offset that can itself change on scroll or resize.
+   * Converts viewport-relative pointer coordinates (`clientX`/`clientY`)
+   * into the canvas-local `CssPixel` space `hitTest` reads. Defaults to the
+   * identity mapping, which is only correct when the canvas's top-left
+   * corner sits at the browser viewport's own origin — a caller with a
+   * header, a safe-area inset, or any other offset must supply its own,
+   * typically subtracting a `getBoundingClientRect()` origin, which is
+   * already viewport-relative and must not have scroll added to it.
    */
-  readonly toCssPixel?: (pageX: number, pageY: number) => CssPixel;
+  readonly toCssPixel?: (viewportX: number, viewportY: number) => CssPixel;
 }
 
 export interface GestureArbiter {
@@ -137,7 +141,7 @@ export function createGestureArbiter(
     pinchIdB = null;
   }
 
-  /** CSS-pixel delta between two page-space points, through the injected mapper. */
+  /** CSS-pixel delta between two viewport-relative points, through the injected mapper. */
   function cssDelta(fromX: number, fromY: number, toX: number, toY: number): CssPixel {
     const from = toCssPixel(fromX, fromY);
     const to = toCssPixel(toX, toY);
@@ -176,7 +180,12 @@ export function createGestureArbiter(
       const b = pinchIdB === null ? undefined : pointers.get(pinchIdB);
       if (a === undefined || b === undefined) return;
       const dist = distance(a, b);
-      if (prevPinchDistance > 0) {
+      // Guard both operands: a zero numerator is as unusable to a consumer
+      // multiplying its scale by scaleFactor as a zero denominator would be
+      // to divide by — either produces a scale of exactly 0, which
+      // createViewport rejects, so the frame is skipped rather than handed
+      // out as a scale factor no caller can recover from.
+      if (prevPinchDistance > 0 && dist > 0) {
         const scaleFactor = dist / prevPinchDistance;
         const focal = toCssPixel((a.x + b.x) / 2, (a.y + b.y) / 2);
         handlers.onPinchMove(scaleFactor, focal);
@@ -217,9 +226,13 @@ export function createGestureArbiter(
       if (!wasPinchMember) return;
       handlers.onPinchEnd?.();
       endGesture();
-      // The other pointer, if still down, stays untracked as a gesture until
-      // it is released and pressed again — resuming it as a pan or a tap
-      // candidate here risks firing one from where the pinch happened to end.
+      // The other pointer, if still down, stays tracked but idle: its own
+      // moves are ignored (mode is 'idle', so nothing matches its id as a
+      // primary or pinch member) rather than resumed as a pan or a tap
+      // candidate, which risks firing one from where the pinch happened to
+      // end. It is not inert forever, though — a fresh pointerdown from a
+      // different id pairs immediately with it into a new pinch, without
+      // this one needing to release and press again itself.
       return;
     }
 

@@ -185,6 +185,24 @@ describe('createGestureArbiter: pinch', () => {
     expect(handlers.calls.pinchEnd).toBe(1);
   });
 
+  it('never emits a scaleFactor of 0 when the pinch distance briefly hits zero', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerDown(pointerEvent(2, 100, 0)); // distance 100
+
+    arbiter.onPointerMove(pointerEvent(2, 0, 0)); // distance 0 -- coincides with pointer 1
+    expect(handlers.calls.pinchMove).toEqual([]);
+
+    arbiter.onPointerMove(pointerEvent(2, 50, 0)); // distance 50, but the prior frame was 0
+    expect(handlers.calls.pinchMove).toEqual([]);
+
+    arbiter.onPointerMove(pointerEvent(2, 150, 0)); // distance 150, recovered
+    expect(handlers.calls.pinchMove).toEqual([[3, cssPixel(75, 0)]]);
+    expect(handlers.calls.pinchMove.some(([scaleFactor]) => scaleFactor === 0)).toBe(false);
+  });
+
   it('ends an in-progress pan before starting a pinch', () => {
     const handlers = makeHandlers();
     const arbiter = createGestureArbiter(handlers, { slopCssPx: 1 });
