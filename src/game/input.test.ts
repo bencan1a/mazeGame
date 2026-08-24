@@ -279,47 +279,86 @@ describe('createGestureArbiter: toCssPixel', () => {
 
     expect(handlers.calls.panMove).toEqual([[20, 12]]);
   });
-});
 
-function manualClock(startAt = 0): { now: () => number; advance: (ms: number) => void } {
-  let t = startAt;
-  return {
-    now: () => t,
-    advance: (ms) => {
-      t += ms;
-    },
-  };
-}
-
-describe('createGestureArbiter: stale pointer recovery', () => {
-  it('drops a pointer whose release never arrived once the stale window has passed, instead of pairing it into a pinch', () => {
+  it('measures the move-time slop check in CSS pixels, not raw page pixels', () => {
     const handlers = makeHandlers();
-    const clock = manualClock();
-    const arbiter = createGestureArbiter(handlers, { stalePointerMs: 1000, now: clock.now });
-
-    arbiter.onPointerDown(pointerEvent(1, 0, 0)); // its pointerup never arrives
-    clock.advance(1001);
-    arbiter.onPointerDown(pointerEvent(2, 50, 50));
-    arbiter.onPointerUp(pointerEvent(2, 50, 50));
-
-    expect(handlers.calls.pinchStart).toBe(0);
-    expect(handlers.calls.tap).toEqual([cssPixel(50, 50)]);
-  });
-
-  it('keeps reading two genuinely fresh pointers as a pinch inside the stale window', () => {
-    const handlers = makeHandlers();
-    const clock = manualClock();
-    const arbiter = createGestureArbiter(handlers, { stalePointerMs: 1000, now: clock.now });
+    // 8 CSS-px slop is only 4 page px wide under this 2x mapper.
+    const toCssPixel = (pageX: number, pageY: number) => cssPixel(pageX * 2, pageY);
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 8, toCssPixel });
 
     arbiter.onPointerDown(pointerEvent(1, 0, 0));
-    clock.advance(200);
+    arbiter.onPointerMove(pointerEvent(1, 3, 0)); // 6 CSS px from the down point — stays pending
+    expect(handlers.calls.panStart).toBe(0);
+
+    arbiter.onPointerMove(pointerEvent(1, 5, 0)); // 10 CSS px from the down point — now a drag
+    expect(handlers.calls.panStart).toBe(1);
+  });
+
+  it('measures the release-time slop check in CSS pixels, not raw page pixels', () => {
+    const toCssPixel = (pageX: number, pageY: number) => cssPixel(pageX * 2, pageY);
+
+    const withinSlop = makeHandlers();
+    const a1 = createGestureArbiter(withinSlop, { slopCssPx: 8, toCssPixel });
+    a1.onPointerDown(pointerEvent(1, 0, 0));
+    a1.onPointerUp(pointerEvent(1, 3, 0)); // 6 CSS px, no move event at all
+    expect(withinSlop.calls.tap).toEqual([cssPixel(6, 0)]);
+
+    const pastSlop = makeHandlers();
+    const a2 = createGestureArbiter(pastSlop, { slopCssPx: 8, toCssPixel });
+    a2.onPointerDown(pointerEvent(1, 0, 0));
+    a2.onPointerUp(pointerEvent(1, 5, 0)); // 10 CSS px
+    expect(pastSlop.calls.tap).toEqual([]);
+  });
+});
+
+describe('createGestureArbiter: a held-still pointer stays live', () => {
+  it('starts a pinch when a second finger presses after the first has held perfectly still', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    // No pointermove for pointer 1 at all — holding still is not staleness,
+    // and nothing here evicts a pointer on a timer.
     arbiter.onPointerDown(pointerEvent(2, 100, 0));
 
     expect(handlers.calls.pinchStart).toBe(1);
   });
 
-  it.each([NaN, 0, -1])('rejects an invalid stalePointerMs of %p', (bad) => {
-    expect(() => createGestureArbiter(makeHandlers(), { stalePointerMs: bad })).toThrow(RangeError);
+  it('starts a pinch from a paused pan rather than getting stuck as a lone drag', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 5 });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerMove(pointerEvent(1, 50, 0)); // exceeds slop: pan starts and moves once
+    // Pointer 1 then pauses with no further moves before pointer 2 arrives.
+    arbiter.onPointerDown(pointerEvent(2, 100, 0));
+
+    expect(handlers.calls.panStart).toBe(1);
+    expect(handlers.calls.panMove.length).toBe(1);
+    expect(handlers.calls.panEnd).toBe(1);
+    expect(handlers.calls.pinchStart).toBe(1);
+  });
+});
+
+describe('createGestureArbiter: a third simultaneous pointer', () => {
+  it('is ignored outright, and never permanently blocks a later tap', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerDown(pointerEvent(2, 100, 0));
+    expect(handlers.calls.pinchStart).toBe(1);
+
+    arbiter.onPointerDown(pointerEvent(3, 200, 0)); // a third finger touches down mid-pinch
+    arbiter.onPointerUp(pointerEvent(1, 0, 0));
+    expect(handlers.calls.pinchEnd).toBe(1);
+
+    arbiter.onPointerUp(pointerEvent(2, 100, 0));
+    arbiter.onPointerUp(pointerEvent(3, 200, 0)); // never tracked, so this is a no-op
+
+    arbiter.onPointerDown(pointerEvent(4, 5, 5));
+    arbiter.onPointerUp(pointerEvent(4, 5, 5));
+    expect(handlers.calls.tap).toEqual([cssPixel(5, 5)]);
   });
 });
 
