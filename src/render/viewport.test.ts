@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
-  DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL,
+  DEFAULT_MAX_UPSCALE,
   type BlitContext2D,
   type CanvasLike,
   blitStaticLayer,
@@ -285,34 +285,129 @@ describe('zoomViewportAt', () => {
   });
 });
 
-describe('maxZoomScale', () => {
-  it('defaults to the legibility limit when minScale sits below it', () => {
-    expect(maxZoomScale(5)).toBe(DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL);
+describe('zoomViewportAt followed by clampPan', () => {
+  it('needs clampPan afterward: zooming out about a focal point near one edge can leave the origin out of the pan bound', () => {
+    const bounds = { boardWidth: 100, boardHeight: 100, canvasCssWidth: 800, canvasCssHeight: 800 };
+    // Board (2000px wide at scale 20) panned as far right as the bound
+    // allows: originX pinned to the bottom of [-1200, 0].
+    const viewport = clampPan(createViewport({ scale: 20, originX: -1200, originY: 0 }), bounds);
+    expect(viewport.originX).toBe(-1200);
+
+    // Pinch out about the canvas's own left edge.
+    const zoomed = zoomViewportAt(viewport, 10, 0, 0);
+    expect(zoomed.originX).toBe(-600);
+
+    // At scale 10 the board is 1000px wide, so the legal range shrinks to
+    // [-200, 0] — -600 is well outside it until clampPan runs again.
+    const bound = 800 - 100 * 10;
+    expect(zoomed.originX).toBeLessThan(bound);
+
+    const reclamped = clampPan(zoomed, bounds);
+    expect(reclamped.originX).toBeGreaterThanOrEqual(bound);
+    expect(reclamped.originX).toBeLessThanOrEqual(0);
+    expect(reclamped.originX).toBe(bound);
   });
 
-  it('never falls below minScale, even under a small legibilityLimit', () => {
-    expect(maxZoomScale(500, 120)).toBe(500);
+  it('stays within the pan bound for any zoom composed with clampPan afterward', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 200 }),
+        fc.integer({ min: 1, max: 200 }),
+        fc.double({ min: 1, max: 50, noNaN: true }),
+        fc.double({ min: -2000, max: 2000, noNaN: true }),
+        fc.double({ min: -2000, max: 2000, noNaN: true }),
+        fc.double({ min: 1, max: 50, noNaN: true }),
+        fc.double({ min: 0, max: 800, noNaN: true }),
+        fc.double({ min: 0, max: 800, noNaN: true }),
+        (boardWidth, boardHeight, scale, originX, originY, nextScale, focalX, focalY) => {
+          const bounds = {
+            boardWidth,
+            boardHeight,
+            canvasCssWidth: 800,
+            canvasCssHeight: 800,
+          };
+          const viewport = clampPan(createViewport({ scale, originX, originY }), bounds);
+          const zoomed = zoomViewportAt(viewport, nextScale, focalX, focalY);
+          const reclamped = clampPan(zoomed, bounds);
+
+          const boardWidthCss = boardWidth * nextScale;
+          if (boardWidthCss <= bounds.canvasCssWidth) {
+            expect(reclamped.originX).toBeCloseTo((bounds.canvasCssWidth - boardWidthCss) / 2, 6);
+          } else {
+            expect(reclamped.originX).toBeLessThanOrEqual(0);
+            expect(reclamped.originX).toBeGreaterThanOrEqual(bounds.canvasCssWidth - boardWidthCss);
+          }
+        },
+      ),
+    );
+  });
+});
+
+describe('maxZoomScale', () => {
+  it("is maxUpscale times the buffer's achieved CSS px/cell, on a healthy buffer", () => {
+    // 30 buffer px/cell at dpr 1 is the default buffer's native resolution
+    // (10 base * 3 maxZoom); 4x that is 120.
+    expect(maxZoomScale(0, 30, 1)).toBe(120);
+  });
+
+  it('divides by dpr to convert buffer pixels to CSS pixels', () => {
+    expect(maxZoomScale(0, 30, 3)).toBeCloseTo(40, 6); // (30 / 3) * 4
+  });
+
+  it('tightens instead of running away on a degraded buffer', () => {
+    // A buffer degraded to 1 px/cell at dpr 3 must not upscale to the
+    // healthy-buffer ceiling — it has far less detail to blow up.
+    expect(maxZoomScale(0, 1, 3)).toBeCloseTo((1 / 3) * DEFAULT_MAX_UPSCALE, 6);
+  });
+
+  it('never falls below minScale, even against a badly degraded buffer', () => {
+    expect(maxZoomScale(500, 1, 3)).toBe(500);
   });
 
   it('accepts a zero minScale — a fit-to-canvas minimum against an unmeasured canvas', () => {
-    expect(maxZoomScale(0)).toBe(DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL);
+    expect(maxZoomScale(0, 30, 1)).toBe(120);
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
-    expect(() => maxZoomScale(bad)).toThrow(RangeError);
+    expect(() => maxZoomScale(bad, 30, 1)).toThrow(RangeError);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a legibilityLimit of %p', (bad) => {
-    expect(() => maxZoomScale(5, bad)).toThrow(RangeError);
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a bufferPixelsPerCell of %p', (bad) => {
+    expect(() => maxZoomScale(0, bad, 1)).toThrow(RangeError);
   });
 
-  it('is always at least minScale, however the two compare', () => {
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a dpr of %p', (bad) => {
+    expect(() => maxZoomScale(0, 30, bad)).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a maxUpscale of %p', (bad) => {
+    expect(() => maxZoomScale(0, 30, 1, bad)).toThrow(RangeError);
+  });
+
+  it('is always at least minScale, however it compares to the buffer-derived ceiling', () => {
     fc.assert(
       fc.property(
         fc.double({ min: 0, max: 1e6, noNaN: true }),
         fc.double({ min: 0.001, max: 1e6, noNaN: true }),
-        (minScale, legibilityLimit) => {
-          expect(maxZoomScale(minScale, legibilityLimit)).toBeGreaterThanOrEqual(minScale);
+        fc.double({ min: 1, max: 4, noNaN: true }),
+        (minScale, bufferPixelsPerCell, dpr) => {
+          expect(maxZoomScale(minScale, bufferPixelsPerCell, dpr)).toBeGreaterThanOrEqual(minScale);
+        },
+      ),
+    );
+  });
+
+  it("scales linearly with the buffer's achieved resolution", () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 0.001, max: 500, noNaN: true }),
+        fc.double({ min: 1, max: 4, noNaN: true }),
+        (bufferPixelsPerCell, dpr) => {
+          // minScale 0 so the floor never kicks in and the ratio is exact.
+          expect(maxZoomScale(0, bufferPixelsPerCell, dpr)).toBeCloseTo(
+            (DEFAULT_MAX_UPSCALE * bufferPixelsPerCell) / dpr,
+            6,
+          );
         },
       ),
     );
@@ -357,8 +452,9 @@ describe('clampZoomScale', () => {
         fc.double({ min: 0.001, max: 1e6, noNaN: true }),
         fc.double({ min: 0, max: 1e6, noNaN: true }),
         fc.double({ min: 0.001, max: 500, noNaN: true }),
-        (requested, fitToCanvasMinScale, legibilityLimit) => {
-          const cap = maxZoomScale(fitToCanvasMinScale, legibilityLimit);
+        fc.double({ min: 1, max: 4, noNaN: true }),
+        (requested, fitToCanvasMinScale, bufferPixelsPerCell, dpr) => {
+          const cap = maxZoomScale(fitToCanvasMinScale, bufferPixelsPerCell, dpr);
           const clamped = clampZoomScale(requested, fitToCanvasMinScale, cap);
           expect(clamped).toBeLessThanOrEqual(cap);
           expect(clamped).toBeGreaterThanOrEqual(fitToCanvasMinScale);
@@ -528,6 +624,32 @@ describe('computeBlitRects', () => {
   it('is null when the viewport and the buffer do not overlap at all', () => {
     const viewport = createViewport({ scale: 10, originX: 10_000, originY: 0 });
     expect(computeBlitRects(viewport, 20, 200, 200, 100, 100)).toBeNull();
+  });
+
+  it('is null rather than an all-NaN rect when an extreme scale overflows the arithmetic', () => {
+    // 5e-320 is a valid positive finite double (a denormal), so it passes
+    // input validation; dividing by it overflows to Infinity, and
+    // `0 * Infinity` downstream is NaN, which a plain `<= 0` guard misses.
+    const viewport = createViewport({ scale: 5e-320, originX: 0, originY: 0 });
+    expect(computeBlitRects(viewport, 20, 200, 200, 100, 100)).toBeNull();
+  });
+
+  it('never returns a rect with a non-finite field, across a wide range of scales including extreme ones', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 5e-320, max: 1e6, noNaN: true }),
+        fc.double({ min: -1e6, max: 1e6, noNaN: true }),
+        fc.double({ min: -1e6, max: 1e6, noNaN: true }),
+        (scale, originX, originY) => {
+          const viewport = createViewport({ scale, originX, originY });
+          const rects = computeBlitRects(viewport, 20, 200, 200, 100, 100);
+          if (rects === null) return;
+          for (const value of Object.values(rects)) {
+            expect(Number.isFinite(value)).toBe(true);
+          }
+        },
+      ),
+    );
   });
 
   it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a bufferPixelsPerCell of %p', (bad) => {

@@ -212,7 +212,9 @@ export function panViewport(viewport: Viewport<'css'>, dx: number, dy: number): 
 /**
  * Rescales `viewport` to `nextScale`, adjusting the origin so the board point
  * currently under CSS pixel `(focalX, focalY)` stays under it. `nextScale` is
- * assumed already clamped by the caller — see `clampZoomScale`.
+ * assumed already clamped by the caller — see `clampZoomScale`. The result
+ * can still fall outside the pan bound: zooming out about a focal point near
+ * one edge pushes the opposite edge past it. Follow with `clampPan`.
  */
 export function zoomViewportAt(
   viewport: Viewport<'css'>,
@@ -230,29 +232,34 @@ export function zoomViewportAt(
 }
 
 /**
- * CSS px/cell past which a magnified blit of the static buffer reads as soft
- * rather than sharp on a typical phone screen. A `drawImage` blit costs the
- * same single call at any scale, so this is a legibility choice, not a
- * memory one — the buffer's own resolution cap is enforced once, at
- * allocation, by `layers.ts`. 120 is 4x the buffer's own resting resolution
- * (`BASE_CSS_PIXELS_PER_CELL` in `layers.ts`, 10 CSS px/cell at 1x zoom): a
- * 4x nearest/bilinear upscale is still comfortably readable, and it leaves a
- * dense board plenty of room to zoom in on one contested segment.
+ * How far past the static buffer's own achieved CSS px/cell (`bufferPixelsPerCell / dpr`)
+ * `maxZoomScale` allows a magnified blit to go — 4x is a raster upscale that
+ * still reads sharp. A `drawImage` blit costs the same single call at any
+ * scale, so this is a legibility choice, not a memory one; the buffer's
+ * resolution itself is capped once, at allocation.
  */
-export const DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL = 120;
+export const DEFAULT_MAX_UPSCALE = 4;
 
 /**
- * The zoom ceiling for `clampZoomScale`: `legibilityLimit`, or `minScale`
- * itself when that already exceeds it — a small board's fit-to-canvas
- * minimum is always within the reachable range, whatever it is.
+ * The zoom ceiling for `clampZoomScale`: `maxUpscale` times the buffer's own
+ * achieved CSS px/cell, floored at `minScale` so a small board's
+ * fit-to-canvas minimum is always within the reachable range even against a
+ * badly degraded buffer. `bufferPixelsPerCell` is the static buffer's own
+ * scale (`Viewport<'buffer'>.scale`, buffer pixels per cell); dividing by
+ * `dpr` converts it to the same CSS-px/cell units as `minScale`.
  */
 export function maxZoomScale(
   minScale: number,
-  legibilityLimit: number = DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL,
+  bufferPixelsPerCell: number,
+  dpr: number,
+  maxUpscale: number = DEFAULT_MAX_UPSCALE,
 ): number {
   requireNonNegativeFinite(minScale, 'minScale');
-  requirePositiveFinite(legibilityLimit, 'legibilityLimit');
-  return Math.max(minScale, legibilityLimit);
+  requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
+  requirePositiveFinite(dpr, 'dpr');
+  requirePositiveFinite(maxUpscale, 'maxUpscale');
+  const nativeCssPixelsPerCell = bufferPixelsPerCell / dpr;
+  return Math.max(minScale, maxUpscale * nativeCssPixelsPerCell);
 }
 
 /**
@@ -363,13 +370,31 @@ export function computeBlitRects(
   const sourceY = Math.max(0, srcTop);
   const sourceWidth = Math.min(bufferWidthPx, srcRight) - sourceX;
   const sourceHeight = Math.min(bufferHeightPx, srcBottom) - sourceY;
-  if (sourceWidth <= 0 || sourceHeight <= 0) return null;
+  // An extreme viewport.scale (a valid positive finite number, just an
+  // astronomically small one) can overflow this arithmetic to NaN or
+  // Infinity, which a plain `<= 0` comparison never catches.
+  if (
+    !Number.isFinite(sourceWidth) ||
+    !Number.isFinite(sourceHeight) ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0
+  ) {
+    return null;
+  }
 
   const bufferToCss = viewport.scale / bufferPixelsPerCell;
   const destX = (viewport.originX + sourceX * bufferToCss) * viewport.dpr;
   const destY = (viewport.originY + sourceY * bufferToCss) * viewport.dpr;
   const destWidth = sourceWidth * bufferToCss * viewport.dpr;
   const destHeight = sourceHeight * bufferToCss * viewport.dpr;
+  if (
+    !Number.isFinite(destX) ||
+    !Number.isFinite(destY) ||
+    !Number.isFinite(destWidth) ||
+    !Number.isFinite(destHeight)
+  ) {
+    return null;
+  }
 
   return { sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, destWidth, destHeight };
 }
