@@ -219,6 +219,43 @@ describe('createGestureArbiter: pinch', () => {
   });
 });
 
+describe('createGestureArbiter: toCssPixel', () => {
+  it('defaults to page coordinates unchanged', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 40, 60));
+    arbiter.onPointerUp(pointerEvent(1, 40, 60));
+
+    expect(handlers.calls.tap).toEqual([cssPixel(40, 60)]);
+  });
+
+  it('converts page-relative pointer coordinates into canvas-local ones for a tap', () => {
+    const handlers = makeHandlers();
+    // A canvas offset 20px right and 30px down from the page origin.
+    const toCssPixel = (pageX: number, pageY: number) => cssPixel(pageX - 20, pageY - 30);
+    const arbiter = createGestureArbiter(handlers, { toCssPixel });
+
+    arbiter.onPointerDown(pointerEvent(1, 40, 60));
+    arbiter.onPointerUp(pointerEvent(1, 40, 60));
+
+    expect(handlers.calls.tap).toEqual([cssPixel(20, 30)]);
+  });
+
+  it('applies the same conversion to a pinch focal point', () => {
+    const handlers = makeHandlers();
+    const toCssPixel = (pageX: number, pageY: number) => cssPixel(pageX - 20, pageY - 30);
+    const arbiter = createGestureArbiter(handlers, { toCssPixel });
+
+    arbiter.onPointerDown(pointerEvent(1, 20, 30));
+    arbiter.onPointerDown(pointerEvent(2, 120, 30));
+    arbiter.onPointerMove(pointerEvent(2, 220, 30));
+
+    // Page-space midpoint after the move is (120, 30); toCssPixel subtracts (20, 30).
+    expect(handlers.calls.pinchMove).toEqual([[2, cssPixel(100, 0)]]);
+  });
+});
+
 describe('createGestureArbiter: malformed input', () => {
   it('ignores a pointer event with non-finite coordinates', () => {
     const handlers = makeHandlers();

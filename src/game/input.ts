@@ -5,9 +5,11 @@
  * tap on whatever segment it happened to end over.
  *
  * Pan and pinch math live elsewhere; this module only classifies and hands
- * off deltas and focal points through injected callbacks, matching the real
- * shape of `PointerEvent` so a caller can attach these handlers directly to
- * a canvas with no adapter.
+ * off deltas and focal points through injected callbacks. `PointerEventLike`
+ * matches the real shape of `PointerEvent`, so no event adapter is needed —
+ * but `clientX`/`clientY` are page-relative, not the canvas-local space
+ * `hitTest` expects, so a caller whose canvas is not at the page's top-left
+ * corner must supply `toCssPixel` to convert.
  */
 
 import type { CssPixel } from '../render/viewport.js';
@@ -36,6 +38,15 @@ export interface GestureHandlers {
 export interface GestureArbiterOptions {
   /** Movement beyond this, in CSS pixels, turns a pending tap into a drag. */
   readonly slopCssPx?: number;
+  /**
+   * Converts page-relative pointer coordinates into the canvas-local
+   * `CssPixel` space `hitTest` reads. Defaults to the identity mapping,
+   * which is only correct when the canvas's top-left corner sits at the
+   * page origin — a caller with a header, a safe-area inset, or any other
+   * offset must supply its own, typically subtracting a bounding-rect
+   * offset that can itself change on scroll or resize.
+   */
+  readonly toCssPixel?: (pageX: number, pageY: number) => CssPixel;
 }
 
 export interface GestureArbiter {
@@ -78,6 +89,7 @@ export function createGestureArbiter(
     throw new RangeError(`slopCssPx must be a non-negative finite number, got ${slopCssPx}`);
   }
   const slopSq = slopCssPx * slopCssPx;
+  const toCssPixel = options?.toCssPixel ?? ((x: number, y: number) => cssPixel(x, y));
 
   const pointers = new Map<number, PointerPos>();
   let mode: Mode = 'idle';
@@ -147,7 +159,7 @@ export function createGestureArbiter(
       const dist = distance(a, b);
       if (prevPinchDistance > 0) {
         const scaleFactor = dist / prevPinchDistance;
-        const focal = cssPixel((a.x + b.x) / 2, (a.y + b.y) / 2);
+        const focal = toCssPixel((a.x + b.x) / 2, (a.y + b.y) / 2);
         handlers.onPinchMove(scaleFactor, focal);
       }
       prevPinchDistance = dist;
@@ -191,7 +203,7 @@ export function createGestureArbiter(
     if (!wasPrimary) return;
 
     if (mode === 'pending') {
-      if (isFiniteEvent(event)) handlers.onTap(cssPixel(event.clientX, event.clientY));
+      if (isFiniteEvent(event)) handlers.onTap(toCssPixel(event.clientX, event.clientY));
       endGesture();
       return;
     }
