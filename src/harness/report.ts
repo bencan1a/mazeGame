@@ -1,6 +1,6 @@
 /** Serializes sweep output: JSON for machine consumption, CSV for a spreadsheet, a plain table for the terminal. */
 
-import type { BoardRow, CellAggregate, Stat } from './types.js';
+import type { BoardRow, CellAggregate, CellParams, Stat } from './types.js';
 
 const ROW_COLUMNS = [
   'cellIndex',
@@ -198,13 +198,37 @@ function round(n: number, digits = 3): number {
   return Math.round(n * factor) / factor;
 }
 
+/** The parameter keys whose value is not the same in every cell. */
+function sweptAxes(aggregates: readonly CellAggregate[]): (keyof CellParams)[] {
+  const first = aggregates[0];
+  if (first === undefined) return [];
+  const keys = Object.keys(first.params) as (keyof CellParams)[];
+  return keys.filter((key) => aggregates.some((agg) => agg.params[key] !== first.params[key]));
+}
+
+function describeParams(params: CellParams, keys: readonly (keyof CellParams)[]): string {
+  return keys.map((key) => `${key}=${String(params[key])}`).join(' ');
+}
+
 export function formatConsoleSummary(aggregates: readonly CellAggregate[]): string {
+  const first = aggregates[0];
+  if (first === undefined) return '';
+
+  // A header built from a fixed list of parameters labels every cell of a
+  // sweep over anything else identically, which reads as the axis making no
+  // difference. So the axes are whatever actually varies, and the rest is
+  // context that only needs saying once.
+  const axes = sweptAxes(aggregates);
+  const allKeys = Object.keys(first.params) as (keyof CellParams)[];
+  const held = allKeys.filter((key) => !axes.includes(key));
+
   const lines: string[] = [];
+  if (held.length > 0) lines.push(`held: ${describeParams(first.params, held)}`);
+
   for (const agg of aggregates) {
-    const p = agg.params;
+    const label = axes.length > 0 ? describeParams(agg.params, axes) : 'no swept axis';
     lines.push(
-      `cell ${agg.cellIndex}  grid=${p.gridSize} mean=${p.meanPieceLength} variance=${p.pieceLengthVariance} ` +
-        `fill=${p.fillFraction}  seeds=${agg.seedCount} failures=${agg.failureCount}`,
+      `cell ${agg.cellIndex}  ${label}  seeds=${agg.seedCount} failures=${agg.failureCount}`,
     );
     lines.push(
       `  generationMs mean=${round(agg.generationMs.mean)} max=${round(agg.generationMs.max)}  ` +

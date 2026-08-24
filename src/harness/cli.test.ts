@@ -38,7 +38,7 @@ describe('main', () => {
     expect(code).toBe(0);
     expect(logSpy).toHaveBeenCalled();
     const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(printed).toContain('grid=20');
+    expect(printed).toContain('gridSize=20');
   });
 
   it('writes rows and aggregates as JSON to --json', () => {
