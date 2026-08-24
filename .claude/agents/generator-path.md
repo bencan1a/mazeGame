@@ -25,11 +25,14 @@ Do not wait on stream S1 — build against `makeMask` fixtures from
 `test/fixtures/`.
 
 **R1 is settled.** `bendProbability` was not a native parameter of the contour
-method; biasing the spanning tree toward carrying straight on made it one.
-Achieved bend rate now tracks the request monotonically over roughly 0.06..0.48
-— a bounded band, not a target rate, and the backbite fallback still ignores it
-entirely. If you change the path stage, measure achieved `bendRate` across at
-least five settings and fifty seeds and check that band still holds.
+method; biasing the spanning tree toward turning made it one. Achieved bend
+rate tracks the request monotonically, over a band that is not the full 0..1
+and not fixed: the ceiling sits near 0.48 at every board size, while the floor
+rises as the board shrinks, because a small region's own boundary forces
+corners. The backbite fallback ignores the parameter entirely. If you change
+the path stage, measure achieved `bendRate` across at least five settings and
+fifty seeds, at more than one grid size — a single size will not show you the
+floor moving.
 
 Assert path invariants after every backbite move in dev, not only at the end.
 A path that breaks on move 4,000 of 10,000 is otherwise invisible.

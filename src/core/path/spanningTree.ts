@@ -22,8 +22,12 @@ export interface SpanningTree {
  * `straightIndex` of -1 (no candidate continues straight, or there is no
  * incoming direction yet) falls back to uniform.
  */
-function weightedPick(count: number, straightIndex: number, turnBias: number, rng: Rng): number {
+function weightedPick(count: number, straightIndex: number, rawTurnBias: number, rng: Rng): number {
   if (straightIndex === -1 || count === 1) return rng.int(count);
+  // Outside [0, 1] the cursor starts negative or overshoots, which hands one
+  // candidate zero probability and lets the compass order of the scan stand in
+  // for a weighting.
+  const turnBias = Math.min(Math.max(rawTurnBias, 0), 1);
   const roll = rng.next();
   if (roll < 1 - turnBias) return straightIndex;
   const turnShare = turnBias / (count - 1);
