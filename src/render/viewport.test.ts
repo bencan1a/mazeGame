@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
+  DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL,
   type BlitContext2D,
+  type CanvasLike,
   blitStaticLayer,
   cell,
   cellCenterToCssPixel,
@@ -26,7 +28,6 @@ import {
   zoomViewportAt,
 } from './viewport.js';
 import type { Viewport } from './viewport.js';
-import type { CanvasLike } from './layers.js';
 
 describe('createViewport', () => {
   it('defaults dpr to 1 and origin to (0, 0), tagged as a css-space viewport', () => {
@@ -285,16 +286,36 @@ describe('zoomViewportAt', () => {
 });
 
 describe('maxZoomScale', () => {
-  it('is buffer pixels per cell divided by dpr', () => {
-    expect(maxZoomScale(90, 3)).toBe(30);
+  it('defaults to the legibility limit when minScale sits below it', () => {
+    expect(maxZoomScale(5)).toBe(DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a bufferPixelsPerCell of %p', (bad) => {
-    expect(() => maxZoomScale(bad, 1)).toThrow(RangeError);
+  it('never falls below minScale, even under a small legibilityLimit', () => {
+    expect(maxZoomScale(500, 120)).toBe(500);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a dpr of %p', (bad) => {
-    expect(() => maxZoomScale(90, bad)).toThrow(RangeError);
+  it('accepts a zero minScale — a fit-to-canvas minimum against an unmeasured canvas', () => {
+    expect(maxZoomScale(0)).toBe(DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL);
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
+    expect(() => maxZoomScale(bad)).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a legibilityLimit of %p', (bad) => {
+    expect(() => maxZoomScale(5, bad)).toThrow(RangeError);
+  });
+
+  it('is always at least minScale, however the two compare', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 0, max: 1e6, noNaN: true }),
+        fc.double({ min: 0.001, max: 1e6, noNaN: true }),
+        (minScale, legibilityLimit) => {
+          expect(maxZoomScale(minScale, legibilityLimit)).toBeGreaterThanOrEqual(minScale);
+        },
+      ),
+    );
   });
 });
 
@@ -311,6 +332,11 @@ describe('clampZoomScale', () => {
     expect(clampZoomScale(1, 5, 40)).toBe(5);
   });
 
+  it('accepts a zero minScale rather than throwing', () => {
+    expect(clampZoomScale(1, 0, 40)).toBe(1);
+    expect(clampZoomScale(0.001, 0, 40)).toBeCloseTo(0.001, 6);
+  });
+
   it('resolves to maxScale, not a throw, when minScale exceeds maxScale', () => {
     expect(clampZoomScale(20, 40, 5)).toBe(5);
     expect(clampZoomScale(1, 40, 5)).toBe(5);
@@ -321,24 +347,27 @@ describe('clampZoomScale', () => {
     expect(() => clampZoomScale(bad, 5, 40)).toThrow(RangeError);
   });
 
-  it('never lets a requested scale exceed the buffer-derived cap, however extreme the request', () => {
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
+    expect(() => clampZoomScale(20, bad, 40)).toThrow(RangeError);
+  });
+
+  it('never exceeds maxZoomScale composed with it, and never falls below fit-to-canvas', () => {
     fc.assert(
       fc.property(
         fc.double({ min: 0.001, max: 1e6, noNaN: true }),
-        fc.double({ min: 1, max: 500, noNaN: true }),
-        fc.double({ min: 1, max: 4, noNaN: true }),
-        (requested, bufferPixelsPerCell, dpr) => {
-          const cap = maxZoomScale(bufferPixelsPerCell, dpr);
-          const min = Math.min(1, cap);
-          const clamped = clampZoomScale(requested, min, cap);
+        fc.double({ min: 0, max: 1e6, noNaN: true }),
+        fc.double({ min: 0.001, max: 500, noNaN: true }),
+        (requested, fitToCanvasMinScale, legibilityLimit) => {
+          const cap = maxZoomScale(fitToCanvasMinScale, legibilityLimit);
+          const clamped = clampZoomScale(requested, fitToCanvasMinScale, cap);
           expect(clamped).toBeLessThanOrEqual(cap);
-          expect(clamped * dpr).toBeLessThanOrEqual(bufferPixelsPerCell + 1e-9);
+          expect(clamped).toBeGreaterThanOrEqual(fitToCanvasMinScale);
         },
       ),
     );
   });
 
-  it('never exceeds the buffer-derived maxScale even when a fit-to-canvas minScale sits above it', () => {
+  it('never exceeds the wider of minScale/maxScale even when a caller-built maxScale sits below minScale', () => {
     fc.assert(
       fc.property(
         fc.double({ min: 0.001, max: 1e6, noNaN: true }),
@@ -566,7 +595,7 @@ describe('computeBlitRects', () => {
   });
 });
 
-const FAKE_IMAGE = {} as unknown as CanvasImageSource;
+const FAKE_IMAGE: CanvasLike = { width: 1, height: 1, getContext: () => null };
 
 class FakeBlitCtx implements BlitContext2D {
   drawImageCalls: unknown[][] = [];
@@ -697,14 +726,16 @@ describe('blitStaticLayer against the real render types', () => {
         calls.push(['drawImage', image, sx, sy, sw, sh, dx, dy, dw, dh]);
       },
     } as unknown as CanvasRenderingContext2D;
-    const staticLayerCanvas = {
+    const staticLayerCanvas: CanvasLike = {
       width: 200,
       height: 200,
       getContext: () => null,
-    } as unknown as CanvasLike;
+    };
 
     const rects = computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, 100, 100);
-    blitStaticLayer(realCtx, staticLayerCanvas as unknown as CanvasImageSource, rects, 100, 100);
+    // No cast on staticLayerCanvas: if blitStaticLayer's image parameter ever
+    // regresses to CanvasImageSource, this line stops compiling.
+    blitStaticLayer(realCtx, staticLayerCanvas, rects, 100, 100);
 
     expect(calls).toEqual([
       ['clearRect', 0, 0, 100, 100],

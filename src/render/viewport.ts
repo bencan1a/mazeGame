@@ -53,6 +53,19 @@ export function devicePixel(x: number, y: number): DevicePixel {
   return { x, y } as DevicePixel;
 }
 
+/**
+ * The canvas surface both render layers are built on, and the shape
+ * `blitStaticLayer` accepts as its blit source: a real `HTMLCanvasElement`
+ * satisfies this directly, and so does a hand-written test fake, without
+ * needing the full DOM `CanvasImageSource` surface either one would
+ * otherwise be checked against.
+ */
+export interface CanvasLike {
+  width: number;
+  height: number;
+  getContext(contextId: '2d'): CanvasRenderingContext2D | null;
+}
+
 /** `'css'`: the screen viewport pan/zoom and hit testing use. `'buffer'`: a static offscreen buffer's own pixels. */
 export type PixelSpace = 'css' | 'buffer';
 
@@ -217,26 +230,41 @@ export function zoomViewportAt(
 }
 
 /**
- * The largest CSS px/cell that keeps a blit at or under the static buffer's
- * own resolution — zooming past this would magnify buffer pixels rather than
- * sample detail the buffer never held.
+ * CSS px/cell past which a magnified blit of the static buffer reads as soft
+ * rather than sharp on a typical phone screen. A `drawImage` blit costs the
+ * same single call at any scale, so this is a legibility choice, not a
+ * memory one — the buffer's own resolution cap is enforced once, at
+ * allocation, by `layers.ts`. 120 is 4x the buffer's own resting resolution
+ * (`BASE_CSS_PIXELS_PER_CELL` in `layers.ts`, 10 CSS px/cell at 1x zoom): a
+ * 4x nearest/bilinear upscale is still comfortably readable, and it leaves a
+ * dense board plenty of room to zoom in on one contested segment.
  */
-export function maxZoomScale(bufferPixelsPerCell: number, dpr: number): number {
-  requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
-  requirePositiveFinite(dpr, 'dpr');
-  return bufferPixelsPerCell / dpr;
+export const DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL = 120;
+
+/**
+ * The zoom ceiling for `clampZoomScale`: `legibilityLimit`, or `minScale`
+ * itself when that already exceeds it — a small board's fit-to-canvas
+ * minimum is always within the reachable range, whatever it is.
+ */
+export function maxZoomScale(
+  minScale: number,
+  legibilityLimit: number = DEFAULT_MAX_LEGIBLE_CSS_PIXELS_PER_CELL,
+): number {
+  requireNonNegativeFinite(minScale, 'minScale');
+  requirePositiveFinite(legibilityLimit, 'legibilityLimit');
+  return Math.max(minScale, legibilityLimit);
 }
 
 /**
  * Clamps a requested scale between `minScale` and `maxScale` (see
- * `maxZoomScale`). When the two cross — a small board's fit-to-canvas
- * minimum can sit above what the buffer's resolution affords — the result is
- * `maxScale`: the bound backed by a measured device limit, which the caller
- * has no way to avoid crossing by construction.
+ * `maxZoomScale`). `minScale` accepts zero: a fit-to-canvas minimum computed
+ * against a canvas that hasn't been measured yet is legitimately zero, not
+ * caller error. If `maxScale` is ever built some other way and ends up below
+ * `minScale`, the result is `maxScale`.
  */
 export function clampZoomScale(scale: number, minScale: number, maxScale: number): number {
   requirePositiveFinite(scale, 'scale');
-  requirePositiveFinite(minScale, 'minScale');
+  requireNonNegativeFinite(minScale, 'minScale');
   requirePositiveFinite(maxScale, 'maxScale');
   if (minScale > maxScale) return maxScale;
   return Math.min(Math.max(scale, minScale), maxScale);
@@ -376,9 +404,10 @@ export interface BlitContext2D {
  *
  * `ctx` must not be pre-scaled by device pixel ratio: `rects` and
  * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` are already in raw device
- * pixels — the canvas's actual backing-store size, `computeBlitRects`'s
- * `canvasCssWidth`/`canvasCssHeight` times `viewport.dpr` — unlike the
- * animation layer's context in `layers.ts`.
+ * pixels — the visible canvas's own `width`/`height` backing-store size, read
+ * off the canvas itself rather than recomputed as `canvasCssWidth * dpr`:
+ * allocating a canvas rounds that product to an integer, so the two can
+ * differ by a device pixel and under-clear the edge.
  *
  * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` accept zero: a canvas
  * mid-layout with no measured size yet is routine, not caller error, and the
@@ -386,7 +415,7 @@ export interface BlitContext2D {
  */
 export function blitStaticLayer(
   ctx: BlitContext2D,
-  image: CanvasImageSource,
+  image: CanvasLike,
   rects: BlitRects | null,
   canvasDeviceWidthPx: number,
   canvasDeviceHeightPx: number,
@@ -396,8 +425,10 @@ export function blitStaticLayer(
   if (canvasDeviceWidthPx === 0 || canvasDeviceHeightPx === 0) return;
   ctx.clearRect(0, 0, canvasDeviceWidthPx, canvasDeviceHeightPx);
   if (rects === null) return;
+  // CanvasLike's declared shape can't prove it's a real image source, but the
+  // canvas it wraps at runtime always is.
   ctx.drawImage(
-    image,
+    image as unknown as CanvasImageSource,
     rects.sourceX,
     rects.sourceY,
     rects.sourceWidth,
