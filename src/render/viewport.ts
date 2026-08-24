@@ -215,6 +215,13 @@ export function panViewport(viewport: Viewport<'css'>, dx: number, dy: number): 
  * assumed already clamped by the caller — see `clampZoomScale`. The result
  * can still fall outside the pan bound: zooming out about a focal point near
  * one edge pushes the opposite edge past it. Follow with `clampPan`.
+ *
+ * A non-finite or non-positive `nextScale` is treated as no zoom information
+ * for this frame rather than rejected: `clampZoomScale` can legitimately
+ * resolve to exactly 0 (an unmeasured canvas's fit-to-canvas minimum is 0,
+ * and a degenerate pinch clamps down to it), and this is the one call in the
+ * documented pan/zoom composition that receives a clamp's output directly, so
+ * it is the one that must absorb rather than throw on it.
  */
 export function zoomViewportAt(
   viewport: Viewport<'css'>,
@@ -222,9 +229,9 @@ export function zoomViewportAt(
   focalX: number,
   focalY: number,
 ): Viewport<'css'> {
-  requirePositiveFinite(nextScale, 'nextScale');
   requireFinite(focalX, 'focalX');
   requireFinite(focalY, 'focalY');
+  if (!Number.isFinite(nextScale) || nextScale <= 0) return viewport;
   const ratio = nextScale / viewport.scale;
   const originX = focalX - (focalX - viewport.originX) * ratio;
   const originY = focalY - (focalY - viewport.originY) * ratio;
@@ -232,35 +239,45 @@ export function zoomViewportAt(
 }
 
 /**
- * How far past the static buffer's own achieved CSS px/cell
- * (`bufferPixelsPerCell / dpr`) `maxZoomScale` allows a magnified blit to go.
- * The buffer is already sized to hold the intended maximum zoom (`layers.ts`
- * sizes it at `BASE_CSS_PIXELS_PER_CELL * DEFAULT_MAX_ZOOM`), so 1 keeps the
- * ceiling at the buffer's own native resolution rather than upscaling past
- * the detail it holds. A caller with headroom to spare can raise it.
+ * How far past the buffer's own achieved CSS px/cell (`bufferPixelsPerCell /
+ * dpr`) `maxZoomScale` allows a magnified blit to go before it is scaling up
+ * pixels rather than sampling detail the buffer holds. 1 keeps the ceiling at
+ * that native resolution; a caller with headroom to spare can raise it.
  */
 export const DEFAULT_MAX_UPSCALE = 1;
 
 /**
- * The zoom ceiling for `clampZoomScale`: `maxUpscale` times the buffer's own
- * achieved CSS px/cell, floored at `minScale` so a small board's
- * fit-to-canvas minimum is always within the reachable range even against a
- * badly degraded buffer. `bufferPixelsPerCell` is the static buffer's own
- * scale (`Viewport<'buffer'>.scale`, buffer pixels per cell); dividing by
- * `dpr` converts it to the same CSS-px/cell units as `minScale`.
+ * CSS px/cell an arrowhead needs to read as a direction. A fallback for
+ * callers that have not supplied the measured figure — pass the real value
+ * once one is available, rather than relying on this approximation.
+ */
+export const DEFAULT_MIN_LEGIBLE_CSS_PIXELS_PER_CELL = 10;
+
+/**
+ * The zoom ceiling for `clampZoomScale`: the larger of `maxUpscale` times the
+ * buffer's own achieved CSS px/cell and `minLegibleScale`, floored at
+ * `minScale` so a small board's fit-to-canvas minimum is always within the
+ * reachable range. Without the legibility floor, a badly degraded buffer
+ * would cap zoom below `minScale` and lock the player out of ever reading an
+ * arrowhead; the floor accepts blur there instead, since blurry-and-playable
+ * beats crisp-and-unplayable. `bufferPixelsPerCell` is the buffer's own scale
+ * (`Viewport<'buffer'>.scale`, buffer pixels per cell); dividing by `dpr`
+ * converts it to the same CSS-px/cell units as `minScale`.
  */
 export function maxZoomScale(
   minScale: number,
   bufferPixelsPerCell: number,
   dpr: number,
   maxUpscale: number = DEFAULT_MAX_UPSCALE,
+  minLegibleScale: number = DEFAULT_MIN_LEGIBLE_CSS_PIXELS_PER_CELL,
 ): number {
   requireNonNegativeFinite(minScale, 'minScale');
   requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
   requirePositiveFinite(dpr, 'dpr');
   requirePositiveFinite(maxUpscale, 'maxUpscale');
-  const nativeCssPixelsPerCell = bufferPixelsPerCell / dpr;
-  return Math.max(minScale, maxUpscale * nativeCssPixelsPerCell);
+  requirePositiveFinite(minLegibleScale, 'minLegibleScale');
+  const nativeCssPixelsPerCell = (bufferPixelsPerCell / dpr) * maxUpscale;
+  return Math.max(minScale, nativeCssPixelsPerCell, minLegibleScale);
 }
 
 /**
@@ -419,8 +436,7 @@ export function computeBlitRects(
  * The `save`/`setTransform`/`clearRect`/`drawImage`/`restore` surface
  * `blitStaticLayer` needs, with `drawImage`'s image parameter bound to the
  * real DOM `CanvasImageSource` type. A real `CanvasRenderingContext2D`
- * satisfies this directly; a test fake reaches it through an `unknown` cast,
- * the same pattern `layers.ts` uses for `probeReadback`.
+ * satisfies this directly; a test fake reaches it through an `unknown` cast.
  */
 export interface BlitContext2D {
   save(): void;
@@ -451,12 +467,10 @@ export interface BlitContext2D {
  * off the canvas itself rather than recomputed as `canvasCssWidth * dpr`:
  * allocating a canvas rounds that product to an integer, so the two can
  * differ by a device pixel and under-clear the edge. `ctx` is reset to the
- * identity transform before the clear and draw, and the reset is not
- * optional: `AnimationLayer.ctx` in `layers.ts` is the identical
- * `CanvasRenderingContext2D` type but pre-scaled by device pixel ratio, so
- * nothing in the type system stops that context reaching here by mistake,
- * and doing the device-pixel arithmetic through a stale dpr-scaled transform
- * would blit and clear at the wrong scale.
+ * identity transform before the clear and draw rather than assumed unscaled:
+ * nothing in `BlitContext2D`'s type distinguishes an unscaled context from a
+ * dpr-prescaled one, so a caller passing the wrong context would otherwise
+ * blit and clear at the wrong scale with no type error to catch it.
  *
  * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` accept zero: a canvas
  * mid-layout with no measured size yet is routine, not caller error, and the

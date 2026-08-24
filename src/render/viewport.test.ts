@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   DEFAULT_MAX_UPSCALE,
+  DEFAULT_MIN_LEGIBLE_CSS_PIXELS_PER_CELL,
   type BlitContext2D,
   type CanvasLike,
   blitStaticLayer,
@@ -225,9 +226,13 @@ describe('zoomViewportAt', () => {
     expect(zoomed.originY).toBe(-50);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a nextScale of %p', (bad) => {
-    expect(() => zoomViewportAt(createViewport({ scale: 10 }), bad, 0, 0)).toThrow(RangeError);
-  });
+  it.each([NaN, Infinity, -Infinity, 0, -1])(
+    'leaves the viewport unchanged for a non-finite or non-positive nextScale of %p, rather than throwing',
+    (bad) => {
+      const viewport = createViewport({ scale: 10, originX: 3, originY: 4 });
+      expect(zoomViewportAt(viewport, bad, 0, 0)).toEqual(viewport);
+    },
+  );
 
   it.each([NaN, Infinity, -Infinity])('rejects a non-finite focalX', (bad) => {
     expect(() => zoomViewportAt(createViewport({ scale: 10 }), 20, bad, 0)).toThrow(RangeError);
@@ -282,6 +287,21 @@ describe('zoomViewportAt', () => {
         },
       ),
     );
+  });
+});
+
+describe('clampZoomScale composed with zoomViewportAt', () => {
+  it('never throws when a degenerate pinch on an unmeasured canvas clamps to exactly 0', () => {
+    const viewport = createViewport({ scale: 10, originX: 3, originY: 4 });
+    const minScale = 0; // fit-to-canvas minimum against an unmeasured canvas
+    const maxScale = maxZoomScale(minScale, 30, 1);
+
+    for (const degeneratePinchScale of [NaN, 0, -5, -Infinity]) {
+      const clamped = clampZoomScale(degeneratePinchScale, minScale, maxScale);
+      expect(clamped).toBe(0);
+      expect(() => zoomViewportAt(viewport, clamped, 50, 50)).not.toThrow();
+      expect(zoomViewportAt(viewport, clamped, 50, 50)).toEqual(viewport);
+    }
   });
 });
 
@@ -344,21 +364,22 @@ describe('zoomViewportAt followed by clampPan', () => {
 });
 
 describe('maxZoomScale', () => {
-  it("defaults to the buffer's own achieved CSS px/cell, on a healthy buffer", () => {
+  it("defaults to the buffer's own achieved CSS px/cell, on a healthy buffer whose native resolution clears the legibility floor", () => {
     // 30 buffer px/cell at dpr 1 is the default buffer's native resolution
-    // (10 base * 3 maxZoom); the buffer already holds that much detail, no
-    // more, so DEFAULT_MAX_UPSCALE 1 keeps the ceiling right there.
+    // (10 base * 3 maxZoom); it already clears the legibility floor, so
+    // DEFAULT_MAX_UPSCALE 1 keeps the ceiling right there.
     expect(maxZoomScale(0, 30, 1)).toBe(30);
   });
 
   it('divides by dpr to convert buffer pixels to CSS pixels', () => {
-    expect(maxZoomScale(0, 30, 3)).toBeCloseTo(10, 6); // 30 / 3
+    expect(maxZoomScale(0, 30, 3)).toBeCloseTo(10, 6); // 30 / 3, exactly the legibility floor
   });
 
-  it('tightens instead of running away on a degraded buffer', () => {
-    // A buffer degraded to 1 px/cell at dpr 3 must not upscale to the
-    // healthy-buffer ceiling — it has far less detail to blow up.
-    expect(maxZoomScale(0, 1, 3)).toBeCloseTo((1 / 3) * DEFAULT_MAX_UPSCALE, 6);
+  it('floors at the legibility limit rather than tightening all the way down on a degraded buffer', () => {
+    // A buffer degraded to 1 px/cell at dpr 3 has almost no native detail
+    // (1/3 CSS px/cell), but locking zoom there would make the board
+    // unreadable, not just blurry — the legibility floor wins instead.
+    expect(maxZoomScale(0, 1, 3)).toBe(DEFAULT_MIN_LEGIBLE_CSS_PIXELS_PER_CELL);
   });
 
   it('never falls below minScale, even against a badly degraded buffer', () => {
@@ -369,8 +390,16 @@ describe('maxZoomScale', () => {
     expect(maxZoomScale(0, 30, 1)).toBe(30);
   });
 
-  it('an explicit maxUpscale above 1 still scales the buffer-derived ceiling', () => {
+  it('an explicit maxUpscale above 1 still scales the buffer-derived ceiling, once it exceeds the legibility floor', () => {
     expect(maxZoomScale(0, 30, 1, 4)).toBe(120);
+  });
+
+  it('an explicit minLegibleScale below the buffer-derived ceiling defers to the ceiling', () => {
+    expect(maxZoomScale(0, 30, 1, 1, 5)).toBe(30);
+  });
+
+  it('an explicit minLegibleScale above the buffer-derived ceiling wins', () => {
+    expect(maxZoomScale(0, 30, 1, 1, 50)).toBe(50);
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
@@ -389,26 +418,33 @@ describe('maxZoomScale', () => {
     expect(() => maxZoomScale(0, 30, 1, bad)).toThrow(RangeError);
   });
 
-  it('is always at least minScale, however it compares to the buffer-derived ceiling', () => {
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a minLegibleScale of %p', (bad) => {
+    expect(() => maxZoomScale(0, 30, 1, 1, bad)).toThrow(RangeError);
+  });
+
+  it('is always at least minScale and at least the legibility floor, however it compares to the buffer-derived ceiling', () => {
     fc.assert(
       fc.property(
         fc.double({ min: 0, max: 1e6, noNaN: true }),
         fc.double({ min: 0.001, max: 1e6, noNaN: true }),
         fc.double({ min: 1, max: 4, noNaN: true }),
         (minScale, bufferPixelsPerCell, dpr) => {
-          expect(maxZoomScale(minScale, bufferPixelsPerCell, dpr)).toBeGreaterThanOrEqual(minScale);
+          const ceiling = maxZoomScale(minScale, bufferPixelsPerCell, dpr);
+          expect(ceiling).toBeGreaterThanOrEqual(minScale);
+          expect(ceiling).toBeGreaterThanOrEqual(DEFAULT_MIN_LEGIBLE_CSS_PIXELS_PER_CELL);
         },
       ),
     );
   });
 
-  it("scales linearly with the buffer's achieved resolution", () => {
+  it("scales linearly with the buffer's achieved resolution once that resolution clears the legibility floor", () => {
     fc.assert(
       fc.property(
-        fc.double({ min: 0.001, max: 500, noNaN: true }),
-        fc.double({ min: 1, max: 4, noNaN: true }),
+        // Kept comfortably above the legibility floor (10) so the floor
+        // never kicks in and the ratio is exact.
+        fc.double({ min: 20, max: 500, noNaN: true }),
+        fc.double({ min: 1, max: 2, noNaN: true }),
         (bufferPixelsPerCell, dpr) => {
-          // minScale 0 so the floor never kicks in and the ratio is exact.
           expect(maxZoomScale(0, bufferPixelsPerCell, dpr)).toBeCloseTo(
             (DEFAULT_MAX_UPSCALE * bufferPixelsPerCell) / dpr,
             6,
