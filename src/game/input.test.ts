@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { cssPixel } from '../render/viewport.js';
 import type { CssPixel } from '../render/viewport.js';
 import { createGestureArbiter } from './input.js';
@@ -377,6 +378,75 @@ describe('createGestureArbiter: a third simultaneous pointer', () => {
     arbiter.onPointerDown(pointerEvent(4, 5, 5));
     arbiter.onPointerUp(pointerEvent(4, 5, 5));
     expect(handlers.calls.tap).toEqual([cssPixel(5, 5)]);
+  });
+});
+
+describe('createGestureArbiter: a repeat pointerdown for an already-tracked id', () => {
+  it('ends an in-progress pan before starting fresh, instead of registering the drag as a tap', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 5 });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerMove(pointerEvent(1, 50, 0)); // exceeds slop: pan starts
+    expect(handlers.calls.panStart).toBe(1);
+
+    // The platform drops pointer 1's pointerup and later recycles its id,
+    // or a handler wired at two DOM levels delivers a second down for it.
+    arbiter.onPointerDown(pointerEvent(1, 50, 0));
+
+    expect(handlers.calls.panEnd).toBe(1);
+    expect(handlers.calls.tap).toEqual([]);
+  });
+
+  it('ends an in-progress pinch cleanly, rather than doubling pinchStart without a matching pinchEnd', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerDown(pointerEvent(2, 100, 0));
+    expect(handlers.calls.pinchStart).toBe(1);
+
+    arbiter.onPointerDown(pointerEvent(2, 100, 0)); // pointer 2's down repeats
+
+    expect(handlers.calls.pinchEnd).toBe(1);
+    // A fresh pinch immediately re-forms from the leftover pointer 1 and
+    // the re-pressed pointer 2, matching the established leftover-pairing
+    // behaviour for any new pointerdown while one pointer is still held.
+    expect(handlers.calls.pinchStart).toBe(2);
+  });
+
+  it('never leaves onPanStart or onPinchStart more than one call ahead of its End, over fuzzed event sequences', () => {
+    const opArb = fc.record({
+      kind: fc.constantFrom('down', 'move', 'up', 'cancel', 'reset'),
+      pointerId: fc.constantFrom(1, 2, 3),
+      x: fc.integer({ min: -50, max: 50 }),
+      y: fc.integer({ min: -50, max: 50 }),
+    });
+
+    fc.assert(
+      fc.property(fc.array(opArb, { minLength: 1, maxLength: 40 }), (ops) => {
+        const handlers = makeHandlers();
+        const arbiter = createGestureArbiter(handlers, { slopCssPx: 4 });
+
+        for (const op of ops) {
+          const event = pointerEvent(op.pointerId, op.x, op.y);
+          if (op.kind === 'down') arbiter.onPointerDown(event);
+          else if (op.kind === 'move') arbiter.onPointerMove(event);
+          else if (op.kind === 'up') arbiter.onPointerUp(event);
+          else if (op.kind === 'cancel') arbiter.onPointerCancel(event);
+          else arbiter.reset();
+
+          const panBalance = handlers.calls.panStart - handlers.calls.panEnd;
+          const pinchBalance = handlers.calls.pinchStart - handlers.calls.pinchEnd;
+          expect(panBalance).toBeGreaterThanOrEqual(0);
+          expect(panBalance).toBeLessThanOrEqual(1);
+          expect(pinchBalance).toBeGreaterThanOrEqual(0);
+          expect(pinchBalance).toBeLessThanOrEqual(1);
+          expect(panBalance === 1 && pinchBalance === 1).toBe(false);
+        }
+      }),
+      { numRuns: 500 },
+    );
   });
 });
 

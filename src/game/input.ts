@@ -150,11 +150,23 @@ export function createGestureArbiter(
 
   function onPointerDown(event: PointerEventLike): void {
     if (!isFiniteEvent(event)) return;
-    // A third simultaneous pointer is ignored outright rather than tracked:
-    // once two pointers already define the gesture, a lingering third (or a
-    // pointer whose own up/cancel never arrives) must not be able to starve
-    // every later single-finger press of ever seeing pointers.size <= 2.
-    if (!pointers.has(event.pointerId) && pointers.size >= MAX_TRACKED_POINTERS) return;
+
+    if (pointers.has(event.pointerId)) {
+      // A repeat pointerdown for an id already tracked means the previous
+      // session for that id ended without an up/cancel ever reaching here —
+      // a dropped event with the platform recycling the id, or a handler
+      // wired at two levels of a bubbling DOM path. End whatever gesture it
+      // was part of properly first, exactly as a real cancel would, so a
+      // live drag or pinch can never be silently swallowed into a fresh tap
+      // candidate instead of firing its End callback.
+      onPointerCancel(event);
+    } else if (pointers.size >= MAX_TRACKED_POINTERS) {
+      // A third simultaneous pointer is ignored outright rather than
+      // tracked: once two pointers already define the gesture, a
+      // lingering third must not be able to starve every later
+      // single-finger press of ever seeing pointers.size <= 2.
+      return;
+    }
 
     const pos: PointerPos = { x: event.clientX, y: event.clientY };
     pointers.set(event.pointerId, pos);
