@@ -245,6 +245,12 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 - **100×100 is a performance risk, not a playability one** (R3, amended by
   [ADR-0006](docs/adr/0006-grid-size-is-a-parameter.md)). Grid size is a
   parameter the player can turn down, so a long board at a large size is a
-  setting, not a defect. What is at risk is generation under 1s, 60fps pan and
-  zoom, and buffer memory on iOS. The headless harness settles generation time
-  only — frame rate and memory need a device.
+  setting, not a defect. Generation, frame rate and memory have all now been
+  measured; the headless harness settles generation time only, and the rest
+  came off a phone.
+- **The canvas limit is per buffer, not a memory budget.** Measured on iOS: one
+  8192x8192 canvas holds and one 10000x10000 comes back blank, while two
+  8192x8192 canvases held at once are fine. So size each layer under the cap
+  rather than budgeting a total, and never trust allocation to throw — an
+  over-budget canvas is returned blank, and only reading a drawn pixel back
+  detects it.
