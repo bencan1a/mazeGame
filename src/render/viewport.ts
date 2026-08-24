@@ -219,14 +219,18 @@ export function maxZoomScale(bufferPixelsPerCell: number, dpr: number): number {
   return bufferPixelsPerCell / dpr;
 }
 
-/** Clamps a requested scale between `minScale` and `maxScale` (see `maxZoomScale`). */
+/**
+ * Clamps a requested scale between `minScale` and `maxScale` (see
+ * `maxZoomScale`). When the two cross — a small board's fit-to-canvas
+ * minimum can sit above what the buffer's resolution affords — `maxScale`
+ * wins rather than throwing: it is the bound backed by a measured device
+ * limit, and the caller has no way to avoid the crossing by construction.
+ */
 export function clampZoomScale(scale: number, minScale: number, maxScale: number): number {
   requirePositiveFinite(scale, 'scale');
   requirePositiveFinite(minScale, 'minScale');
   requirePositiveFinite(maxScale, 'maxScale');
-  if (minScale > maxScale) {
-    throw new RangeError(`minScale (${minScale}) exceeds maxScale (${maxScale})`);
-  }
+  if (minScale > maxScale) return maxScale;
   return Math.min(Math.max(scale, minScale), maxScale);
 }
 
@@ -239,10 +243,12 @@ export interface PanBounds {
 }
 
 /**
- * One axis of `clampPan`: centers content smaller than the viewport (so it
- * can't be dragged away from the middle), otherwise keeps the content's far
- * edge from crossing the viewport's near edge and vice versa, so some part of
- * it is always on screen.
+ * One axis of `clampPan`: content smaller than the viewport is centered and
+ * fixed there, not draggable at all. Content larger than the viewport is
+ * clamped so it always covers the viewport fully — its far edge can never
+ * cross the viewport's near edge, or vice versa — rather than merely keeping
+ * some part of it visible. A caller wanting over-scroll or a margin around a
+ * smaller board needs a different rule than this one.
  */
 function clampPanAxis(origin: number, contentSize: number, viewportSize: number): number {
   if (contentSize <= viewportSize) return (viewportSize - contentSize) / 2;
@@ -251,8 +257,8 @@ function clampPanAxis(origin: number, contentSize: number, viewportSize: number)
 
 /**
  * Clamps `viewport`'s origin so the board can never be panned entirely off
- * screen: centered when it fits inside the canvas, edge-bounded when it
- * doesn't.
+ * screen: centered and fixed when it fits inside the canvas, otherwise
+ * clamped to always cover the canvas fully. See `clampPanAxis`.
  */
 export function clampPan(viewport: Viewport<'css'>, bounds: PanBounds): Viewport<'css'> {
   requirePositiveFinite(bounds.boardWidth, 'boardWidth');
@@ -291,21 +297,26 @@ export interface BlitRects {
  * shows. `null` when the clamp on `viewport`/`bounds` has somehow been
  * skipped and nothing overlaps — `blitStaticLayer` treats that as "draw
  * nothing this frame" rather than passing a degenerate rect to `drawImage`.
+ *
+ * Takes `bufferPixelsPerCell` rather than a whole `Viewport<'buffer'>`: a
+ * buffer viewport's origin plays no part in this mapping, and threading the
+ * full type through here would silently promise support for a non-zero one.
  */
 export function computeBlitRects(
   viewport: Viewport<'css'>,
-  bufferViewport: Viewport<'buffer'>,
+  bufferPixelsPerCell: number,
   bufferWidthPx: number,
   bufferHeightPx: number,
   canvasCssWidth: number,
   canvasCssHeight: number,
 ): BlitRects | null {
+  requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
   requirePositiveFinite(bufferWidthPx, 'bufferWidthPx');
   requirePositiveFinite(bufferHeightPx, 'bufferHeightPx');
   requirePositiveFinite(canvasCssWidth, 'canvasCssWidth');
   requirePositiveFinite(canvasCssHeight, 'canvasCssHeight');
 
-  const cssToBuffer = bufferViewport.scale / viewport.scale;
+  const cssToBuffer = bufferPixelsPerCell / viewport.scale;
   const srcLeft = (0 - viewport.originX) * cssToBuffer;
   const srcTop = (0 - viewport.originY) * cssToBuffer;
   const srcRight = (canvasCssWidth - viewport.originX) * cssToBuffer;
@@ -317,7 +328,7 @@ export function computeBlitRects(
   const sourceHeight = Math.min(bufferHeightPx, srcBottom) - sourceY;
   if (sourceWidth <= 0 || sourceHeight <= 0) return null;
 
-  const bufferToCss = viewport.scale / bufferViewport.scale;
+  const bufferToCss = viewport.scale / bufferPixelsPerCell;
   const destX = (viewport.originX + sourceX * bufferToCss) * viewport.dpr;
   const destY = (viewport.originY + sourceY * bufferToCss) * viewport.dpr;
   const destWidth = sourceWidth * bufferToCss * viewport.dpr;
