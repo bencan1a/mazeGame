@@ -216,9 +216,15 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
   assigning yourself before writing code.
 - **Stay in your lane.** File ownership is in `docs/WORKFLOW.md`. Need something
   from another stream? Open an issue against it and use a fixture meanwhile.
-- **Shared files** (`src/core/types.ts`, `src/core/generate.ts`, `rng.ts`,
-  `grid.ts`, `test/fixtures/**`, `docs/**`) need a `contract-change` issue and
-  human review, in a PR of their own with no feature work attached.
+- **Shared files** (`src/core/types.ts`, `src/core/generate.ts`,
+  `src/core/rng.ts`, `src/core/grid.ts`, `test/fixtures/**`, `docs/CONTRACTS.md`,
+  `docs/adr/**`) need a `contract-change` issue and human review, in a PR of
+  their own with no feature work attached.
+- **The rest of `docs/` is not a shared file.** Recording a measurement, a
+  decision or a finding goes in the same PR as the work that produced it, with
+  no issue and no split. What the rule above protects is an interface other
+  lanes build against; prose is not one, and separating a note from its
+  evidence only makes it likelier to rot.
 - `npm run verify` passes locally before you push.
 - Do not merge or approve PRs.
 - No new runtime dependency without an issue justifying it — offline is a
