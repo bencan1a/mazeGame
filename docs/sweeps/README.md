@@ -12,8 +12,10 @@ cloud runner, not a phone — see [`TESTING.md`](../TESTING.md). Every
 as a trend, not a device number.
 
 905 boards, 5 sweeps, **zero generation failures**, coverage exactly 1.0 on
-every board, zero retries (`attempts` is 1 everywhere), and the peel's
-fallback path (`wholeRunEscapes`) never triggered once. Specs are in
+every board, and zero retries (`attempts` is 1 everywhere). The peel's
+whole-run fallback fired exactly once in 905 boards, at `minPieceLength: 6`,
+seed 9 — the only board in the set where the length floor cost anything at
+all. Specs are in
 [`specs/`](specs/), raw per-board rows and per-cell aggregates in
 [`data/`](data/) — `npm run harness -- --sweep docs/sweeps/specs/<file>.json
 --csv docs/sweeps/data/<file>.csv` reproduces each one from a fresh checkout.
@@ -21,9 +23,13 @@ fallback path (`wholeRunEscapes`) never triggered once. Specs are in
 ## Headline
 
 **Yes, the space has usable range — through three of the four swept
-parameters.** `gridSize`, `meanPieceLength` and `pieceLengthVariance` each
-move `dagDepth`, `meanFreeSetSize` and `segmentCount` by a large factor over
-their tested ranges (tables below). **`bendProbability` does not move
+parameters.** `gridSize` and `meanPieceLength` move `dagDepth`,
+`meanFreeSetSize` and `segmentCount` by a large factor over their tested
+ranges. `pieceLengthVariance` is the weakest of the three and its effect
+depends on where `meanPieceLength` sits: at a mean of 4 it is a real lever,
+at a mean of 20 it barely moves `segmentCount` (38.8 to 36.6 across variance
+2 to 16) and nudges `meanFreeSetSize` the opposite way from what more spread
+would suggest. Tables below. **`bendProbability` does not move
 anything.** Every metric — `bendRate`, `segmentCount`, `dagDepth`,
 `meanFreeSetSize`, `edgeCount` — is identical to at least four decimal places
 across `bendProbability` 0.1 through 0.9. Only `generationMs` differs, and
@@ -128,9 +134,8 @@ what a board actually looks like.
 | 20              | 16                  | 20.16               | 36.6     | 8.6             | 5.7             | 4.25                 |
 
 (12 seeds/cell, `belowMinimum` is 0 everywhere in this grid — the length floor
-never binds at `minPieceLength: 2` over this range.) `dagDepth` runs
-9–22.5 and `meanFreeSetSize` runs 5.3–16.0 across the grid: real, usable
-range. Short mean piece length with low variance is the clutter-and-depth
+never binds at `minPieceLength: 2` over this range.) `dagDepth` runs 7.8–22.5
+and `meanFreeSetSize` runs 5.3–16.0 across the grid: real, usable range. Short mean piece length with low variance is the clutter-and-depth
 corner (dense, deep blocking chains); long mean piece length is the sparse,
 shallow corner regardless of variance. `DEFAULT_GEN_PARAMS` (bolded row) sits
 centrally, not at either extreme.
@@ -149,9 +154,11 @@ centrally, not at either extreme.
 Difficulty by these two metrics scales with grid size at fixed piece-length
 parameters, roughly linearly for `dagDepth` and sub-linearly for
 `meanFreeSetSize`. Cross-checked against `meanPieceLength` at grid 100 too
-(`grid-piece-cross.json`): the same mean/variance/dagDepth relationship holds
-at 100×100 as at 40×40, so the difficulty knobs are not grid-size-specific —
-see `data/grid-piece-cross.agg.csv` for the full cross table.
+(`grid-piece-cross.json`): the mean-piece-length half of the relationship
+holds at 100×100 as at 40×40, so that knob is not grid-size-specific. **That
+sweep holds `pieceLengthVariance` at 8 in every cell**, so nothing here says
+whether the variance half carries across grid sizes — see
+`data/grid-piece-cross.agg.csv` for what was actually run.
 
 ### `minPieceLength` floor (gridSize 40, `meanPieceLength: 6`, `pieceLengthVariance: 8`)
 
@@ -167,7 +174,10 @@ so swept here too.
 | 6              | 79.1     | 9.27                | 13.8     | 0.00                | 0.50                     |
 
 `belowMinimum` stays at 0 across the whole tested range — the peel holds the
-floor without giving it up, at every value tried. `shortStraightRuns` (a
+floor without giving it up at every value tried here, which stops at
+`minPieceLength: 6`. It does not hold indefinitely: the generator's own tests
+pin under-length pieces appearing at a floor of 8, so the last untested step
+is where this starts to cost something. `shortStraightRuns` (a
 different quality cost — a cut left a straight run under `minStraightRun`)
 climbs as the floor rises, from 0 at `minPieceLength: 1` to a mean of 0.5 per
 board at 6. The current default of 2 sits on the cheap side of that climb.
