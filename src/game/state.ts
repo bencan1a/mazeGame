@@ -92,10 +92,12 @@ export function animationComplete(state: GameState): GameState {
 
 /**
  * Drops the removed-set and restores full lives on the same `board` object.
- * A no-op while the game is still `'playing'`.
+ * Works from any status, including mid-animation with a non-empty queue, so a
+ * caller that never gets its `animationComplete` signal — a cancelled
+ * animation loop, an unmounted renderer — still has a way back to a fresh,
+ * playable state.
  */
 export function restart(state: GameState): GameState {
-  if (state.status === 'playing') return state;
   return createGameState(state.board, state.playParams);
 }
 
@@ -110,7 +112,12 @@ function processQueue(state: GameState): GameState {
 }
 
 function resolveOne(state: GameState, input: TapInput): GameState {
-  if (input === null || state.removed[input] === 1) {
+  if (
+    input === null ||
+    input < 1 ||
+    input > state.board.segmentCount ||
+    state.removed[input] === 1
+  ) {
     return { ...state, lastOutcome: MISS_OUTCOME };
   }
 

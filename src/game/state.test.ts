@@ -84,6 +84,38 @@ describe('tap: miss', () => {
   });
 });
 
+describe('tap: invalid segment ids', () => {
+  it('treats id 0 as a miss, not a free removal', () => {
+    const state = tap(freshGame(), 0);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+
+  it('treats an id past segmentCount as a miss', () => {
+    const state = tap(freshGame(), ACYCLIC_BOARD.segmentCount + 1);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+
+  it('treats a negative id as a miss', () => {
+    const state = tap(freshGame(), -1);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+
+  it('treats a second tap on an already-removed id as a miss, not a fresh removal', () => {
+    let state = settle(tap(freshGame(), 3)); // free, removed, animation settled
+    expect(state.removedCount).toBe(1);
+    state = tap(state, 3); // already gone
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(1);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+});
+
 describe('tap queue during animation', () => {
   it('resolves queued taps strictly in the order they were made', () => {
     let state = tap(freshGame(), 1); // blocked: bounce, now animating
@@ -106,9 +138,16 @@ describe('tap queue during animation', () => {
     expect(state.queue).toEqual([]);
   });
 
-  it('leaves state untouched when a tap arrives with nothing queued and no animation running', () => {
+  it('animationComplete is a no-op when nothing is animating', () => {
     const state = freshGame();
     expect(animationComplete(state)).toBe(state);
+  });
+
+  it('a tap on an idle game resolves immediately rather than merely enqueuing', () => {
+    const state = tap(freshGame(), 3);
+    expect(state.queue).toEqual([]);
+    expect(state.lastOutcome).toEqual({ kind: 'removed', id: 3 });
+    expect(isRemoved(state, 3)).toBe(true);
   });
 });
 
@@ -151,9 +190,23 @@ describe('restart on zero lives', () => {
     );
   });
 
-  it('is a no-op while still playing', () => {
-    const state = freshGame();
-    expect(restart(state)).toBe(state);
+  it('recovers a game stuck mid-animation, even though status is still playing', () => {
+    // A caller that never gets its animationComplete signal — a cancelled
+    // animation loop, an unmounted renderer — needs a way back to a fresh
+    // state without waiting for status to reach 'lost'.
+    let state = tap(freshGame(), 1); // bounce, now animating, status still 'playing'
+    state = tap(state, 3); // queued, never resolved
+    expect(state.status).toBe('playing');
+    expect(state.animating).toBe(true);
+    expect(state.queue).toEqual([3]);
+
+    const restarted = restart(state);
+    expect(restarted.board).toBe(ACYCLIC_BOARD);
+    expect(restarted.animating).toBe(false);
+    expect(restarted.queue).toEqual([]);
+    expect(restarted.status).toBe('playing');
+    expect(restarted.lives).toBe(PLAY_PARAMS.lives);
+    expect(restarted.removedCount).toBe(0);
   });
 
   it('ignores taps once lost, until restart is called', () => {
