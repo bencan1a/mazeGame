@@ -53,9 +53,11 @@ export interface ExitPath {
   /** Length of the segment's own polyline, tail center to head center. Zero for a one-cell segment. */
   readonly dashLength: number;
   /**
-   * How far the dash's own trailing edge travels by `progress = 1`: the
-   * ray to the board's outer edge, plus `dashLength` again plus a full
-   * arrowhead's reach, so the whole piece has passed the board by then.
+   * How far `progress` travels the dash's own trailing edge: the ray to the
+   * board's outer edge, plus whatever extra a segment whose own body
+   * (`dashLength`) is shorter than an arrowhead's reach still needs. Not the
+   * path's own drawn length — the arrowhead, riding `dashLength` ahead of
+   * the trailing edge, can still be over real vertices well past this point.
    */
   readonly totalLength: number;
   readonly scale: number;
@@ -64,9 +66,11 @@ export interface ExitPath {
 
 /**
  * Builds `segmentId`'s exit path in `viewport`'s pixel space. Throws
- * `RangeError` for a `segmentId` outside the board or a malformed
- * `segColor`/`segDir` — a caller driving a per-frame loop should check the
- * segment with `drawSegmentGuarded` first, as `startSnakeOutAnimation` does.
+ * `RangeError` for a `segmentId` outside the board, a segment with no cells,
+ * or a malformed `segColor`/`segDir` — a caller driving a per-frame loop
+ * should check the segment with `drawSegmentGuarded` first, as
+ * `startSnakeOutAnimation` does, and fall back the same way it does for a
+ * `RangeError` this still throws despite that guard.
  */
 export function buildExitPath(
   board: Board,
@@ -76,6 +80,9 @@ export function buildExitPath(
   requireValidSegmentId(board, segmentId);
   const start = board.segStart[segmentId - 1] as number;
   const end = board.segStart[segmentId] as number;
+  if (end <= start) {
+    throw new RangeError(`segment ${segmentId} has no cells`);
+  }
   const dir = requireDirection(board, segmentId);
   const segLen = end - start;
   const headCell = board.segCells[end - 1] as number;
@@ -111,15 +118,16 @@ export function buildExitPath(
 
   const dashLength = (segLen - 1) * viewport.scale;
   const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
-  // How far past the true board edge progress = 1 puts the dash's own
-  // trailing edge: its own length plus a full arrowhead's reach, so the whole
-  // dash — and the arrowhead riding a further dashLength ahead of it — has
-  // cleared the board before the animation reports done.
   const uniformLength = (segLen - 1 + numRaySteps) * viewport.scale;
-  const totalLength = uniformLength + viewport.scale / 2 + dashLength + arrowReach;
-  // The arrowhead anchor sits dashLength ahead of the dash's trailing edge, so
-  // the path itself has to reach dashLength past totalLength — this is what
-  // the last edge's length below is for.
+  // The dash's own trailing edge only has to reach the true board edge: once
+  // it is there, the whole dash — and the arrowhead riding dashLength ahead
+  // of it — is already off the board, so nothing further is visible. A
+  // segment whose own body is shorter than the arrowhead's reach needs the
+  // difference as extra travel, or its head would stop short of clearing.
+  const totalLength = uniformLength + viewport.scale / 2 + Math.max(0, arrowReach - dashLength);
+  // The arrowhead anchor can still lead the trailing edge by more than that
+  // margin — by its own dashLength, always — so the path has to reach that
+  // far even though progress itself stops at totalLength.
   const finalEdgeLength = totalLength + dashLength - uniformLength;
 
   const dx = DX[dir] as number;
@@ -147,7 +155,8 @@ export interface DashContext2D extends StrokeContext2D, FillContext2D {
  *
  * A single dash the length of the segment's own body is stroked along the
  * concatenated path, offset so it starts at the tail at `progress = 0` and
- * has moved its own length plus an arrowhead's reach past the board by
+ * has its trailing edge at the board's true edge — or a little past it, for
+ * a segment short enough that its arrowhead would not otherwise clear — by
  * `progress = 1` (see `buildExitPath`). An arrowhead is filled at the dash's
  * leading edge each frame, oriented to the path's local direction there —
  * for a one-cell segment, whose dash has zero length, that edge is the whole
@@ -213,6 +222,30 @@ function requirePositiveFiniteDuration(durationMs: number): void {
   if (!Number.isFinite(durationMs) || durationMs <= 0) {
     throw new RangeError(`durationMs must be a positive finite number, got ${durationMs}`);
   }
+}
+
+/**
+ * `buildExitPath`, with a `RangeError` turned into `null` instead of a throw.
+ * `drawSegmentGuarded` does not catch a segment with no cells — there is
+ * nothing to stroke or fill, so it draws nothing and reports success — so a
+ * caller relying on that guard alone still needs this to close the gap.
+ */
+function tryBuildExitPath(
+  board: Board,
+  segmentId: SegmentId,
+  viewport: Viewport<'css'>,
+): ExitPath | null {
+  try {
+    return buildExitPath(board, segmentId, viewport);
+  } catch (err) {
+    if (!(err instanceof RangeError)) throw err;
+    return null;
+  }
+}
+
+/** Whether two `'css'` viewports differ in a way that changes the geometry `buildExitPath` computes. */
+export function viewportChanged(a: Viewport<'css'>, b: Viewport<'css'>): boolean {
+  return a.scale !== b.scale || a.originX !== b.originX || a.originY !== b.originY;
 }
 
 /**
@@ -287,10 +320,10 @@ export interface SnakeOutAnimation {
  * Drives one segment's exit animation on `options.layer`, leaving every
  * other layer untouched. Validates `segmentId` and `durationMs` up front —
  * both are the caller's own choice, so a bad one is rejected rather than
- * absorbed. `board` itself may still carry a malformed `segColor`/`segDir`
- * for this segment; that is checked with `drawSegmentGuarded` before any
- * frame is scheduled, and turns into an immediate, silent completion rather
- * than a throw out of a per-frame loop.
+ * absorbed. `board` itself may still carry a segment with no cells or a
+ * malformed `segColor`/`segDir`; that is checked with `drawSegmentGuarded`
+ * and `tryBuildExitPath` before any frame is scheduled, and turns into an
+ * immediate, silent completion rather than a throw out of a per-frame loop.
  */
 export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): SnakeOutAnimation {
   const { board, segmentId, durationMs, layer, scheduler, onComplete } = options;
@@ -329,7 +362,8 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
 
   const guardedOk = drawSegmentGuarded(layer.ctx, board, segmentId, viewport);
   clearAnimationLayer(layer);
-  if (!guardedOk) {
+  const initialPath = guardedOk ? tryBuildExitPath(board, segmentId, viewport) : null;
+  if (initialPath === null) {
     // Armed before the frame is requested: a synchronous scheduler would
     // otherwise settle the animation before there is anything to unsubscribe,
     // and a hidden tab never delivers the frame at all.
@@ -338,12 +372,16 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return { cancel: finish };
   }
 
-  let pathViewport = viewport;
-  let path = buildExitPath(board, segmentId, pathViewport);
+  // A snapshot copy, not a reference to whatever the getter last returned: a
+  // getter over a viewport it mutates in place would otherwise hand back the
+  // exact same object every call, so comparing against a held reference to it
+  // compares the object to itself and never sees a change.
+  let pathViewport: Viewport<'css'> = { ...viewport };
+  let path = initialPath;
   const currentPath = (): ExitPath => {
     const now = readViewport();
-    if (now !== pathViewport) {
-      pathViewport = now;
+    if (viewportChanged(now, pathViewport)) {
+      pathViewport = { ...now };
       path = buildExitPath(board, segmentId, pathViewport);
     }
     return path;
@@ -355,6 +393,9 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   // one clock rather than differenced across two.
   const step = (): void => {
     frameHandle = null;
+    // A frame already in flight when cancel() fires still reaches here: it
+    // must not repaint the layer cancel() just cleared or reschedule itself.
+    if (settled) return;
     const progress = elapsed() / durationMs;
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), progress);
@@ -366,7 +407,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   };
 
   unsubscribeVisible = scheduler.onVisible(() => {
-    if (elapsed() < durationMs) return;
+    if (settled || elapsed() < durationMs) return;
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), 1);
     complete();
