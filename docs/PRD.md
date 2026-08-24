@@ -63,17 +63,28 @@ pipeline, sound, accounts, monetization.
 
 ### 3.2 Interaction
 
-| Req           | Detail                                                                                                                                                                                                          |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pan & zoom    | Pinch-zoom and drag-pan. Required at 100×100.                                                                                                                                                                   |
-| Tap targeting | Hit-test the tapped cell. If it is empty or holds a blocked segment, search outward within a radius for the nearest **free** segment and select that instead. Prevents fat-finger misfires from costing a life. |
-| Ray checking  | **No affordance.** The player pans and judges. This is the intended difficulty.                                                                                                                                 |
-| Animation     | Fast fixed-duration snake-out. Taps queue during animation and resolve in order.                                                                                                                                |
-| Lives         | Fixed count (default 3, configurable). Zero ⇒ restart same seed.                                                                                                                                                |
+| Req           | Detail                                                                                                                                                                                                                                                                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pan & zoom    | Pinch-zoom and drag-pan. Required at 100×100.                                                                                                                                                                                                                                                                                                                    |
+| Tap targeting | Hit-test the tapped cell. A cell holding a live segment selects it directly, free or blocked — a blocked one bounces, because the player aimed at it. If the cell is empty, or holds a segment that has already left, search outward within a radius for the nearest **free** segment and select that instead. Prevents fat-finger misfires from costing a life. |
+| Ray checking  | **No affordance.** The player pans and judges. This is the intended difficulty.                                                                                                                                                                                                                                                                                  |
+| Animation     | Fast fixed-duration snake-out. Taps queue during animation and resolve in order.                                                                                                                                                                                                                                                                                 |
+| Lives         | Fixed count (default 3, configurable). Zero ⇒ restart same seed.                                                                                                                                                                                                                                                                                                 |
 
 > **Note on tap-radius snapping:** the radius must only snap to _free_ segments. Snapping
 > to a blocked one would cost a life the player didn't intend to risk. If no free segment
 > is in radius, treat as a miss with no penalty rather than a bounce.
+>
+> Aiming directly at a blocked segment is a different act from being snapped onto one, and
+> it bounces. An earlier wording sent a blocked direct hit to the radius search too, which
+> made `bounced` unreachable: the hit test is the only source of taps and removals only
+> unblock, so lives never decremented and §1's lose-and-restart never fired.
+>
+> The path is space-filling, so a board is nearly fully tiled. At gridSize 100 zoomed to
+> fit a phone — roughly 3–4 CSS px per cell — almost every tap lands as a direct hit, so
+> the radius rarely engages at the zoom level it was built for. Whether that reads as
+> tense or as unfair is for the playtest rounds to settle. If it plays badly, the answer
+> is a confidence threshold on the direct hit, not a return to always-redirect.
 
 ### 3.3 Rendering
 
