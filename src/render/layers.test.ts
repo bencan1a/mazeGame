@@ -15,6 +15,7 @@ import {
   type CanvasLike,
 } from './layers.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
+import { createBufferViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
 
 describe('computeBufferBudget', () => {
@@ -93,6 +94,12 @@ describe('degradeBudget', () => {
     const budget = computeBufferBudget(40, 40, MIN_PIXELS_PER_CELL);
     const degraded = degradeBudget(budget, 40, 40);
     expect(degraded.pixelsPerCell).toBeGreaterThanOrEqual(MIN_PIXELS_PER_CELL);
+  });
+
+  it('rejects a minPixelsPerCell above the current budget rather than raising resolution', () => {
+    const budget = computeBufferBudget(40, 40, 2);
+    expect(budget.pixelsPerCell).toBe(2);
+    expect(() => degradeBudget(budget, 40, 40, MAX_CANVAS_DIMENSION, 10)).toThrow(RangeError);
   });
 });
 
@@ -177,9 +184,26 @@ describe('removedSetsDiffer', () => {
   });
 });
 
-/** A minimal 2D-context fake with a device memory cap, to exercise the readback probe without a real canvas. */
+interface FakeTransform {
+  readonly a: number;
+  readonly d: number;
+  readonly e: number;
+  readonly f: number;
+}
+
+const IDENTITY_TRANSFORM: FakeTransform = { a: 1, d: 1, e: 0, f: 0 };
+
+/**
+ * A minimal 2D-context fake with a device memory cap, to exercise the
+ * readback probe without a real canvas. Tracks a scale+translate transform
+ * (matching this codebase's only uses of `scale`/`setTransform`) so that,
+ * like a real context, `fillRect`/`clearRect` honour it while
+ * `getImageData` always reads raw backing-store pixels regardless of it.
+ */
 class FakeCtx {
   private pixels: Uint8ClampedArray;
+  private transform: FakeTransform = IDENTITY_TRANSFORM;
+  private readonly transformStack: FakeTransform[] = [];
   constructor(
     private readonly width: number,
     private readonly height: number,
@@ -188,36 +212,67 @@ class FakeCtx {
     this.pixels = new Uint8ClampedArray(width * height * 4);
   }
   fillStyle = '';
-  save(): void {}
-  restore(): void {}
-  clearRect(x: number, y: number, w: number, h: number): void {
-    for (let dy = 0; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        const px = x + dx;
-        const py = y + dy;
-        if (px < 0 || py < 0 || px >= this.width || py >= this.height) continue;
-        const i = (py * this.width + px) * 4;
-        this.pixels[i] = 0;
-        this.pixels[i + 1] = 0;
-        this.pixels[i + 2] = 0;
-        this.pixels[i + 3] = 0;
+  save(): void {
+    this.transformStack.push(this.transform);
+  }
+  restore(): void {
+    this.transform = this.transformStack.pop() ?? IDENTITY_TRANSFORM;
+  }
+  readonly scaleCalls: [number, number][] = [];
+  scale(sx: number, sy: number): void {
+    this.scaleCalls.push([sx, sy]);
+    this.transform = {
+      a: this.transform.a * sx,
+      d: this.transform.d * sy,
+      e: this.transform.e,
+      f: this.transform.f,
+    };
+  }
+  setTransform(a: number, _b: number, _c: number, d: number, e: number, f: number): void {
+    this.transform = { a, d, e, f };
+  }
+  getTransform(): FakeTransform {
+    return this.transform;
+  }
+  private toRaw(x: number, y: number): [number, number] {
+    return [this.transform.a * x + this.transform.e, this.transform.d * y + this.transform.f];
+  }
+  /**
+   * Only pixels fully inside the transformed rect are touched — a
+   * conservative model of sub-pixel coverage, so a rect that stops short of
+   * a pixel's far edge leaves that pixel alone rather than rounding up to
+   * cover it.
+   */
+  private writeRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rgba: [number, number, number, number],
+  ): void {
+    const [rx, ry] = this.toRaw(x, y);
+    const rw = w * this.transform.a;
+    const rh = h * this.transform.d;
+    for (let py = Math.ceil(ry); py < Math.floor(ry + rh); py++) {
+      for (let px = Math.ceil(rx); px < Math.floor(rx + rw); px++) {
+        this.pokeRawPixel(px, py, rgba);
       }
     }
   }
+  pokeRawPixel(x: number, y: number, rgba: [number, number, number, number]): void {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return;
+    const i = (y * this.width + x) * 4;
+    this.pixels[i] = rgba[0];
+    this.pixels[i + 1] = rgba[1];
+    this.pixels[i + 2] = rgba[2];
+    this.pixels[i + 3] = rgba[3];
+  }
+  clearRect(x: number, y: number, w: number, h: number): void {
+    this.writeRect(x, y, w, h, [0, 0, 0, 0]);
+  }
   fillRect(x: number, y: number, w: number, h: number): void {
     if (!this.allocated) return;
-    for (let dy = 0; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        const px = x + dx;
-        const py = y + dy;
-        if (px < 0 || py < 0 || px >= this.width || py >= this.height) continue;
-        const i = (py * this.width + px) * 4;
-        this.pixels[i] = 255;
-        this.pixels[i + 1] = 0;
-        this.pixels[i + 2] = 255;
-        this.pixels[i + 3] = 255;
-      }
-    }
+    this.writeRect(x, y, w, h, [255, 0, 255, 255]);
   }
   getImageData(x: number, y: number, w: number, h: number): ImageData {
     const data = new Uint8ClampedArray(w * h * 4);
@@ -245,10 +300,6 @@ class FakeCtx {
   moveTo(): void {}
   lineTo(): void {}
   stroke(): void {}
-  readonly scaleCalls: [number, number][] = [];
-  scale(sx: number, sy: number): void {
-    this.scaleCalls.push([sx, sy]);
-  }
 }
 
 function fakeCanvasFactory(allocationLimitPx: number): () => CanvasLike {
@@ -311,6 +362,7 @@ describe('probeReadback', () => {
       restore(): void {
         restoreCalls++;
       },
+      setTransform(): void {},
       clearRect(): void {},
       fillRect(): void {},
       getImageData(): never {
@@ -321,6 +373,36 @@ describe('probeReadback', () => {
     expect(probeReadback(ctx, 10, 10)).toBe(false);
     expect(saveCalls).toBe(1);
     expect(restoreCalls).toBe(1);
+  });
+
+  it('succeeds on a context the caller has already scaled, by resetting the transform before probing', () => {
+    const fake = new FakeCtx(10, 10, true);
+    fake.scale(3, 3); // simulate the animation layer's dpr pre-scale
+
+    expect(probeReadback(fake as unknown as CanvasRenderingContext2D, 10, 10)).toBe(true);
+  });
+
+  it('restores the callers transform afterward rather than leaving it reset', () => {
+    const fake = new FakeCtx(10, 10, true);
+    fake.scale(3, 3);
+
+    probeReadback(fake as unknown as CanvasRenderingContext2D, 10, 10);
+
+    expect(fake.getTransform()).toEqual({ a: 3, d: 3, e: 0, f: 0 });
+  });
+
+  it('does not corrupt content drawn under a different transform than the one it probes with', () => {
+    const fake = new FakeCtx(30, 30, true);
+    fake.scale(3, 3);
+    // A caller drawing at CSS-space (1, 1) through the dpr-3 transform lands
+    // at raw device pixel (3, 3) — nowhere near the probed corner at (29, 29).
+    fake.fillRect(1, 1, 1, 1);
+    const before = Array.from(fake.getImageData(3, 3, 1, 1).data);
+
+    probeReadback(fake as unknown as CanvasRenderingContext2D, 30, 30);
+
+    const after = Array.from(fake.getImageData(3, 3, 1, 1).data);
+    expect(after).toEqual(before);
   });
 });
 
@@ -335,6 +417,9 @@ describe('createStaticLayer', () => {
     expect(layer.budget.widthPx).toBe(80);
     expect(layer.budget.heightPx).toBe(80);
     expect(layer.viewport.scale).toBe(20);
+    // The viewport maps cell -> buffer pixel, not cell -> CSS pixel: a
+    // different space, tagged so it cannot be handed to a CSS-space consumer.
+    expect(layer.viewport.space).toBe('buffer');
     expect(layer.allocationOk).toBe(true);
   });
 
@@ -433,6 +518,55 @@ describe('createStaticLayer', () => {
     expect(layer.budget.widthPx * layer.budget.heightPx).toBeLessThanOrEqual(throwAbovePx);
     expect(layer.allocationOk).toBe(true);
   });
+
+  it('always re-allocates at the final budget, so the canvas matches it even when the ladder left a stale, differently-sized context live', () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // Readback never succeeds, so the ladder degrades all the way to the
+    // floor (1px/cell, 40x40). Resizing to 40x40 fails transiently — once —
+    // during the ladder's own probe, leaving a larger (50x50) context live;
+    // the unconditional final re-allocate must retry and succeed.
+    let floorResizeAttempts = 0;
+    const canvas: CanvasLike & { widthValue: number; heightValue: number } = {
+      widthValue: 0,
+      heightValue: 0,
+      get width() {
+        return this.widthValue;
+      },
+      set width(value: number) {
+        if (value === 40) {
+          floorResizeAttempts++;
+          if (floorResizeAttempts === 1) throw new Error('transient allocation failure');
+        }
+        this.widthValue = value;
+      },
+      get height() {
+        return this.heightValue;
+      },
+      set height(value: number) {
+        this.heightValue = value;
+      },
+      getContext(id: '2d') {
+        if (id !== '2d') return null;
+        // allocated: false, so probeReadback always reports failure and the
+        // ladder runs all the way to the floor.
+        return new FakeCtx(
+          this.widthValue,
+          this.heightValue,
+          false,
+        ) as unknown as CanvasRenderingContext2D;
+      },
+    };
+
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: () => canvas,
+    });
+
+    expect(layer.budget.widthPx).toBe(40);
+    expect(layer.budget.heightPx).toBe(40);
+    expect(layer.canvas.width).toBe(layer.budget.widthPx);
+    expect(layer.canvas.height).toBe(layer.budget.heightPx);
+  });
 });
 
 describe('redrawStaticLayer', () => {
@@ -464,7 +598,7 @@ describe('redrawStaticLayer', () => {
       canvas,
       ctx: canvas.getContext('2d')!,
       budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
-      viewport: { scale: 20, dpr: 1, originX: 0, originY: 0 },
+      viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
     };
@@ -500,21 +634,54 @@ describe('createAnimationLayer / clearAnimationLayer', () => {
     expect((layer.ctx as unknown as FakeCtx).scaleCalls).toEqual([[3, 3]]);
   });
 
-  it('clears the full backing store, in the CSS-pixel coordinates the pre-scaled context draws in', () => {
-    let cleared: [number, number, number, number] | undefined;
+  it('clears the actual backing-store dimensions, not cssWidth * dpr, resetting the transform first', () => {
+    let createdCtx: FakeCtx | undefined;
     const canvas: CanvasLike = {
-      width: 300,
-      height: 600,
-      getContext: () =>
-        ({
-          clearRect: (x: number, y: number, w: number, h: number) => {
-            cleared = [x, y, w, h];
-          },
-        }) as unknown as CanvasRenderingContext2D,
+      width: 0,
+      height: 0,
+      getContext(id: '2d') {
+        if (id !== '2d') return null;
+        createdCtx = new FakeCtx(this.width, this.height, true);
+        return createdCtx as unknown as CanvasRenderingContext2D;
+      },
     };
-    const layer = { canvas, ctx: canvas.getContext('2d')!, dpr: 3, cssWidth: 100, cssHeight: 200 };
+    const layer = createAnimationLayer(100, 200, 3, () => canvas);
+    const ctx = createdCtx as unknown as FakeCtx;
+    ctx.pokeRawPixel(layer.canvas.width - 1, layer.canvas.height - 1, [1, 2, 3, 4]);
+
     clearAnimationLayer(layer);
-    expect(cleared).toEqual([0, 0, 100, 200]);
+
+    expect(
+      Array.from(ctx.getImageData(layer.canvas.width - 1, layer.canvas.height - 1, 1, 1).data),
+    ).toEqual([0, 0, 0, 0]);
+    // The dpr pre-scale is restored afterward, not left reset.
+    expect(ctx.getTransform()).toEqual({ a: 3, d: 3, e: 0, f: 0 });
+  });
+
+  it('clears the full backing store even when cssWidth * dpr rounds unevenly into it', () => {
+    const dpr = 2;
+    const cssWidth = 411.8; // cssWidth * dpr = 823.6; the backing store rounds up to 824.
+    let createdCtx: FakeCtx | undefined;
+    const canvas: CanvasLike = {
+      width: 0,
+      height: 0,
+      getContext(id: '2d') {
+        if (id !== '2d') return null;
+        createdCtx = new FakeCtx(this.width, this.height, true);
+        return createdCtx as unknown as CanvasRenderingContext2D;
+      },
+    };
+    const layer = createAnimationLayer(cssWidth, 10, dpr, () => canvas);
+    expect(layer.canvas.width).toBe(824);
+
+    const ctx = createdCtx as unknown as FakeCtx;
+    // The far column a CSS-space clearRect(0, 0, cssWidth, cssHeight) would
+    // miss: it only reaches raw x = 823.6 through the dpr-2 transform.
+    ctx.pokeRawPixel(823, 0, [1, 2, 3, 4]);
+
+    clearAnimationLayer(layer);
+
+    expect(Array.from(ctx.getImageData(823, 0, 1, 1).data)).toEqual([0, 0, 0, 0]);
   });
 
   it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a cssWidth of %p', (bad) => {

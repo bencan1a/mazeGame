@@ -11,7 +11,7 @@
  */
 
 import { strokeSegmentPolyline } from './draw.js';
-import { createViewport, type Viewport } from './viewport.js';
+import { createBufferViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
 export const MAX_CANVAS_DIMENSION = 8192;
@@ -85,7 +85,13 @@ export function recommendedPixelsPerCell(
   return baseCssPixelsPerCell * maxZoom * dpr;
 }
 
-/** One rung down the degradation ladder: half the resolution, still capped. */
+/**
+ * One rung down the degradation ladder: half the resolution, still capped.
+ * Rejects a `minPixelsPerCell` above `budget.pixelsPerCell` — halving toward
+ * a floor higher than where you already are raises resolution instead of
+ * lowering it, which is exactly backwards for a function whose contract is
+ * "one step down".
+ */
 export function degradeBudget(
   budget: BufferBudget,
   boardWidth: number,
@@ -93,6 +99,12 @@ export function degradeBudget(
   maxDimension: number = MAX_CANVAS_DIMENSION,
   minPixelsPerCell: number = MIN_PIXELS_PER_CELL,
 ): BufferBudget {
+  requirePositiveFinite(minPixelsPerCell, 'minPixelsPerCell');
+  if (minPixelsPerCell > budget.pixelsPerCell) {
+    throw new RangeError(
+      `minPixelsPerCell (${minPixelsPerCell}) exceeds budget.pixelsPerCell (${budget.pixelsPerCell})`,
+    );
+  }
   const next = Math.max(minPixelsPerCell, budget.pixelsPerCell / 2);
   return { ...computeBufferBudget(boardWidth, boardHeight, next, maxDimension), degraded: true };
 }
@@ -166,8 +178,18 @@ export interface CanvasLike {
  * Draws one pixel at the buffer's far corner and reads it back. Touches only
  * that single pixel — cleared before drawing to give the read an unambiguous
  * starting state, and cleared again after — so it is safe to call on a layer
- * that already holds drawn content, not just at allocation time. An
- * allocation that silently failed comes back as an untouched (typically
+ * that already holds drawn content, not just at allocation time.
+ *
+ * Resets the transform first: `fillRect`/`clearRect` honour the context's
+ * current transform, but `getImageData` always reads raw backing-store
+ * pixels regardless of it. On a context a caller has already scaled (the
+ * animation layer's dpr pre-scale), probing without resetting the transform
+ * draws and clears at the wrong location and reads back a pixel that was
+ * never touched — always reporting failure, and corrupting whatever the
+ * transform-scaled clear actually hit. The reset is undone by `restore` in
+ * `finally`, leaving the caller's transform exactly as it found it.
+ *
+ * An allocation that silently failed comes back as an untouched (typically
  * transparent-black) pixel instead of throwing, which is why allocation
  * success alone cannot be trusted.
  */
@@ -180,6 +202,7 @@ export function probeReadback(
   const y = Math.max(0, heightPx - 1);
   ctx.save();
   try {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(x, y, 1, 1);
     ctx.fillStyle = '#ff00ff';
     ctx.fillRect(x, y, 1, 1);
@@ -197,8 +220,8 @@ export interface StaticLayer {
   readonly canvas: CanvasLike;
   readonly ctx: CanvasRenderingContext2D;
   readonly budget: BufferBudget;
-  /** Board cell -> buffer pixel. Independent of pan/zoom and of screen dpr. */
-  readonly viewport: Viewport;
+  /** Board cell -> buffer pixel, a space of its own — never a CSS or device pixel. */
+  readonly viewport: Viewport<'buffer'>;
   /** Whether `budget`'s readback probe actually succeeded — false means the buffer is blank. */
   readonly allocationOk: boolean;
   /** Every rung the degradation ladder tried, in order, for diagnostics. */
@@ -230,7 +253,6 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     recommendedPixelsPerCell(options.dpr ?? 1, options.maxZoom ?? DEFAULT_MAX_ZOOM);
 
   const canvas = createCanvas();
-  let liveCtx: CanvasRenderingContext2D | null = null;
 
   // Resizing to an over-budget canvas can throw outright on some platforms
   // rather than returning null or a blank surface — that is just another
@@ -248,7 +270,6 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   const probe = (budget: BufferBudget): boolean => {
     const ctx = allocate(budget);
     if (ctx === null) return false;
-    liveCtx = ctx;
     return probeReadback(ctx, budget.widthPx, budget.heightPx);
   };
 
@@ -260,10 +281,14 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     options,
   );
 
-  if (liveCtx === null) liveCtx = allocate(budget);
+  // Always re-allocate at the final budget, even if an earlier (larger) rung
+  // already produced a live context: the ladder's own probe at this exact
+  // budget may itself have thrown, in which case a stale context sized for
+  // a rung that is no longer being reported would otherwise leak through.
+  const liveCtx = allocate(budget);
   if (liveCtx === null) throw new Error('2d canvas context unavailable');
 
-  const viewport = createViewport({ scale: budget.pixelsPerCell });
+  const viewport = createBufferViewport(budget.pixelsPerCell);
   return { canvas, ctx: liveCtx, budget, viewport, allocationOk: ok, attempts };
 }
 
@@ -293,10 +318,12 @@ export interface AnimationLayer {
 /**
  * A screen-sized layer for the single segment currently exiting. Not capped
  * or probed — far under budget at any real screen size. The backing store is
- * sized in device pixels (`cssWidth`/`cssHeight` times `dpr`), and the context
- * is pre-scaled by `dpr` so a caller — `strokeSegmentPolyline`, the viewport —
- * keeps drawing in the same CSS-pixel coordinates it already uses for the
- * static layer, rather than converting to device pixels itself.
+ * sized in device pixels (`cssWidth`/`cssHeight` times `dpr`), and the
+ * context is pre-scaled by `dpr` so a caller draws in the same CSS-pixel
+ * coordinates a `'css'`-space `Viewport` already uses — the screen viewport
+ * pan/zoom maintains and hit testing reads, *not* the static layer's
+ * `'buffer'`-space viewport, which is a different pixel space entirely and
+ * would draw here at the wrong scale.
  */
 export function createAnimationLayer(
   cssWidth: number,
@@ -316,7 +343,18 @@ export function createAnimationLayer(
   return { canvas, ctx, dpr, cssWidth, cssHeight };
 }
 
-/** Clears the animation layer, in the CSS-pixel coordinates its pre-scaled context draws in. */
+/**
+ * Clears the animation layer's full backing store. Resets the transform
+ * first and clears by the canvas's actual device-pixel dimensions rather
+ * than `cssWidth * dpr`: `Math.round` sizing the backing store means that
+ * product is not always exactly the canvas's real width, and clearing the
+ * rounded-off CSS amount through the dpr-scaled transform can leave a
+ * sub-pixel sliver of the previous frame uncleared at the far edge.
+ */
 export function clearAnimationLayer(layer: AnimationLayer): void {
-  layer.ctx.clearRect(0, 0, layer.cssWidth, layer.cssHeight);
+  const { ctx, canvas } = layer;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 }
