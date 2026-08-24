@@ -26,6 +26,7 @@ import {
   zoomViewportAt,
 } from './viewport.js';
 import type { Viewport } from './viewport.js';
+import type { CanvasLike } from './layers.js';
 
 describe('createViewport', () => {
   it('defaults dpr to 1 and origin to (0, 0), tagged as a css-space viewport', () => {
@@ -512,6 +513,25 @@ describe('computeBlitRects', () => {
     );
   });
 
+  it('treats a zero-size canvas as no overlap rather than an error — a routine mid-layout state', () => {
+    const viewport = createViewport({ scale: 10 });
+    expect(computeBlitRects(viewport, 20, 200, 200, 0, 100)).toBeNull();
+    expect(computeBlitRects(viewport, 20, 200, 200, 100, 0)).toBeNull();
+    expect(computeBlitRects(viewport, 20, 200, 200, 0, 0)).toBeNull();
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasCssWidth of %p', (bad) => {
+    expect(() => computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, bad, 100)).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasCssHeight of %p', (bad) => {
+    expect(() => computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, 100, bad)).toThrow(
+      RangeError,
+    );
+  });
+
   it('always overlaps once the viewport has gone through clampPan, whatever the board or canvas size', () => {
     fc.assert(
       fc.property(
@@ -546,14 +566,16 @@ describe('computeBlitRects', () => {
   });
 });
 
-class FakeBlitCtx implements BlitContext2D<string> {
+const FAKE_IMAGE = {} as unknown as CanvasImageSource;
+
+class FakeBlitCtx implements BlitContext2D {
   drawImageCalls: unknown[][] = [];
   clearRectCalls: unknown[][] = [];
   clearRect(x: number, y: number, w: number, h: number): void {
     this.clearRectCalls.push([x, y, w, h]);
   }
   drawImage(
-    image: string,
+    image: CanvasImageSource,
     sx: number,
     sy: number,
     sw: number,
@@ -580,20 +602,46 @@ describe('blitStaticLayer', () => {
       destWidth: 100,
       destHeight: 100,
     };
-    blitStaticLayer(ctx, 'buffer-canvas', rects, 100, 100);
+    blitStaticLayer(ctx, FAKE_IMAGE, rects, 100, 100);
     expect(ctx.clearRectCalls).toEqual([[0, 0, 100, 100]]);
-    expect(ctx.drawImageCalls).toEqual([['buffer-canvas', 0, 0, 200, 200, 0, 0, 100, 100]]);
+    expect(ctx.drawImageCalls).toEqual([[FAKE_IMAGE, 0, 0, 200, 200, 0, 0, 100, 100]]);
   });
 
   it('still clears, but skips drawImage, when rects is null', () => {
     const ctx = new FakeBlitCtx();
-    blitStaticLayer(ctx, 'buffer-canvas', null, 100, 100);
+    blitStaticLayer(ctx, FAKE_IMAGE, null, 100, 100);
     expect(ctx.clearRectCalls).toEqual([[0, 0, 100, 100]]);
     expect(ctx.drawImageCalls).toEqual([]);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a canvasWidthPx of %p', (bad) => {
-    expect(() => blitStaticLayer(new FakeBlitCtx(), 'c', null, bad, 100)).toThrow(RangeError);
+  it('skips the frame entirely — no clear, no draw — for a zero-size canvas rather than erroring', () => {
+    const ctx = new FakeBlitCtx();
+    const rects = {
+      sourceX: 0,
+      sourceY: 0,
+      sourceWidth: 200,
+      sourceHeight: 200,
+      destX: 0,
+      destY: 0,
+      destWidth: 100,
+      destHeight: 100,
+    };
+    blitStaticLayer(ctx, FAKE_IMAGE, rects, 0, 100);
+    blitStaticLayer(ctx, FAKE_IMAGE, rects, 100, 0);
+    expect(ctx.clearRectCalls).toEqual([]);
+    expect(ctx.drawImageCalls).toEqual([]);
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasDeviceWidthPx of %p', (bad) => {
+    expect(() => blitStaticLayer(new FakeBlitCtx(), FAKE_IMAGE, null, bad, 100)).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasDeviceHeightPx of %p', (bad) => {
+    expect(() => blitStaticLayer(new FakeBlitCtx(), FAKE_IMAGE, null, 100, bad)).toThrow(
+      RangeError,
+    );
   });
 
   it('does exactly one drawImage call per frame across a simulated pan, never touching per-segment drawing', () => {
@@ -619,11 +667,48 @@ describe('blitStaticLayer', () => {
         bounds.canvasCssWidth,
         bounds.canvasCssHeight,
       );
-      blitStaticLayer(ctx, 'buffer-canvas', rects, 800, 800);
+      blitStaticLayer(ctx, FAKE_IMAGE, rects, 800, 800);
     }
     expect(ctx.drawImageCalls.length).toBe(frameCount);
     expect(ctx.clearRectCalls.length).toBe(frameCount);
     // BlitContext2D exposes only clearRect/drawImage, so there is no
     // per-segment stroking surface for a pan frame to reach for at all.
+  });
+});
+
+describe('blitStaticLayer against the real render types', () => {
+  it('compiles and runs against a real CanvasRenderingContext2D and a StaticLayer canvas, not just the fake', () => {
+    const calls: unknown[][] = [];
+    const realCtx = {
+      clearRect(x: number, y: number, w: number, h: number): void {
+        calls.push(['clearRect', x, y, w, h]);
+      },
+      drawImage(
+        image: CanvasImageSource,
+        sx: number,
+        sy: number,
+        sw: number,
+        sh: number,
+        dx: number,
+        dy: number,
+        dw: number,
+        dh: number,
+      ): void {
+        calls.push(['drawImage', image, sx, sy, sw, sh, dx, dy, dw, dh]);
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const staticLayerCanvas = {
+      width: 200,
+      height: 200,
+      getContext: () => null,
+    } as unknown as CanvasLike;
+
+    const rects = computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, 100, 100);
+    blitStaticLayer(realCtx, staticLayerCanvas as unknown as CanvasImageSource, rects, 100, 100);
+
+    expect(calls).toEqual([
+      ['clearRect', 0, 0, 100, 100],
+      ['drawImage', staticLayerCanvas, 0, 0, 200, 200, 0, 0, 100, 100],
+    ]);
   });
 });

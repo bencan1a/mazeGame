@@ -88,6 +88,14 @@ function requirePositiveFinite(value: number, name: string): void {
   }
 }
 
+/** As `requirePositiveFinite`, but zero is a legitimate size — a canvas mid-layout, not caller error. */
+function requireNonNegativeFinite(value: number, name: string): void {
+  requireFinite(value, name);
+  if (value < 0) {
+    throw new RangeError(`${name} must not be negative, got ${value}`);
+  }
+}
+
 /**
  * A caller across the render boundary hands this whatever the platform gave
  * it — `devicePixelRatio`, a layout measurement — so a non-finite or
@@ -222,9 +230,9 @@ export function maxZoomScale(bufferPixelsPerCell: number, dpr: number): number {
 /**
  * Clamps a requested scale between `minScale` and `maxScale` (see
  * `maxZoomScale`). When the two cross — a small board's fit-to-canvas
- * minimum can sit above what the buffer's resolution affords — `maxScale`
- * wins rather than throwing: it is the bound backed by a measured device
- * limit, and the caller has no way to avoid the crossing by construction.
+ * minimum can sit above what the buffer's resolution affords — the result is
+ * `maxScale`: the bound backed by a measured device limit, which the caller
+ * has no way to avoid crossing by construction.
  */
 export function clampZoomScale(scale: number, minScale: number, maxScale: number): number {
   requirePositiveFinite(scale, 'scale');
@@ -244,11 +252,10 @@ export interface PanBounds {
 
 /**
  * One axis of `clampPan`: content smaller than the viewport is centered and
- * fixed there, not draggable at all. Content larger than the viewport is
- * clamped so it always covers the viewport fully — its far edge can never
- * cross the viewport's near edge, or vice versa — rather than merely keeping
- * some part of it visible. A caller wanting over-scroll or a margin around a
- * smaller board needs a different rule than this one.
+ * fixed there, not draggable at all. Content larger than the viewport has its
+ * origin clamped to the range `[viewportSize - contentSize, 0]` — the range
+ * over which the content spans the viewport completely, with no empty margin
+ * on either side.
  */
 function clampPanAxis(origin: number, contentSize: number, viewportSize: number): number {
   if (contentSize <= viewportSize) return (viewportSize - contentSize) / 2;
@@ -259,12 +266,16 @@ function clampPanAxis(origin: number, contentSize: number, viewportSize: number)
  * Clamps `viewport`'s origin so the board can never be panned entirely off
  * screen: centered and fixed when it fits inside the canvas, otherwise
  * clamped to always cover the canvas fully. See `clampPanAxis`.
+ *
+ * `canvasCssWidth`/`canvasCssHeight` accept zero: a canvas mid-layout with no
+ * measured size yet is routine, not caller error, and the clamp is still
+ * well-defined there.
  */
 export function clampPan(viewport: Viewport<'css'>, bounds: PanBounds): Viewport<'css'> {
   requirePositiveFinite(bounds.boardWidth, 'boardWidth');
   requirePositiveFinite(bounds.boardHeight, 'boardHeight');
-  requirePositiveFinite(bounds.canvasCssWidth, 'canvasCssWidth');
-  requirePositiveFinite(bounds.canvasCssHeight, 'canvasCssHeight');
+  requireNonNegativeFinite(bounds.canvasCssWidth, 'canvasCssWidth');
+  requireNonNegativeFinite(bounds.canvasCssHeight, 'canvasCssHeight');
   const originX = clampPanAxis(
     viewport.originX,
     bounds.boardWidth * viewport.scale,
@@ -294,13 +305,11 @@ export interface BlitRects {
 /**
  * The source/dest rects for one `drawImage` blit of the static buffer,
  * clipped to the part of the buffer the CSS-space `viewport` currently
- * shows. `null` when the clamp on `viewport`/`bounds` has somehow been
- * skipped and nothing overlaps — `blitStaticLayer` treats that as "draw
+ * shows. `null` when nothing overlaps — a zero-size `canvasCssWidth`/
+ * `canvasCssHeight` included — and `blitStaticLayer` treats that as "draw
  * nothing this frame" rather than passing a degenerate rect to `drawImage`.
  *
- * Takes `bufferPixelsPerCell` rather than a whole `Viewport<'buffer'>`: a
- * buffer viewport's origin plays no part in this mapping, and threading the
- * full type through here would silently promise support for a non-zero one.
+ * `bufferPixelsPerCell` is the static buffer's own scale (`Viewport<'buffer'>.scale`).
  */
 export function computeBlitRects(
   viewport: Viewport<'css'>,
@@ -313,8 +322,8 @@ export function computeBlitRects(
   requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
   requirePositiveFinite(bufferWidthPx, 'bufferWidthPx');
   requirePositiveFinite(bufferHeightPx, 'bufferHeightPx');
-  requirePositiveFinite(canvasCssWidth, 'canvasCssWidth');
-  requirePositiveFinite(canvasCssHeight, 'canvasCssHeight');
+  requireNonNegativeFinite(canvasCssWidth, 'canvasCssWidth');
+  requireNonNegativeFinite(canvasCssHeight, 'canvasCssHeight');
 
   const cssToBuffer = bufferPixelsPerCell / viewport.scale;
   const srcLeft = (0 - viewport.originX) * cssToBuffer;
@@ -338,15 +347,16 @@ export function computeBlitRects(
 }
 
 /**
- * The minimal `drawImage`/`clearRect` surface `blitStaticLayer` needs, so
- * tests can blit against a hand-written fake instead of a real canvas.
- * `Source` is left generic rather than fixed to a DOM image type, matching
- * `StrokeContext2D`'s approach in `draw.ts`.
+ * The `drawImage`/`clearRect` surface `blitStaticLayer` needs, with
+ * `drawImage`'s image parameter bound to the real DOM `CanvasImageSource`
+ * type. A real `CanvasRenderingContext2D` satisfies this directly; a test
+ * fake reaches it through an `unknown` cast, the same pattern `layers.ts`
+ * uses for `probeReadback`.
  */
-export interface BlitContext2D<Source = unknown> {
+export interface BlitContext2D {
   clearRect(x: number, y: number, w: number, h: number): void;
   drawImage(
-    image: Source,
+    image: CanvasImageSource,
     sx: number,
     sy: number,
     sw: number,
@@ -365,19 +375,26 @@ export interface BlitContext2D<Source = unknown> {
  * clear still runs so a previous frame's content doesn't linger.
  *
  * `ctx` must not be pre-scaled by device pixel ratio: `rects` and
- * `canvasWidthPx`/`canvasHeightPx` are already in raw device pixels, unlike
- * the animation layer's context in `layers.ts`.
+ * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` are already in raw device
+ * pixels — the canvas's actual backing-store size, `computeBlitRects`'s
+ * `canvasCssWidth`/`canvasCssHeight` times `viewport.dpr` — unlike the
+ * animation layer's context in `layers.ts`.
+ *
+ * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` accept zero: a canvas
+ * mid-layout with no measured size yet is routine, not caller error, and the
+ * frame is simply skipped.
  */
-export function blitStaticLayer<Source>(
-  ctx: BlitContext2D<Source>,
-  image: Source,
+export function blitStaticLayer(
+  ctx: BlitContext2D,
+  image: CanvasImageSource,
   rects: BlitRects | null,
-  canvasWidthPx: number,
-  canvasHeightPx: number,
+  canvasDeviceWidthPx: number,
+  canvasDeviceHeightPx: number,
 ): void {
-  requirePositiveFinite(canvasWidthPx, 'canvasWidthPx');
-  requirePositiveFinite(canvasHeightPx, 'canvasHeightPx');
-  ctx.clearRect(0, 0, canvasWidthPx, canvasHeightPx);
+  requireNonNegativeFinite(canvasDeviceWidthPx, 'canvasDeviceWidthPx');
+  requireNonNegativeFinite(canvasDeviceHeightPx, 'canvasDeviceHeightPx');
+  if (canvasDeviceWidthPx === 0 || canvasDeviceHeightPx === 0) return;
+  ctx.clearRect(0, 0, canvasDeviceWidthPx, canvasDeviceHeightPx);
   if (rects === null) return;
   ctx.drawImage(
     image,
