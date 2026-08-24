@@ -17,7 +17,13 @@ export default defineConfig({
       injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globIgnores: ['bench.html'],
         navigateFallback: `${base}index.html`,
+        // Without this the navigation route answers every path with the app
+        // shell, so a standalone page is unreachable on any device that has
+        // already installed the worker. The denylist is matched against
+        // pathname + search, so the query string has to be allowed for.
+        navigateFallbackDenylist: [/bench\.html(\?|$)/],
       },
       manifest: {
         name: 'Arrow Maze',
