@@ -175,10 +175,28 @@ export interface CanvasLike {
 }
 
 /**
+ * Per-channel slack allowed when reading the probe pixel back. Wide enough to
+ * survive an engine that perturbs `getImageData`, far narrower than the gap
+ * between the probe colour and the transparent black a failed allocation
+ * reads back as.
+ */
+const PROBE_CHANNEL_TOLERANCE = 24;
+
+function near(actual: number | undefined, expected: number): boolean {
+  return actual !== undefined && Math.abs(actual - expected) <= PROBE_CHANNEL_TOLERANCE;
+}
+
+/**
  * Draws one pixel at the buffer's far corner and reads it back. Touches only
- * that single pixel — cleared before drawing to give the read an unambiguous
- * starting state, and cleared again after — so it is safe to call on a layer
- * that already holds drawn content, not just at allocation time.
+ * that single pixel, and restores whatever it held first, so it is safe to
+ * call on a layer that already holds drawn content, not just at allocation
+ * time.
+ *
+ * The read is compared with a tolerance rather than byte-exactly. A canvas
+ * that never allocated reads back transparent black, so the two cases are
+ * far apart; an exact comparison instead fails on any engine that perturbs
+ * `getImageData` to defeat fingerprinting, degrading a working buffer all
+ * the way to the floor.
  *
  * Resets the transform first: `fillRect`/`clearRect` honour the context's
  * current transform, but `getImageData` always reads raw backing-store
@@ -203,12 +221,13 @@ export function probeReadback(
   ctx.save();
   try {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const original = ctx.getImageData(x, y, 1, 1);
     ctx.clearRect(x, y, 1, 1);
     ctx.fillStyle = '#ff00ff';
     ctx.fillRect(x, y, 1, 1);
     const data = ctx.getImageData(x, y, 1, 1).data;
-    ctx.clearRect(x, y, 1, 1);
-    return data[0] === 255 && data[1] === 0 && data[2] === 255 && data[3] === 255;
+    ctx.putImageData(original, x, y);
+    return near(data[0], 255) && near(data[1], 0) && near(data[2], 255) && near(data[3], 255);
   } catch {
     return false;
   } finally {
@@ -287,9 +306,10 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   // a rung that is no longer being reported would otherwise leak through.
   const liveCtx = allocate(budget);
   if (liveCtx === null) throw new Error('2d canvas context unavailable');
+  const liveOk = ok && probeReadback(liveCtx, budget.widthPx, budget.heightPx);
 
   const viewport = createBufferViewport(budget.pixelsPerCell);
-  return { canvas, ctx: liveCtx, budget, viewport, allocationOk: ok, attempts };
+  return { canvas, ctx: liveCtx, budget, viewport, allocationOk: liveOk, attempts };
 }
 
 /** Redraws every non-removed segment. The caller decides when that is needed — see `removedSetsDiffer`. */

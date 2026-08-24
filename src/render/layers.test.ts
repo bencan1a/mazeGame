@@ -291,6 +291,19 @@ class FakeCtx {
     }
     return { data, width: w, height: h, colorSpace: 'srgb' };
   }
+  putImageData(image: ImageData, x: number, y: number): void {
+    for (let dy = 0; dy < image.height; dy++) {
+      for (let dx = 0; dx < image.width; dx++) {
+        const src = (dy * image.width + dx) * 4;
+        this.pokeRawPixel(x + dx, y + dy, [
+          image.data[src] as number,
+          image.data[src + 1] as number,
+          image.data[src + 2] as number,
+          image.data[src + 3] as number,
+        ]);
+      }
+    }
+  }
   // The rest of strokeSegmentPolyline's minimal surface.
   strokeStyle = '';
   lineWidth = 0;
@@ -338,6 +351,31 @@ describe('probeReadback', () => {
     probeReadback(ctx, 10, 10);
     const data = fake.getImageData(9, 9, 1, 1).data;
     expect(Array.from(data)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('restores a pixel already drawn at the probed corner rather than erasing it', () => {
+    const fake = new FakeCtx(10, 10, true);
+    fake.fillRect(9, 9, 1, 1); // a segment that happens to reach the far corner
+    const before = Array.from(fake.getImageData(9, 9, 1, 1).data);
+
+    probeReadback(fake as unknown as CanvasRenderingContext2D, 10, 10);
+
+    expect(Array.from(fake.getImageData(9, 9, 1, 1).data)).toEqual(before);
+  });
+
+  it('still passes when the engine perturbs getImageData to defeat fingerprinting', () => {
+    const fake = new FakeCtx(10, 10, true);
+    const raw = fake.getImageData.bind(fake);
+    fake.getImageData = (x: number, y: number, w: number, h: number): ImageData => {
+      const image = raw(x, y, w, h);
+      for (let i = 0; i < image.data.length; i++) {
+        const v = image.data[i] as number;
+        image.data[i] = v === 0 ? 3 : v - 5;
+      }
+      return image;
+    };
+
+    expect(probeReadback(fake as unknown as CanvasRenderingContext2D, 10, 10)).toBe(true);
   });
 
   it('does not touch pixels outside the probed corner, so it is safe to call on a layer that already holds drawn content', () => {
@@ -476,6 +514,33 @@ describe('createStaticLayer', () => {
     });
     expect(layer.budget.degraded).toBe(true);
     expect(layer.budget.pixelsPerCell).toBeCloseTo(81.92, 2);
+  });
+
+  it('reports allocationOk false when the final re-allocation silently fails', () => {
+    const board = { width: 20, height: 20 } as unknown as Board;
+    // The ladder's probe succeeds, then the surface degrades under it: the
+    // re-allocation at the very same budget comes back blank. Trusting the
+    // ladder's verdict alone would report a working buffer.
+    let allocations = 0;
+    const createCanvas = (): CanvasLike => {
+      const canvas = {
+        width: 0,
+        height: 0,
+        getContext(id: '2d') {
+          if (id !== '2d') return null;
+          allocations++;
+          return new FakeCtx(
+            canvas.width,
+            canvas.height,
+            allocations === 1,
+          ) as unknown as CanvasRenderingContext2D;
+        },
+      };
+      return canvas;
+    };
+
+    const layer = createStaticLayer(board, { dpr: 1, createCanvas });
+    expect(layer.allocationOk).toBe(false);
   });
 
   it('degrades instead of throwing when resizing an over-budget canvas throws outright', () => {
