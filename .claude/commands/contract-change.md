@@ -7,11 +7,10 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 Propose a contract change: $ARGUMENTS
 
 Shared files are `src/core/types.ts`, `src/core/generate.ts`, `src/core/rng.ts`,
-`src/core/grid.ts`, and `test/fixtures/**`, plus what `docs/CONTRACTS.md`
-specifies. Changing them affects every stream at once, which is why this is not
-a normal task. Documentation that records a measurement, a decision or a finding
-is not one of them — that ships with the work that produced it, and does not
-need this command.
+`src/core/grid.ts`, `test/fixtures/**`, `docs/CONTRACTS.md`, and `docs/adr/**`.
+Changing them affects every stream at once, which is why this is not a normal
+task. The rest of `docs/` is not one of them — a measurement, a decision or a
+finding ships with the work that produced it and does not need this command.
 
 1. State the change precisely: which type or fixture, before and after.
 2. List which streams it affects and what breaks for each.

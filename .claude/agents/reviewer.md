@@ -29,9 +29,10 @@ Check, in this order — the first three are the ones that cost real time:
 3. **Typed arrays and CSR.** No per-segment or per-cell objects introduced in a
    hot path.
 4. **Lane discipline.** Files edited outside the PR's stream, per the ownership
-   table. Shared-file edits without a linked `contract-change` issue. `docs/`
-   is not a shared file — do not flag a measurement, decision or finding that
-   ships with the work it came from. What `docs/CONTRACTS.md` specifies is.
+   table. Shared-file edits without a linked `contract-change` issue —
+   `docs/CONTRACTS.md` and `docs/adr/**` count, the rest of `docs/` does not.
+   Do not flag a measurement, decision or finding that ships with the work it
+   came from.
 5. **Determinism.** Same `(seed, params)` → identical board. Any new randomness
    seeded.
 6. **Tests.** Generator changes need property-based invariant tests, not just

@@ -64,17 +64,17 @@ Milestones map to M0–M5 in the plan.
 
 Concurrency works because streams do not share files. Stay in your lane.
 
-| Path                                                                                                       | Owner                             |
-| ---------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `src/core/mask/**`                                                                                         | S1 mask                           |
-| `src/core/path/**`                                                                                         | S2 path                           |
-| `src/core/segment/**`, `src/core/orient/**`, `src/core/color/**`                                           | S3 topology                       |
-| `src/core/validate/**`, `src/core/metrics.ts`, `src/harness/**`                                            | S4 harness                        |
-| `src/render/**`                                                                                            | S5 renderer                       |
-| `src/game/**`, `src/ui/**`, `src/pwa/**`                                                                   | S6 app                            |
-| `.github/**`, `.claude/**`, root config, `scripts/**`                                                      | S7 infra                          |
-| **`src/core/types.ts`, `src/core/generate.ts`, `src/core/rng.ts`, `src/core/grid.ts`, `test/fixtures/**`** | **shared — contract rules apply** |
-| `docs/**`                                                                                                  | anyone, in the PR that earns it   |
+| Path                                                                                                                                           | Owner                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `src/core/mask/**`                                                                                                                             | S1 mask                           |
+| `src/core/path/**`                                                                                                                             | S2 path                           |
+| `src/core/segment/**`, `src/core/orient/**`, `src/core/color/**`                                                                               | S3 topology                       |
+| `src/core/validate/**`, `src/core/metrics.ts`, `src/harness/**`                                                                                | S4 harness                        |
+| `src/render/**`                                                                                                                                | S5 renderer                       |
+| `src/game/**`, `src/ui/**`, `src/pwa/**`                                                                                                       | S6 app                            |
+| `.github/**`, `.claude/**`, root config, `scripts/**`                                                                                          | S7 infra                          |
+| **`src/core/types.ts`, `src/core/generate.ts`, `src/core/rng.ts`, `src/core/grid.ts`, `test/fixtures/**`, `docs/CONTRACTS.md`, `docs/adr/**`** | **shared — contract rules apply** |
+| `docs/**` otherwise                                                                                                                            | anyone, in the PR that earns it   |
 
 Need something from another lane? Do not reach in and change it. Open an issue
 against that lane, label it `blocked`, and work around it with a fixture
@@ -116,16 +116,17 @@ cannot be reviewed for the thing that actually matters.
 
 ### Documentation is not a contract
 
-`docs/**` is owned by whoever is doing the work it describes. A measurement, a
-decision or a finding ships in the same PR as the change that produced it — no
-`contract-change` issue, no separate PR, no waiting. Nothing downstream
-compiles against prose, so none of the breakage this section exists to prevent
-is possible; splitting the note out only puts it further from the evidence for
-it, which is how documentation goes stale.
+Two paths in `docs/` are contracts and take every rule above: `docs/CONTRACTS.md`,
+because other lanes code against what it specifies, and `docs/adr/**`, because
+superseding a decision is not a note about one.
 
-Two things in `docs/` are still contracts and still take the rules above: what
-`docs/CONTRACTS.md` **specifies**, because other lanes code against it, and an
-ADR, because superseding one is a decision rather than a note.
+Everything else under `docs/` is owned by whoever is doing the work it
+describes. A measurement, a decision or a finding ships in the same PR as the
+change that produced it — no `contract-change` issue, no separate PR, no
+waiting. Nothing downstream builds against prose, so none of the breakage this
+section exists to prevent is reachable through it; splitting the note out only
+puts it further from the evidence for it, which is how documentation goes
+stale.
 
 ## Rules an agent must not break
 
