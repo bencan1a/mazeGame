@@ -4,7 +4,7 @@ import {
   PLACEHOLDER_STROKE_STYLE,
   strokeSegmentPolyline,
 } from './draw.js';
-import { createViewport } from './viewport.js';
+import { createBufferViewport, createViewport } from './viewport.js';
 import { makeBoard } from '../../test/fixtures/board.js';
 import type { StrokeContext2D } from './draw.js';
 
@@ -90,5 +90,21 @@ describe('strokeSegmentPolyline', () => {
     strokeSegmentPolyline(ctx, board, 1, viewport);
 
     expect(ctx.calls[1]).toEqual({ op: 'moveTo', x: 110, y: 60 });
+  });
+
+  it('works the same over a buffer-space viewport, not just a CSS one', () => {
+    const board = makeBoard(['aa', '.A'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createBufferViewport(10);
+
+    strokeSegmentPolyline(ctx, board, 1, viewport);
+
+    expect(ctx.calls).toEqual([
+      { op: 'beginPath' },
+      { op: 'moveTo', x: 5, y: 5 },
+      { op: 'lineTo', x: 15, y: 5 },
+      { op: 'lineTo', x: 15, y: 15 },
+      { op: 'stroke' },
+    ]);
   });
 });

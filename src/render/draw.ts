@@ -4,7 +4,7 @@
  * stroke in a placeholder colour.
  */
 
-import { cellCenterX, cellCenterY, type Viewport } from './viewport.js';
+import { cellCenterX, cellCenterY, type PixelSpace, type Viewport } from './viewport.js';
 import { xOf, yOf } from '../core/grid.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -32,11 +32,11 @@ export const PLACEHOLDER_LINE_WIDTH_CELLS = 0.3;
  * `viewport`. A single-cell segment has no line to draw, so it gets a dot —
  * a zero-length subpath with a round cap — rather than vanishing silently.
  */
-export function strokeSegmentPolyline(
+export function strokeSegmentPolyline<S extends PixelSpace>(
   ctx: StrokeContext2D,
   board: Board,
   segmentId: SegmentId,
-  viewport: Viewport,
+  viewport: Viewport<S>,
 ): void {
   const start = board.segStart[segmentId - 1];
   const end = board.segStart[segmentId];
