@@ -117,4 +117,48 @@ describe('buildContourPath: property tests', () => {
       expect(() => buildContourPath(mask, createRng(1))).not.toThrow();
     }
   });
+
+  it('visits every path cell exactly once under any turnBias, over irregular tileable shapes', () => {
+    // Production never sees a full rectangle; the silhouettes are ragged, and
+    // a bias that only holds on a clean grid holds nowhere useful.
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 3, max: 12 }),
+        fc.integer({ min: 3, max: 12 }),
+        fc.integer({ min: 0, max: 2 ** 30 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        (halfWidth, halfHeight, seed, turnBias) => {
+          const growthRng = createRng(seed);
+          const blockCount = 1 + growthRng.int(halfWidth * halfHeight);
+          const blockFull = randomConnectedBlocks(halfWidth, halfHeight, blockCount, growthRng);
+          const mask = maskFromBlocks(blockFull, halfWidth, halfHeight);
+
+          const result = buildContourPath(mask, createRng(seed + 1), turnBias);
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+          expect(pathViolations(result.path, mask)).toEqual([]);
+        },
+      ),
+      { numRuns: 60, seed: 20260824 },
+    );
+  });
+
+  it('visits every path cell exactly once under any turnBias, over full rectangles', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 25 }),
+        fc.integer({ min: 1, max: 25 }),
+        fc.integer({ min: 0, max: 2 ** 30 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        (halfWidth, halfHeight, seed, bias) => {
+          const mask = makeMask({ width: halfWidth * 2, height: halfHeight * 2 });
+          const result = buildContourPath(mask, createRng(seed), bias);
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+          expect(pathViolations(result.path, mask)).toEqual([]);
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
 });

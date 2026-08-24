@@ -33,11 +33,11 @@ would suggest. Tables below. **`bendProbability` does not move
 anything.** Every metric — `bendRate`, `segmentCount`, `dagDepth`,
 `meanFreeSetSize`, `edgeCount` — is identical to at least four decimal places
 across `bendProbability` 0.1 through 0.9. Only `generationMs` differs, and
-that's run-to-run runner noise. **As measured here, the axis is not tunable
-and should not be offered as one.** That is a statement about the generator at
-the commit this sweep ran against, not a permanent property — issue #7 is the
-open work on making the parameter steer the path, and if it lands this section
-is the first thing to re-measure.
+that's run-to-run runner noise. **That result is superseded**: the commit this
+sweep ran against predates the change that made the parameter steer the
+spanning tree, so the figures below record the generator before it, not the one
+in `main`. Re-measuring that axis is the first thing a follow-up sweep should
+do.
 
 ## Does generation hold under 1s at 100×100?
 
@@ -195,10 +195,20 @@ board at 6. The current default of 2 sits on the cheap side of that climb.
 | 0.9             | 0.3717            | 95.6     | 13.0     | 10.1            | 290.9     |
 
 Every column but `generationMs` is byte-identical across the full 0.1–0.9
-range, 15 seeds per cell. This is not "a small effect" — it is no effect.
-**`bendProbability` cannot be recommended as a tuning knob today.** Issue #7
-is the open spike on why the contour path method doesn't take it, and on
-whether it is fixable.
+range, 15 seeds per cell. This is not "a small effect" — it is no effect: at
+the commit measured, `buildContourPath` never read the parameter.
+
+**These rows no longer describe `main`.** The parameter now biases the spanning
+tree toward turning, and achieved bend rate tracks it monotonically over a band
+whose ceiling sits near 0.48 at any board size and whose floor rises as the
+board shrinks — roughly 0.06 at gridSize 100 against 0.26 at 20, because a
+small region's own boundary forces corners. The default also moved from 0.35 to
+0.6, the value that reproduces the bend rate these rows measured. The rest of this report still
+stands statistically but not board for board: every other sweep held
+`bendProbability` at its then-default, where it did nothing, and the new
+default of 0.6 was picked to reproduce that same bend rate — so the
+distributions carry over while the individual boards behind them do not, since
+the same seed now draws differently.
 
 ## Do the current defaults hold up? (#88, and the question #85 asks)
 

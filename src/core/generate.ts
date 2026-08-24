@@ -181,7 +181,9 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     throw err;
   }
 
-  const contourResult = buildContourPath(mask, createRng(contourSeed));
+  // Backbite takes no such steer, so a board that falls through to it lands
+  // wherever its own mixing puts the bend rate.
+  const contourResult = buildContourPath(mask, createRng(contourSeed), params.bendProbability);
   const pathResult = contourResult.ok
     ? contourResult
     : buildBackbitePath(mask, createRng(backbiteSeed));

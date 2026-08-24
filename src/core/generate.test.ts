@@ -6,6 +6,7 @@ import * as pathModule from './path/index.js';
 import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
+import { computeMetrics } from './metrics.js';
 import {
   DEFAULT_MAX_ATTEMPTS,
   GenerationFailedError,
@@ -422,5 +423,55 @@ describe('generateBoard: what the piece-length parameters actually deliver', () 
     }
     expect(belowMinimum).toBeGreaterThan(0);
     expect(shortest).toBeLessThan(8);
+  }, 60_000);
+});
+
+describe('generateBoard: bendProbability steers the path', () => {
+  function bendRateAt(gridSize: number, bendProbability: number, seeds: number): number {
+    let total = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const { board, mask, path } = generateBoardWithDiagnostics(
+        paramsAt({ gridSize, seed, bendProbability }),
+      );
+      total += computeMetrics(board, { mask, path, generationMs: 0 }).bendRate;
+    }
+    return total / seeds;
+  }
+
+  const bendRateOver = (bendProbability: number, seeds: number): number =>
+    bendRateAt(40, bendProbability, seeds);
+
+  it('moves the achieved bend rate monotonically across its range', () => {
+    // Guards against the parameter going back to being a no-op, which no
+    // single-setting assertion can see.
+    const rates = [0, 0.3, 0.6, 1].map((p) => bendRateOver(p, 12));
+    for (let i = 1; i < rates.length; i++) {
+      expect(rates[i] as number).toBeGreaterThan(rates[i - 1] as number);
+    }
+    expect((rates[3] as number) - (rates[0] as number)).toBeGreaterThan(0.2);
+  }, 60_000);
+
+  it('reaches neither end of 0..1, and its floor moves with board size', () => {
+    // The parameter reads as a rate, so what it can actually reach is worth
+    // pinning. A small region's own boundary forces corners, so the floor
+    // climbs as the board shrinks while the ceiling stays put — a single grid
+    // size would hide that.
+    const small = { floor: bendRateAt(20, 0, 12), ceiling: bendRateAt(20, 1, 12) };
+    const large = { floor: bendRateAt(100, 0, 8), ceiling: bendRateAt(100, 1, 8) };
+
+    expect(large.floor).toBeLessThan(0.1);
+    expect(small.floor).toBeGreaterThan(0.2);
+    expect(small.floor - large.floor).toBeGreaterThan(0.1);
+
+    for (const ceiling of [small.ceiling, large.ceiling]) {
+      expect(ceiling).toBeGreaterThan(0.43);
+      expect(ceiling).toBeLessThan(0.55);
+    }
+  }, 120_000);
+
+  it('lands the shipped default in the band the reference art was matched at', () => {
+    const rate = bendRateOver(DEFAULT_GEN_PARAMS.bendProbability, 12);
+    expect(rate).toBeGreaterThan(0.33);
+    expect(rate).toBeLessThan(0.41);
   }, 60_000);
 });

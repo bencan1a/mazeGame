@@ -43,7 +43,15 @@ export interface GenParams {
    * given board actually cost.
    */
   readonly minPieceLength: number;
-  /** 0..1 target bend rate for the space-filling path. */
+  /**
+   * 0..1 steer on how often the space-filling path turns rather than carries
+   * straight on.
+   *
+   * Not a target rate: the contour method's own geometry bounds what is
+   * reachable from both ends, and the mapping is monotonic but not linear, so
+   * read the achieved `bendRate` rather than this. Only the contour path
+   * reads it at all — the backbite fallback has no equivalent steer.
+   */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
   readonly minStraightRun: number;
@@ -67,7 +75,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   meanPieceLength: 6,
   pieceLengthVariance: 8,
   minPieceLength: 2,
-  bendProbability: 0.35,
+  bendProbability: 0.6,
   minStraightRun: 2,
   fillFraction: 0.45,
 };
