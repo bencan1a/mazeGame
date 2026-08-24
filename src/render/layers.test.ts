@@ -313,6 +313,8 @@ class FakeCtx {
   moveTo(): void {}
   lineTo(): void {}
   stroke(): void {}
+  closePath(): void {}
+  fill(): void {}
 }
 
 function fakeCanvasFactory(allocationLimitPx: number): () => CanvasLike {
@@ -635,7 +637,7 @@ describe('createStaticLayer', () => {
 });
 
 describe('redrawStaticLayer', () => {
-  it('draws every segment not in the removed set, one moveTo per segment', () => {
+  it('draws every segment not in the removed set, one moveTo for the body and one for its arrowhead', () => {
     const board = ACYCLIC_BOARD; // 3 segments
     let clears = 0;
     let moveToCount = 0;
@@ -648,6 +650,7 @@ describe('redrawStaticLayer', () => {
             clears++;
           },
           strokeStyle: '',
+          fillStyle: '',
           lineWidth: 0,
           lineJoin: 'miter' as CanvasLineJoin,
           lineCap: 'butt' as CanvasLineCap,
@@ -657,6 +660,8 @@ describe('redrawStaticLayer', () => {
           },
           lineTo(): void {},
           stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
         }) as unknown as CanvasRenderingContext2D,
     };
     const layer = {
@@ -670,11 +675,11 @@ describe('redrawStaticLayer', () => {
 
     redrawStaticLayer(layer, board, new Set());
     expect(clears).toBe(1);
-    expect(moveToCount).toBe(3);
+    expect(moveToCount).toBe(3 * 2);
 
     redrawStaticLayer(layer, board, new Set([1]));
     expect(clears).toBe(2);
-    expect(moveToCount).toBe(3 + 2);
+    expect(moveToCount).toBe(3 * 2 + 2 * 2);
   });
 });
 

@@ -10,7 +10,7 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { strokeSegmentPolyline } from './draw.js';
+import { drawSegment } from './draw.js';
 import { createBufferViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -322,7 +322,7 @@ export function redrawStaticLayer(
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
-    strokeSegmentPolyline(ctx, board, id, viewport);
+    drawSegment(ctx, board, id, viewport);
   }
 }
 
