@@ -8,12 +8,12 @@
         "meanPieceLength": 6,
         "pieceLengthVariance": 8,
         "minPieceLength": 2,
-        "bendProbability": 0.35,
+        "bendProbability": 0.6,
         "minStraightRun": 2,
         "fillFraction": 0.45
       },
-      "meanMs": 21.75991010000002,
-      "maxMs": 42.03405300000003
+      "meanMs": 20.57713,
+      "maxMs": 44.16790299999997
     },
     {
       "gridSize": 100,
@@ -23,12 +23,12 @@
         "meanPieceLength": 6,
         "pieceLengthVariance": 8,
         "minPieceLength": 2,
-        "bendProbability": 0.35,
+        "bendProbability": 0.6,
         "minStraightRun": 2,
         "fillFraction": 0.45
       },
-      "meanMs": 228.7110494,
-      "maxMs": 318.67359599999986
+      "meanMs": 205.7611895,
+      "maxMs": 214.5641099999999
     }
   ]
 }
