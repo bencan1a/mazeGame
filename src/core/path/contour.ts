@@ -25,12 +25,24 @@ export type ContourFailed = TilingFailed;
 
 export type ContourResult = ContourOk | ContourFailed;
 
-export function buildContourPath(mask: Mask, rng: Rng): ContourResult {
+export function buildContourPath(
+  mask: Mask,
+  rng: Rng,
+  /** Forwarded to `buildSpanningTree`'s `continueBias`; see its doc comment. */
+  continueBias?: number,
+): ContourResult {
   const tiling = classifyTiling(mask);
   if (!tiling.ok) return tiling;
 
   const { halfWidth, halfHeight, blockFull, offsetX, offsetY } = tiling;
-  const tree = buildSpanningTree(blockFull, halfWidth, halfHeight, rng, tiling.firstFullBlock);
+  const tree = buildSpanningTree(
+    blockFull,
+    halfWidth,
+    halfHeight,
+    rng,
+    tiling.firstFullBlock,
+    continueBias,
+  );
 
   const width = mask.width;
   const next = new Uint32Array(width * mask.height);

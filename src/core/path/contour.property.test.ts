@@ -117,4 +117,23 @@ describe('buildContourPath: property tests', () => {
       expect(() => buildContourPath(mask, createRng(1))).not.toThrow();
     }
   });
+
+  it('visits every path cell exactly once under any continueBias, over full rectangles', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 25 }),
+        fc.integer({ min: 1, max: 25 }),
+        fc.integer({ min: 0, max: 2 ** 30 }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        (halfWidth, halfHeight, seed, bias) => {
+          const mask = makeMask({ width: halfWidth * 2, height: halfHeight * 2 });
+          const result = buildContourPath(mask, createRng(seed), bias);
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+          expect(pathViolations(result.path, mask)).toEqual([]);
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
 });
