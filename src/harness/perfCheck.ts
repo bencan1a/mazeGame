@@ -60,13 +60,36 @@ export function evaluatePerfCheck(
   thresholdMultiplier: number,
 ): PerfCheckReport {
   const cellVerdicts = baseline.cells.map((entry): PerfCellVerdict => {
-    const cell = cells.find((c) => c.params.gridSize === entry.gridSize);
-    const agg = aggregates.find((a) => a.params.gridSize === entry.gridSize);
+    const matchingCells = cells.filter((c) => c.params.gridSize === entry.gridSize);
+    const matchingAggs = aggregates.filter((a) => a.params.gridSize === entry.gridSize);
+    const cell = matchingCells[0];
+    const agg = matchingAggs[0];
     if (cell === undefined || agg === undefined) {
       return {
         status: 'broken',
         gridSize: entry.gridSize,
         reason: `no run recorded for gridSize ${entry.gridSize}`,
+      };
+    }
+    // More than one cell per gridSize means the spec grew an axis the baseline
+    // knows nothing about, so whichever came first would be compared against a
+    // number recorded for something else.
+    if (matchingAggs.length > 1) {
+      return {
+        status: 'broken',
+        gridSize: entry.gridSize,
+        reason:
+          `the sweep produced ${matchingAggs.length} cells at gridSize ${entry.gridSize}; ` +
+          'the baseline holds one figure per size, so re-record it against the current spec',
+      };
+    }
+    if (agg.seedCount !== entry.seedCount) {
+      return {
+        status: 'broken',
+        gridSize: entry.gridSize,
+        reason:
+          `gridSize ${entry.gridSize} ran ${agg.seedCount} seed(s) against a baseline ` +
+          `recorded over ${entry.seedCount}; re-record the baseline against the current spec`,
       };
     }
     if (agg.seedCount === 0) {
@@ -156,6 +179,16 @@ export function baselineFromAggregates(aggregates: readonly CellAggregate[]): Pe
       maxMs: agg.generationMs.max,
     };
   });
+  const seen = new Set<number>();
+  for (const cell of cells) {
+    if (seen.has(cell.gridSize)) {
+      throw new PerfCheckError(
+        `the sweep produced more than one cell at gridSize ${cell.gridSize}; a baseline holds ` +
+          'one figure per size, so the spec must vary nothing but gridSize',
+      );
+    }
+    seen.add(cell.gridSize);
+  }
   return { cells: [...cells].sort((a, b) => a.gridSize - b.gridSize) };
 }
 

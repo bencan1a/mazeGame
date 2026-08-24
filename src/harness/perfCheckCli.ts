@@ -65,10 +65,16 @@ function readJson(path: string, what: string): unknown {
   }
 }
 
+/** A path is pasted into a shell, so a space in it has to survive the trip. */
+function shellQuote(value: string): string {
+  if (/^[\w./-]+$/.test(value)) return value;
+  return `'${value.split("'").join(`'\\''`)}'`;
+}
+
 function reproCommand(specPath: string, baselinePath: string, threshold: number): string {
   return (
-    `npx tsx src/harness/perfCheckCli.ts --spec ${specPath} --baseline ${baselinePath} ` +
-    `--threshold ${threshold}`
+    `npx tsx src/harness/perfCheckCli.ts --spec ${shellQuote(specPath)} ` +
+    `--baseline ${shellQuote(baselinePath)} --threshold ${threshold}`
   );
 }
 
