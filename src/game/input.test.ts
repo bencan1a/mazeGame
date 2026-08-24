@@ -83,6 +83,19 @@ describe('createGestureArbiter: tap', () => {
 
     expect(handlers.calls.tap).toEqual([]);
   });
+
+  it('does not fire onTap for a release far past slop with no move event in between', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 8 });
+
+    // A coalesced flick, or a pointer that leaves the element without
+    // capture, can jump straight from press to a far release with no
+    // intervening move — the release point itself must still clear slop.
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerUp(pointerEvent(1, 60, 0));
+
+    expect(handlers.calls.tap).toEqual([]);
+  });
 });
 
 describe('createGestureArbiter: pan', () => {
@@ -253,6 +266,102 @@ describe('createGestureArbiter: toCssPixel', () => {
 
     // Page-space midpoint after the move is (120, 30); toCssPixel subtracts (20, 30).
     expect(handlers.calls.pinchMove).toEqual([[2, cssPixel(100, 0)]]);
+  });
+
+  it('scales a pan delta the same way it scales a tap or focal point', () => {
+    const handlers = makeHandlers();
+    // A mapper that is not a pure translation: 2x horizontally, 3x vertically.
+    const toCssPixel = (pageX: number, pageY: number) => cssPixel(pageX * 2, pageY * 3);
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 5, toCssPixel });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerMove(pointerEvent(1, 10, 4)); // page-space delta (10, 4), exceeds slop
+
+    expect(handlers.calls.panMove).toEqual([[20, 12]]);
+  });
+});
+
+function manualClock(startAt = 0): { now: () => number; advance: (ms: number) => void } {
+  let t = startAt;
+  return {
+    now: () => t,
+    advance: (ms) => {
+      t += ms;
+    },
+  };
+}
+
+describe('createGestureArbiter: stale pointer recovery', () => {
+  it('drops a pointer whose release never arrived once the stale window has passed, instead of pairing it into a pinch', () => {
+    const handlers = makeHandlers();
+    const clock = manualClock();
+    const arbiter = createGestureArbiter(handlers, { stalePointerMs: 1000, now: clock.now });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0)); // its pointerup never arrives
+    clock.advance(1001);
+    arbiter.onPointerDown(pointerEvent(2, 50, 50));
+    arbiter.onPointerUp(pointerEvent(2, 50, 50));
+
+    expect(handlers.calls.pinchStart).toBe(0);
+    expect(handlers.calls.tap).toEqual([cssPixel(50, 50)]);
+  });
+
+  it('keeps reading two genuinely fresh pointers as a pinch inside the stale window', () => {
+    const handlers = makeHandlers();
+    const clock = manualClock();
+    const arbiter = createGestureArbiter(handlers, { stalePointerMs: 1000, now: clock.now });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    clock.advance(200);
+    arbiter.onPointerDown(pointerEvent(2, 100, 0));
+
+    expect(handlers.calls.pinchStart).toBe(1);
+  });
+
+  it.each([NaN, 0, -1])('rejects an invalid stalePointerMs of %p', (bad) => {
+    expect(() => createGestureArbiter(makeHandlers(), { stalePointerMs: bad })).toThrow(RangeError);
+  });
+});
+
+describe('createGestureArbiter: reset', () => {
+  it('recovers immediately from a stuck pinch without waiting for the stale window', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerDown(pointerEvent(2, 100, 0));
+    expect(handlers.calls.pinchStart).toBe(1);
+
+    arbiter.reset();
+    expect(handlers.calls.pinchEnd).toBe(1);
+
+    arbiter.onPointerDown(pointerEvent(3, 5, 5));
+    arbiter.onPointerUp(pointerEvent(3, 5, 5));
+    expect(handlers.calls.tap).toEqual([cssPixel(5, 5)]);
+  });
+
+  it('fires onPanEnd, not onPinchEnd, when resetting mid-drag', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers, { slopCssPx: 5 });
+
+    arbiter.onPointerDown(pointerEvent(1, 0, 0));
+    arbiter.onPointerMove(pointerEvent(1, 50, 0));
+    expect(handlers.calls.panStart).toBe(1);
+
+    arbiter.reset();
+
+    expect(handlers.calls.panEnd).toBe(1);
+    expect(handlers.calls.pinchEnd).toBe(0);
+  });
+
+  it('is a no-op when idle', () => {
+    const handlers = makeHandlers();
+    const arbiter = createGestureArbiter(handlers);
+
+    arbiter.reset();
+
+    expect(handlers.calls.panEnd).toBe(0);
+    expect(handlers.calls.pinchEnd).toBe(0);
   });
 });
 

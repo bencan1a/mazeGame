@@ -23,7 +23,7 @@ export interface PointerEventLike {
 }
 
 export interface GestureHandlers {
-  /** A pointer that stayed within slop and released. */
+  /** A pointer that stayed within slop from press to release. */
   readonly onTap: (point: CssPixel) => void;
   readonly onPanStart?: () => void;
   /** CSS-pixel movement since the previous event for this gesture. */
@@ -47,6 +47,15 @@ export interface GestureArbiterOptions {
    * offset that can itself change on scroll or resize.
    */
   readonly toCssPixel?: (pageX: number, pageY: number) => CssPixel;
+  /**
+   * A pointer with no `move` and no `up`/`cancel` for longer than this, in
+   * milliseconds, is dropped the next time a different pointer goes down —
+   * a lost release must not permanently misread every later single-finger
+   * press as half a pinch.
+   */
+  readonly stalePointerMs?: number;
+  /** Clock the staleness check reads. Overridable so a test can control it without a real delay. */
+  readonly now?: () => number;
 }
 
 export interface GestureArbiter {
@@ -54,15 +63,19 @@ export interface GestureArbiter {
   onPointerMove: (event: PointerEventLike) => void;
   onPointerUp: (event: PointerEventLike) => void;
   onPointerCancel: (event: PointerEventLike) => void;
+  /** Discards every tracked pointer and returns to idle, firing whatever end callback the in-flight gesture owes. */
+  reset: () => void;
 }
 
 const DEFAULT_SLOP_CSS_PX = 8;
+const DEFAULT_STALE_POINTER_MS = 1500;
 
 type Mode = 'idle' | 'pending' | 'panning' | 'pinching';
 
 interface PointerPos {
-  x: number;
-  y: number;
+  readonly x: number;
+  readonly y: number;
+  readonly lastSeenAt: number;
 }
 
 function isFiniteEvent(event: PointerEventLike): boolean {
@@ -91,11 +104,17 @@ export function createGestureArbiter(
   const slopSq = slopCssPx * slopCssPx;
   const toCssPixel = options?.toCssPixel ?? ((x: number, y: number) => cssPixel(x, y));
 
+  const stalePointerMs = options?.stalePointerMs ?? DEFAULT_STALE_POINTER_MS;
+  if (!Number.isFinite(stalePointerMs) || stalePointerMs <= 0) {
+    throw new RangeError(`stalePointerMs must be a positive finite number, got ${stalePointerMs}`);
+  }
+  const now = options?.now ?? Date.now;
+
   const pointers = new Map<number, PointerPos>();
   let mode: Mode = 'idle';
 
   let primaryId: number | null = null;
-  let startPos: PointerPos = { x: 0, y: 0 };
+  let startPos: PointerPos = { x: 0, y: 0, lastSeenAt: 0 };
 
   let pinchIdA: number | null = null;
   let pinchIdB: number | null = null;
@@ -131,7 +150,9 @@ export function createGestureArbiter(
 
   function onPointerDown(event: PointerEventLike): void {
     if (!isFiniteEvent(event)) return;
-    const pos: PointerPos = { x: event.clientX, y: event.clientY };
+    evictStalePointers(now());
+
+    const pos: PointerPos = { x: event.clientX, y: event.clientY, lastSeenAt: now() };
     pointers.set(event.pointerId, pos);
 
     if (pointers.size === 1) {
@@ -148,7 +169,7 @@ export function createGestureArbiter(
     const prev = pointers.get(event.pointerId);
     if (prev === undefined) return;
     if (!isFiniteEvent(event)) return;
-    const pos: PointerPos = { x: event.clientX, y: event.clientY };
+    const pos: PointerPos = { x: event.clientX, y: event.clientY, lastSeenAt: now() };
     pointers.set(event.pointerId, pos);
 
     if (mode === 'pinching') {
@@ -174,14 +195,20 @@ export function createGestureArbiter(
       if (dx * dx + dy * dy > slopSq) {
         mode = 'panning';
         handlers.onPanStart?.();
-        handlers.onPanMove(pos.x - prev.x, pos.y - prev.y);
+        emitPanMove(prev, pos);
       }
       return;
     }
 
     if (mode === 'panning') {
-      handlers.onPanMove(pos.x - prev.x, pos.y - prev.y);
+      emitPanMove(prev, pos);
     }
+  }
+
+  function emitPanMove(prev: PointerPos, pos: PointerPos): void {
+    const prevCss = toCssPixel(prev.x, prev.y);
+    const curCss = toCssPixel(pos.x, pos.y);
+    handlers.onPanMove(curCss.x - prevCss.x, curCss.y - prevCss.y);
   }
 
   function onPointerUp(event: PointerEventLike): void {
@@ -203,7 +230,17 @@ export function createGestureArbiter(
     if (!wasPrimary) return;
 
     if (mode === 'pending') {
-      if (isFiniteEvent(event)) handlers.onTap(toCssPixel(event.clientX, event.clientY));
+      if (isFiniteEvent(event)) {
+        const dx = event.clientX - startPos.x;
+        const dy = event.clientY - startPos.y;
+        // No move event exceeded slop, but a coalesced flick or a pointer
+        // that left the element without capture can still jump straight from
+        // press to a far release with nothing in between — the release point
+        // itself has to clear slop, not just the moves seen along the way.
+        if (dx * dx + dy * dy <= slopSq) {
+          handlers.onTap(toCssPixel(event.clientX, event.clientY));
+        }
+      }
       endGesture();
       return;
     }
@@ -235,5 +272,26 @@ export function createGestureArbiter(
     }
   }
 
-  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+  /**
+   * Drops any pointer that has had no `down`/`move` for `stalePointerMs`,
+   * through the same cleanup `onPointerCancel` already does for its role in
+   * the gesture — so a leaked pointer cannot pair with a fresh single-finger
+   * press and be misread as half a pinch forever.
+   */
+  function evictStalePointers(currentTime: number): void {
+    const staleIds: number[] = [];
+    for (const [id, pos] of pointers) {
+      if (currentTime - pos.lastSeenAt > stalePointerMs) staleIds.push(id);
+    }
+    for (const id of staleIds) onPointerCancel({ pointerId: id, clientX: 0, clientY: 0 });
+  }
+
+  function reset(): void {
+    if (mode === 'pinching') handlers.onPinchEnd?.();
+    else if (mode === 'panning') handlers.onPanEnd?.();
+    pointers.clear();
+    endGesture();
+  }
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, reset };
 }
