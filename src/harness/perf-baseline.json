@@ -1,0 +1,16 @@
+{
+  "cells": [
+    {
+      "gridSize": 40,
+      "seedCount": 10,
+      "meanMs": 16.7998915,
+      "maxMs": 33.154560000000004
+    },
+    {
+      "gridSize": 100,
+      "seedCount": 10,
+      "meanMs": 147.353604,
+      "maxMs": 156.3499979999999
+    }
+  ]
+}
