@@ -12,6 +12,7 @@
 import { DX, DY, directionBetween, step, stepsToEdge, xOf, yOf } from '../core/grid.js';
 import type { Board, Direction, SegmentId } from '../core/types.js';
 import {
+  ARROWHEAD_LENGTH_CELLS,
   LINE_WIDTH_CELLS,
   drawSegmentGuarded,
   fillArrowheadAt,
@@ -31,15 +32,19 @@ function requireValidSegmentId(board: Board, id: number): asserts id is SegmentI
 
 /**
  * A segment's exit path: its own polyline (tail to head, cell center to cell
- * center) followed by the exit ray (head to the board's outer edge),
- * precomputed once so a per-frame draw only ever restrokes the same
- * vertices with a different dash offset. `edgeDirs[k]` is the direction
- * travelled between vertex `k` and vertex `k + 1`.
+ * center), the exit ray (head to the board's outer edge), and a final
+ * straight run continuing past the board in the same direction — precomputed
+ * once so a per-frame draw only ever restrokes the same vertices with a
+ * different dash offset. `edgeDirs[k]` is the direction travelled between
+ * vertex `k` and vertex `k + 1`.
  *
- * Every edge is exactly `scale` long, except the very last — the half-cell
- * step from the final ray cell's center to the board's true outer edge —
- * which is `scale / 2`. `drawSnakeOutFrame` relies on that uniform spacing
- * to place the leading arrowhead without walking the vertex list.
+ * Every edge is exactly `scale` long except the very last, which absorbs
+ * both the half-cell step to the board's true outer edge and the run beyond
+ * it — long enough that by `progress = 1` the dash and the arrowhead riding
+ * at its leading edge have both fully passed the board, so `drawSnakeOutFrame`
+ * never has to place either past a vertex the path doesn't have.
+ * `drawSnakeOutFrame` relies on the uniform spacing before that last edge to
+ * place the leading arrowhead without walking the vertex list.
  */
 export interface ExitPath {
   readonly xs: Float64Array;
@@ -47,7 +52,11 @@ export interface ExitPath {
   readonly edgeDirs: Uint8Array;
   /** Length of the segment's own polyline, tail center to head center. Zero for a one-cell segment. */
   readonly dashLength: number;
-  /** Full concatenated length: `dashLength` plus the exit ray to the board's outer edge. */
+  /**
+   * How far the dash's own trailing edge travels by `progress = 1`: the
+   * ray to the board's outer edge, plus `dashLength` again plus a full
+   * arrowhead's reach, so the whole piece has passed the board by then.
+   */
   readonly totalLength: number;
   readonly scale: number;
   readonly strokeColor: string;
@@ -100,14 +109,25 @@ export function buildExitPath(
     vi++;
   }
 
+  const dashLength = (segLen - 1) * viewport.scale;
+  const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
+  // How far past the true board edge progress = 1 puts the dash's own
+  // trailing edge: its own length plus a full arrowhead's reach, so the whole
+  // dash — and the arrowhead riding a further dashLength ahead of it — has
+  // cleared the board before the animation reports done.
+  const uniformLength = (segLen - 1 + numRaySteps) * viewport.scale;
+  const totalLength = uniformLength + viewport.scale / 2 + dashLength + arrowReach;
+  // The arrowhead anchor sits dashLength ahead of the dash's trailing edge, so
+  // the path itself has to reach dashLength past totalLength — this is what
+  // the last edge's length below is for.
+  const finalEdgeLength = totalLength + dashLength - uniformLength;
+
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
-  xs[vi] = (xs[vi - 1] as number) + dx * (viewport.scale / 2);
-  ys[vi] = (ys[vi - 1] as number) + dy * (viewport.scale / 2);
+  xs[vi] = (xs[vi - 1] as number) + dx * finalEdgeLength;
+  ys[vi] = (ys[vi - 1] as number) + dy * finalEdgeLength;
   edgeDirs[vi - 1] = dir;
 
-  const dashLength = (segLen - 1) * viewport.scale;
-  const totalLength = (segLen - 1 + numRaySteps) * viewport.scale + viewport.scale / 2;
   const strokeColor = paletteColor(board.segColor[segmentId - 1] as number);
 
   return { xs, ys, edgeDirs, dashLength, totalLength, scale: viewport.scale, strokeColor };
@@ -127,11 +147,11 @@ export interface DashContext2D extends StrokeContext2D, FillContext2D {
  *
  * A single dash the length of the segment's own body is stroked along the
  * concatenated path, offset so it starts at the tail at `progress = 0` and
- * has fully passed the path's end at `progress = 1`. An arrowhead is filled
- * at the dash's leading edge each frame, oriented to the path's local
- * direction there, so the piece keeps a visible head as it slithers — except
- * while that leading edge sits past the path's own end, and for a one-cell
- * segment's zero-length dash, which draws only the moving arrowhead.
+ * has moved its own length plus an arrowhead's reach past the board by
+ * `progress = 1` (see `buildExitPath`). An arrowhead is filled at the dash's
+ * leading edge each frame, oriented to the path's local direction there —
+ * for a one-cell segment, whose dash has zero length, that edge is the whole
+ * piece, so only the moving arrowhead is drawn.
  */
 export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: number): void {
   if (!Number.isFinite(progress)) {
@@ -159,24 +179,22 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     ctx.lineDashOffset = 0;
   }
 
-  if (windowStart >= path.totalLength) return;
-  const leadArcLength = path.dashLength > 0 ? windowStart + path.dashLength : windowStart;
-  // Past the path's end the head is off the board. It keeps travelling in the
-  // exit direction so the canvas clips it away, rather than the whole triangle
-  // disappearing in the frame its centre crosses the edge.
-  const overshoot = Math.max(0, leadArcLength - path.totalLength);
-  const clampedLead = Math.min(leadArcLength, path.totalLength);
+  // The arrowhead rides dashLength ahead of the dash's trailing edge; the
+  // path built by buildExitPath always reaches that far, so this is never
+  // past a vertex the path doesn't have.
+  const leadArcLength = windowStart + path.dashLength;
 
   const uniformEdgeCount = path.edgeDirs.length - 1;
   const uniformLength = uniformEdgeCount * path.scale;
+  const finalEdgeLength = path.totalLength + path.dashLength - uniformLength;
   let edgeIndex: number;
   let edgeT: number;
-  if (uniformEdgeCount > 0 && clampedLead <= uniformLength) {
-    edgeIndex = Math.min(uniformEdgeCount - 1, Math.floor(clampedLead / path.scale));
-    edgeT = (clampedLead - edgeIndex * path.scale) / path.scale;
+  if (uniformEdgeCount > 0 && leadArcLength <= uniformLength) {
+    edgeIndex = Math.min(uniformEdgeCount - 1, Math.floor(leadArcLength / path.scale));
+    edgeT = (leadArcLength - edgeIndex * path.scale) / path.scale;
   } else {
     edgeIndex = path.edgeDirs.length - 1;
-    edgeT = (clampedLead - uniformLength) / (path.scale / 2);
+    edgeT = (leadArcLength - uniformLength) / finalEdgeLength;
   }
   edgeT = Math.min(1, Math.max(0, edgeT));
 
@@ -185,8 +203,8 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
   const bx = path.xs[edgeIndex + 1] as number;
   const by = path.ys[edgeIndex + 1] as number;
   const leadDir = path.edgeDirs[edgeIndex] as Direction;
-  const leadX = ax + (bx - ax) * edgeT + (DX[leadDir] as number) * overshoot;
-  const leadY = ay + (by - ay) * edgeT + (DY[leadDir] as number) * overshoot;
+  const leadX = ax + (bx - ax) * edgeT;
+  const leadY = ay + (by - ay) * edgeT;
 
   fillArrowheadAt(ctx, leadX, leadY, leadDir, path.scale, path.strokeColor);
 }

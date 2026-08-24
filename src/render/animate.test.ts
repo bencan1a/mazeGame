@@ -6,6 +6,7 @@ import {
   type SnakeOutScheduler,
 } from './animate.js';
 import { createAnimationLayer, redrawStaticLayer, type CanvasLike } from './layers.js';
+import { ARROWHEAD_LENGTH_CELLS } from './draw.js';
 import { createBufferViewport, createViewport } from './viewport.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import type { AnimationLayer, StaticLayer } from './layers.js';
@@ -151,73 +152,111 @@ describe('buildExitPath', () => {
 
   it('orders vertices polyline-then-ray-then-edge, tail to head to the board edge', () => {
     // ACYCLIC_BOARD segment 1 ("a"): (0,0)->(1,0)->(2,0)->(3,0)->head(3,1), exit south on a 4x4 board.
+    // dashLength = 4 polyline edges * scale 10 = 40. The on-board run (4 polyline
+    // edges + 2 ray edges) is 6 * 10 = 60, so the board's true edge sits at
+    // 60 + 5 = 65. totalLength adds dashLength (40) and a full arrowhead's
+    // reach (1 cell * scale 10 = 10) past that: 65 + 40 + 10 = 115. The last
+    // vertex sits totalLength + dashLength - 60 = 95 past the last on-board
+    // vertex (y = 35), landing at y = 130.
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
     expect(Array.from(path.xs)).toEqual([5, 15, 25, 35, 35, 35, 35, 35]);
-    expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 40]);
+    expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 130]);
     expect(Array.from(path.edgeDirs)).toEqual([1, 1, 1, 2, 2, 2, 2]); // E,E,E,S,S,S,S
-    expect(path.dashLength).toBe(40); // 4 polyline edges * scale 10
-    expect(path.totalLength).toBe(65); // 6 full edges * 10 + the final half-cell edge
+    expect(path.dashLength).toBe(40);
+    expect(path.totalLength).toBe(115);
   });
 
   it('is dashLength 0 for a one-cell segment, with a ray-only path', () => {
+    // A 1x1 board: the head is already on every edge, so the on-board run is
+    // just the half-cell to the true edge (5). dashLength is 0 (no body), so
+    // totalLength is that 5 plus a full arrowhead's reach (10): 15. The final
+    // vertex is totalLength + dashLength - 0 = 15 past the head, at x = 20.
     const board = makeBoard({ art: 'A', dirs: { a: 'E' } });
     const path = buildExitPath(board, 1, viewport);
-    expect(Array.from(path.xs)).toEqual([5, 10]);
+    expect(Array.from(path.xs)).toEqual([5, 20]);
     expect(Array.from(path.ys)).toEqual([5, 5]);
     expect(path.dashLength).toBe(0);
-    expect(path.totalLength).toBe(5); // half a cell, immediate exit
+    expect(path.totalLength).toBe(15);
   });
 
   it('steps the ray north, away from the head, toward the top edge', () => {
+    // 1 cell + 2 on-board ray cells, no polyline: the on-board run is
+    // 2 * 10 = 20, so the true edge sits at 20 + 5 = 25. dashLength is 0, so
+    // totalLength adds only a full arrowhead's reach (10): 35.
     const board = makeBoard({ art: ['...', '...', '.A.'].join('\n'), dirs: { a: 'N' } });
     const path = buildExitPath(board, 1, viewport);
-    expect(path.xs.length).toBe(2 + 2); // one cell + 2 ray steps + the edge point
-    expect(path.totalLength).toBeCloseTo(2 * 10 + 5, 6);
+    expect(path.xs.length).toBe(2 + 2);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('steps the ray south, toward the bottom edge', () => {
+    // 1 cell + 2 on-board ray cells, no polyline: the on-board run is
+    // 2 * 10 = 20, so the true edge sits at 20 + 5 = 25. dashLength is 0, so
+    // totalLength adds only a full arrowhead's reach (10): 35.
     const board = makeBoard({ art: ['.A.', '...', '...'].join('\n'), dirs: { a: 'S' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(2 * 10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('steps the ray east, toward the right edge', () => {
+    // 1 cell + 2 on-board ray cells, no polyline: the on-board run is
+    // 2 * 10 = 20, so the true edge sits at 20 + 5 = 25. dashLength is 0, so
+    // totalLength adds only a full arrowhead's reach (10): 35.
     const board = makeBoard({ art: ['A..', '...', '...'].join('\n'), dirs: { a: 'E' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(2 * 10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('steps the ray west, toward the left edge', () => {
+    // 1 cell + 2 on-board ray cells, no polyline: the on-board run is
+    // 2 * 10 = 20, so the true edge sits at 20 + 5 = 25. dashLength is 0, so
+    // totalLength adds only a full arrowhead's reach (10): 35.
     const board = makeBoard({ art: ['..A', '...', '...'].join('\n'), dirs: { a: 'W' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(2 * 10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('exits immediately when the head already sits on the top board edge', () => {
+    // 2-cell polyline, zero ray steps: the on-board run is 1 * 10 = 10 (the
+    // one polyline edge), so the true edge sits at 10 + 5 = 15. dashLength is
+    // 10 (1 polyline edge), plus a full arrowhead's reach (10): totalLength
+    // is 15 + 10 + 10 = 35.
     const path = buildExitPath(makeBoard(['A', 'a'].join('\n')), 1, viewport);
-    expect(path.xs.length).toBe(3); // 2-cell polyline + the edge point, zero ray steps
-    expect(path.totalLength).toBeCloseTo(10 + 5, 6);
+    expect(path.xs.length).toBe(3);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('exits immediately when the head already sits on the bottom board edge', () => {
+    // 2-cell polyline, zero ray steps: the on-board run is 1 * 10 = 10 (the
+    // one polyline edge), so the true edge sits at 10 + 5 = 15. dashLength is
+    // 10 (1 polyline edge), plus a full arrowhead's reach (10): totalLength
+    // is 15 + 10 + 10 = 35.
     const path = buildExitPath(makeBoard(['a', 'A'].join('\n')), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('exits immediately when the head already sits on the right board edge', () => {
+    // 2-cell polyline, zero ray steps: the on-board run is 1 * 10 = 10 (the
+    // one polyline edge), so the true edge sits at 10 + 5 = 15. dashLength is
+    // 10 (1 polyline edge), plus a full arrowhead's reach (10): totalLength
+    // is 15 + 10 + 10 = 35.
     const path = buildExitPath(makeBoard('aA'), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('exits immediately when the head already sits on the left board edge', () => {
+    // 2-cell polyline, zero ray steps: the on-board run is 1 * 10 = 10 (the
+    // one polyline edge), so the true edge sits at 10 + 5 = 15. dashLength is
+    // 10 (1 polyline edge), plus a full arrowhead's reach (10): totalLength
+    // is 15 + 10 + 10 = 35.
     const path = buildExitPath(makeBoard('Aa'), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(10 + 5, 6);
+    expect(path.totalLength).toBeCloseTo(35, 6);
   });
 
   it('rejects a segmentId the caller controls but got wrong', () => {
@@ -288,9 +327,13 @@ describe('drawSnakeOutFrame', () => {
 
   it('carries the arrowhead off the board rather than dropping it at the edge', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
-    // The head leads the dash window by the segment's own body length, so it
-    // reaches the path's end well before the tail does, and keeps going.
-    const headExitsAt = 1 - path.dashLength / path.totalLength;
+    // The board's true edge sits at arc length totalLength - dashLength -
+    // arrowReach (buildExitPath's own derivation, run in reverse). The
+    // arrowhead anchor (windowStart + dashLength) reaches that edge once
+    // windowStart does, i.e. at this progress.
+    const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
+    const edgeLength = path.totalLength - path.dashLength - arrowReach;
+    const headExitsAt = (edgeLength - path.dashLength) / path.totalLength;
     const boardBottom = 40; // 4 cells at scale 10, and this segment exits south
 
     const onBoard = new FakeCtx();
@@ -311,7 +354,9 @@ describe('drawSnakeOutFrame', () => {
 
   it('keeps the arrowhead moving rather than parked while the head is still on the path', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
-    const headExitsAt = 1 - path.dashLength / path.totalLength;
+    const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
+    const edgeLength = path.totalLength - path.dashLength - arrowReach;
+    const headExitsAt = (edgeLength - path.dashLength) / path.totalLength;
     const fillsAt = (t: number): string => {
       const ctx = new FakeCtx();
       drawSnakeOutFrame(ctx, path, t);
@@ -327,6 +372,91 @@ describe('drawSnakeOutFrame', () => {
     drawSnakeOutFrame(ctx, path, 0.5);
     expect(ctx.calls.some((c) => c.op === 'stroke')).toBe(false);
     expect(ctx.calls.some((c) => c.op === 'fill')).toBe(true);
+  });
+
+  it('clears the whole arrowhead of a one-cell segment past the board edge by progress 1', () => {
+    // Regression: a one-cell segment has dashLength 0, so its leading edge
+    // never overshoots the way a multi-cell body does — it needs the path's
+    // own extension to be the thing that carries it clear. Head at (1, 2),
+    // exiting south on a 3x3 board: the true edge sits at y = 30.
+    const board = makeBoard({ art: ['...', '...', '.A.'].join('\n'), dirs: { a: 'S' } });
+    const path = buildExitPath(board, 1, viewport);
+    const boardBottom = 30;
+
+    const ctx = new FakeCtx();
+    drawSnakeOutFrame(ctx, path, 1);
+    const moveTos = ctx.calls.filter(
+      (c): c is Extract<Call, { op: 'moveTo' }> => c.op === 'moveTo',
+    );
+    // fillArrowheadAt's tip is the first point of the triangle, i.e. the last
+    // moveTo issued, and its base trails it by half an arrowhead length — the
+    // point closest to the board, and the one the old overshoot fix left
+    // stranded mid-board.
+    const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
+    const tip = moveTos[moveTos.length - 1] as Extract<Call, { op: 'moveTo' }>;
+    expect(tip.y - half).toBeGreaterThan(boardBottom);
+  });
+
+  it('never places the arrowhead beyond the vertices its own path built', () => {
+    // The bug this guards: extrapolating the lead position past the path's
+    // last vertex detaches the arrowhead from the body it's supposed to lead.
+    for (const board of [
+      ACYCLIC_BOARD,
+      makeBoard({ art: 'A', dirs: { a: 'E' } }),
+      makeBoard('aaaaA'), // straight 5-cell segment exiting east
+    ]) {
+      const path = buildExitPath(board, 1, viewport);
+      // The tip sits half an arrowhead length beyond the anchor, and the
+      // anchor itself is always a point on one of the path's own edges — so
+      // the tip is bounded by the path's own vertices widened by that half,
+      // never further, regardless of which edge direction it lands on.
+      const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
+      const minX = Math.min(...path.xs) - half;
+      const maxX = Math.max(...path.xs) + half;
+      const minY = Math.min(...path.ys) - half;
+      const maxY = Math.max(...path.ys) + half;
+      for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const ctx = new FakeCtx();
+        drawSnakeOutFrame(ctx, path, progress);
+        const moveTos = ctx.calls.filter(
+          (c): c is Extract<Call, { op: 'moveTo' }> => c.op === 'moveTo',
+        );
+        const tip = moveTos[moveTos.length - 1] as Extract<Call, { op: 'moveTo' }>;
+        expect(tip.x).toBeGreaterThanOrEqual(minX);
+        expect(tip.x).toBeLessThanOrEqual(maxX);
+        expect(tip.y).toBeGreaterThanOrEqual(minY);
+        expect(tip.y).toBeLessThanOrEqual(maxY);
+      }
+    }
+  });
+
+  it('keeps the head attached to the body, on the same path, past the board edge', () => {
+    // The case the review reported as broken: a straight 5-cell segment
+    // ("aaaaA") exiting east on a 5-wide board at scale 10, sampled at
+    // progress 0.9. dashLength = 4 * 10 = 40; the on-board run is also 40, so
+    // the true edge sits at x = 45. totalLength = 45 + 40 + 10 = 95, and the
+    // final edge runs from x = 45 to x = 45 + 95 = 140.
+    //
+    // At progress 0.9, windowStart = 85.5 and the arrowhead anchor sits at
+    // windowStart + dashLength = 125.5 along the path — 90% of the way along
+    // the final edge, i.e. x = 45 + 0.9 * 95 = 130.5. Under the deleted
+    // overshoot code the anchor detached from the path entirely; here it is
+    // just a point on the same vertices the stroke uses.
+    const board = makeBoard('aaaaA');
+    const path = buildExitPath(board, 1, viewport);
+    expect(path.totalLength).toBe(95);
+
+    const ctx = new FakeCtx();
+    drawSnakeOutFrame(ctx, path, 0.9);
+
+    expect(ctx.calls.some((c) => c.op === 'stroke')).toBe(true);
+    const moveTos = ctx.calls.filter(
+      (c): c is Extract<Call, { op: 'moveTo' }> => c.op === 'moveTo',
+    );
+    const tip = moveTos[moveTos.length - 1] as Extract<Call, { op: 'moveTo' }>;
+    const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
+    expect(tip.x - half).toBeCloseTo(130.5, 6); // the anchor, tip minus half the arrowhead's length
+    expect(tip.y).toBe(5);
   });
 
   it('clamps an out-of-range progress rather than drawing a garbage window', () => {
