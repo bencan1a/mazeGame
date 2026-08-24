@@ -298,7 +298,7 @@ describe('clampZoomScale composed with zoomViewportAt', () => {
 
     for (const degeneratePinchScale of [NaN, 0, -5, -Infinity]) {
       const clamped = clampZoomScale(degeneratePinchScale, minScale, maxScale);
-      expect(clamped).toBe(0);
+      expect(Number.isNaN(clamped) || clamped === 0).toBe(true);
       expect(() => zoomViewportAt(viewport, clamped, 50, 50)).not.toThrow();
       expect(zoomViewportAt(viewport, clamped, 50, 50)).toEqual(viewport);
     }
@@ -483,7 +483,13 @@ describe('clampZoomScale', () => {
     expect(clampZoomScale(0, 5, 40)).toBe(5);
     expect(clampZoomScale(Infinity, 5, 40)).toBe(40);
     expect(clampZoomScale(-Infinity, 5, 40)).toBe(5);
-    expect(clampZoomScale(NaN, 5, 40)).toBe(5);
+    expect(clampZoomScale(NaN, 5, 40)).toBeNaN();
+  });
+
+  it('passes NaN through so a coincident-pointer pinch holds zoom instead of snapping out', () => {
+    const viewport = createViewport({ scale: 20, dpr: 1, originX: -100, originY: -50 });
+    const held = zoomViewportAt(viewport, clampZoomScale(NaN, 5, 40), 100, 100);
+    expect(held).toEqual(viewport);
   });
 
   it('resolves a negative scale to minScale, the same as any other out-of-range value', () => {
@@ -914,8 +920,12 @@ describe('blitStaticLayer', () => {
       canvasCssHeight: 800,
     };
     const frameCount = 30;
+    const sourceXs: number[] = [];
+    const sourceYs: number[] = [];
     for (let i = 0; i < frameCount; i++) {
-      viewport = clampPan(panViewport(viewport, 7, -3), bounds);
+      // Negative deltas: the clamp range is [canvasCss - content, 0], so a
+      // positive delta pins the origin at 0 and the board never moves.
+      viewport = clampPan(panViewport(viewport, -7, -3), bounds);
       const rects = computeBlitRects(
         viewport,
         bufferViewport,
@@ -924,9 +934,15 @@ describe('blitStaticLayer', () => {
         bounds.canvasCssWidth,
         bounds.canvasCssHeight,
       );
+      if (rects !== null) {
+        sourceXs.push(rects.sourceX);
+        sourceYs.push(rects.sourceY);
+      }
       blitStaticLayer(ctx, FAKE_IMAGE, rects, 800, 800);
     }
     expect(ctx.drawImageCalls.length).toBe(frameCount);
+    expect(new Set(sourceXs).size).toBeGreaterThan(1);
+    expect(new Set(sourceYs).size).toBeGreaterThan(1);
     expect(ctx.clearRectCalls.length).toBe(frameCount);
     // BlitContext2D exposes only save/restore/setTransform/clearRect/
     // drawImage, so there is no per-segment stroking surface for a pan frame

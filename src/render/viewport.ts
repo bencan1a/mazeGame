@@ -298,7 +298,10 @@ export function clampZoomScale(scale: number, minScale: number, maxScale: number
   requireNonNegativeFinite(minScale, 'minScale');
   requirePositiveFinite(maxScale, 'maxScale');
   if (minScale > maxScale) return maxScale;
-  if (Number.isNaN(scale)) return minScale;
+  // A pinch whose two pointers coincide yields 0/0. That is an absent
+  // measurement, not a request to zoom out, so it is passed through for
+  // `zoomViewportAt` to hold the current scale rather than resolved to a bound.
+  if (Number.isNaN(scale)) return NaN;
   return Math.min(Math.max(scale, minScale), maxScale);
 }
 
@@ -385,11 +388,15 @@ export function computeBlitRects(
   bufferHeightPx: number,
   canvasCssWidth: number,
   canvasCssHeight: number,
+  canvasDeviceWidthPx = canvasCssWidth * viewport.dpr,
+  canvasDeviceHeightPx = canvasCssHeight * viewport.dpr,
 ): BlitRects | null {
   requirePositiveFinite(bufferWidthPx, 'bufferWidthPx');
   requirePositiveFinite(bufferHeightPx, 'bufferHeightPx');
   requireNonNegativeFinite(canvasCssWidth, 'canvasCssWidth');
   requireNonNegativeFinite(canvasCssHeight, 'canvasCssHeight');
+  requireNonNegativeFinite(canvasDeviceWidthPx, 'canvasDeviceWidthPx');
+  requireNonNegativeFinite(canvasDeviceHeightPx, 'canvasDeviceHeightPx');
 
   const cssToBuffer = bufferViewport.scale / viewport.scale;
   const srcLeft = bufferViewport.originX + (0 - viewport.originX) * cssToBuffer;
@@ -414,12 +421,18 @@ export function computeBlitRects(
   }
 
   const bufferToCss = viewport.scale / bufferViewport.scale;
+  // The backing store is not exactly `cssWidth * dpr` — it is rounded at
+  // allocation. Deriving the destination from the store's own size keeps the
+  // image reaching the same edge the clear does, instead of falling short by
+  // up to a device pixel and leaving a seam on the right and bottom.
+  const devicePerCssX = canvasCssWidth > 0 ? canvasDeviceWidthPx / canvasCssWidth : viewport.dpr;
+  const devicePerCssY = canvasCssHeight > 0 ? canvasDeviceHeightPx / canvasCssHeight : viewport.dpr;
   const destX =
-    (viewport.originX + (sourceX - bufferViewport.originX) * bufferToCss) * viewport.dpr;
+    (viewport.originX + (sourceX - bufferViewport.originX) * bufferToCss) * devicePerCssX;
   const destY =
-    (viewport.originY + (sourceY - bufferViewport.originY) * bufferToCss) * viewport.dpr;
-  const destWidth = sourceWidth * bufferToCss * viewport.dpr;
-  const destHeight = sourceHeight * bufferToCss * viewport.dpr;
+    (viewport.originY + (sourceY - bufferViewport.originY) * bufferToCss) * devicePerCssY;
+  const destWidth = sourceWidth * bufferToCss * devicePerCssX;
+  const destHeight = sourceHeight * bufferToCss * devicePerCssY;
   if (
     !Number.isFinite(destX) ||
     !Number.isFinite(destY) ||
