@@ -107,7 +107,8 @@ function requirePositiveFinite(value: number, name: string): void {
   }
 }
 
-function requireDirection(board: Board, segmentId: SegmentId): Direction {
+/** Reads and validates a segment's `segDir`, for a caller that needs the direction on its own — see `drawSegmentGuarded` for one that needs the throw absorbed. */
+export function requireDirection(board: Board, segmentId: SegmentId): Direction {
   const dir = board.segDir[segmentId - 1];
   if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) {
     throw new RangeError(`segment ${segmentId} has an invalid segDir: ${String(dir)}`);
@@ -220,6 +221,42 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
 }
 
 /**
+ * Fills an arrowhead triangle at an arbitrary point, pointing along `dir` —
+ * the geometry `drawArrowhead` uses at a segment's own head cell, factored
+ * out for a caller (a snake-out animation) that needs the same triangle at a
+ * point that moves frame to frame instead of one pinned to a cell center.
+ */
+export function fillArrowheadAt(
+  ctx: FillContext2D,
+  cx: number,
+  cy: number,
+  dir: Direction,
+  scale: number,
+  color: string,
+): void {
+  const dx = DX[dir] as number;
+  const dy = DY[dir] as number;
+
+  const half = (ARROWHEAD_LENGTH_CELLS * scale) / 2;
+  const halfWidth = (ARROWHEAD_WIDTH_CELLS * scale) / 2;
+  const tipX = cx + dx * half;
+  const tipY = cy + dy * half;
+  const baseX = cx - dx * half;
+  const baseY = cy - dy * half;
+  // Perpendicular to (dx, dy): rotate a quarter turn.
+  const perpX = -dy * halfWidth;
+  const perpY = dx * halfWidth;
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(baseX + perpX, baseY + perpY);
+  ctx.lineTo(baseX - perpX, baseY - perpY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
  * Fills the arrowhead at a segment's head, pointing along `segDir` — the
  * one source valid for both a multi-cell segment's terminal stroke and a
  * one-cell segment with none. The triangle spans exactly the head cell, so
@@ -242,26 +279,8 @@ export function drawArrowhead<S extends PixelSpace>(
   const headCell = board.segCells[end - 1] as number;
   const cx = cellCenterX(viewport, xOf(headCell, board.width));
   const cy = cellCenterY(viewport, yOf(headCell, board.width));
-  const dx = DX[dir] as number;
-  const dy = DY[dir] as number;
-
-  const half = (ARROWHEAD_LENGTH_CELLS * viewport.scale) / 2;
-  const halfWidth = (ARROWHEAD_WIDTH_CELLS * viewport.scale) / 2;
-  const tipX = cx + dx * half;
-  const tipY = cy + dy * half;
-  const baseX = cx - dx * half;
-  const baseY = cy - dy * half;
-  // Perpendicular to (dx, dy): rotate a quarter turn.
-  const perpX = -dy * halfWidth;
-  const perpY = dx * halfWidth;
-
-  ctx.fillStyle = paletteColor(board.segColor[segmentId - 1] as number);
-  ctx.beginPath();
-  ctx.moveTo(tipX, tipY);
-  ctx.lineTo(baseX + perpX, baseY + perpY);
-  ctx.lineTo(baseX - perpX, baseY - perpY);
-  ctx.closePath();
-  ctx.fill();
+  const color = paletteColor(board.segColor[segmentId - 1] as number);
+  fillArrowheadAt(ctx, cx, cy, dir, viewport.scale, color);
 }
 
 /**
