@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Arrow Maze — canvas bench</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #151527;
+        --fg: #e9e9f2;
+        --muted: #9a9ab5;
+        --ok: #6ee7a8;
+        --bad: #ff7a7a;
+        --warn: #f2c94c;
+        --line: #2c2c48;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 1rem 1rem 3rem;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 1.1rem;
+        margin: 0 0 0.25rem;
+      }
+      p.sub {
+        color: var(--muted);
+        margin: 0 0 1rem;
+      }
+      button {
+        width: 100%;
+        padding: 0.9rem;
+        margin: 0.35rem 0;
+        font: inherit;
+        font-weight: 600;
+        color: var(--bg);
+        background: var(--fg);
+        border: 0;
+        border-radius: 0.5rem;
+      }
+      button.secondary {
+        color: var(--fg);
+        background: transparent;
+        border: 1px solid var(--line);
+      }
+      button[disabled] {
+        opacity: 0.45;
+      }
+      section {
+        border-top: 1px solid var(--line);
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td {
+        padding: 0.25rem 0;
+        vertical-align: top;
+      }
+      td:first-child {
+        color: var(--muted);
+        padding-right: 0.75rem;
+        white-space: nowrap;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      #stage {
+        width: 100%;
+        height: 40vh;
+        max-height: 320px;
+        display: block;
+        background: #0d0d1a;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: #0d0d1a;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        padding: 0.6rem;
+        color: var(--muted);
+        font-size: 12px;
+        max-height: 40vh;
+        overflow: auto;
+      }
+      .status {
+        color: var(--warn);
+        min-height: 1.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Canvas bench — buffer ceiling and blit rate</h1>
+    <p class="sub">
+      No generator, no renderer, no framework. Measures whether one big offscreen buffer can be
+      allocated, and how fast it blits under pan and zoom.
+    </p>
+
+    <button id="run">Run both tests</button>
+    <button id="copy" class="secondary" disabled>Copy results</button>
+    <div class="status" id="status">Idle.</div>
+
+    <canvas id="stage"></canvas>
+
+    <section>
+      <h1>Device</h1>
+      <table id="device"></table>
+    </section>
+
+    <section>
+      <h1>1. Buffer ceiling</h1>
+      <p class="sub">
+        Allocates square buffers of increasing size, draws into each, and reads a pixel back. Safari
+        does not throw when it runs out — it hands back a blank canvas — so the readback is what
+        detects the ceiling.
+      </p>
+      <table id="ladder"></table>
+    </section>
+
+    <section>
+      <h1>2. Blit rate</h1>
+      <p class="sub">
+        Draws 400 polylines into the buffer once, then blits a moving, zooming sub-rectangle to the
+        screen for 4 seconds per size. This is the frame budget the two-layer renderer would live
+        in.
+      </p>
+      <table id="blit"></table>
+    </section>
+
+    <section>
+      <h1>Raw</h1>
+      <pre id="raw">Run the tests.</pre>
+    </section>
+
+    <script>
+      const LADDER = [2048, 3000, 4096, 6000, 8192, 10000, 12000, 16384];
+      const BLIT_SIZES = [3000, 4096, 6000, 8192];
+      const BLIT_MS = 4000;
+      const POLYLINES = 400;
+
+      const results = { device: {}, ladder: [], blit: [], startedAt: new Date().toISOString() };
+
+      const $ = (id) => document.getElementById(id);
+      const status = (text) => {
+        $('status').textContent = text;
+      };
+      const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+      function row(table, label, value, cls) {
+        const tr = table.insertRow();
+        tr.insertCell().textContent = label;
+        const td = tr.insertCell();
+        td.textContent = value;
+        if (cls) td.className = cls;
+        return td;
+      }
+
+      function describeDevice() {
+        const d = {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform ?? '',
+          devicePixelRatio: window.devicePixelRatio,
+          screen: `${screen.width}x${screen.height}`,
+          viewport: `${innerWidth}x${innerHeight}`,
+          maxTouchPoints: navigator.maxTouchPoints ?? 0,
+          deviceMemoryGb: navigator.deviceMemory ?? null,
+          hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+        };
+        results.device = d;
+        const t = $('device');
+        row(t, 'user agent', d.userAgent);
+        row(t, 'screen', `${d.screen} @ dpr ${d.devicePixelRatio}`);
+        row(t, 'viewport', d.viewport);
+        row(t, 'cores', String(d.hardwareConcurrency ?? 'unknown'));
+        row(
+          t,
+          'device memory',
+          d.deviceMemoryGb === null ? 'not reported (Safari)' : `${d.deviceMemoryGb} GB`,
+        );
+      }
+
+      function makeBuffer(size) {
+        const c = document.createElement('canvas');
+        c.width = size;
+        c.height = size;
+        return c;
+      }
+
+      /**
+       * Safari answers an over-budget canvas with a blank one rather than an
+       * error, so a drawn pixel read back is the only reliable signal.
+       */
+      function bufferUsable(canvas) {
+        const ctx = canvas.getContext('2d', { willReadFrequently: false });
+        if (!ctx) return { usable: false, why: 'no 2d context' };
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(0, 0, 8, 8);
+        ctx.fillStyle = '#00ff00';
+        ctx.fillRect(canvas.width - 8, canvas.height - 8, 8, 8);
+        try {
+          const near = ctx.getImageData(1, 1, 1, 1).data;
+          const far = ctx.getImageData(canvas.width - 2, canvas.height - 2, 1, 1).data;
+          if (near[0] < 200 || near[3] < 200) return { usable: false, why: 'near corner blank' };
+          if (far[1] < 200 || far[3] < 200) return { usable: false, why: 'far corner blank' };
+          return { usable: true, why: '' };
+        } catch (err) {
+          return { usable: false, why: `readback threw: ${String(err && err.message)}` };
+        }
+      }
+
+      function paintPolylines(ctx, size, count) {
+        const palette = ['#e8b53a', '#d4762a', '#e05a4f', '#7b3fa0', '#f2c94c'];
+        ctx.lineWidth = Math.max(2, size / 500);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        let seed = 12345;
+        const rand = () => {
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+          return seed / 0x7fffffff;
+        };
+        for (let i = 0; i < count; i++) {
+          ctx.strokeStyle = palette[i % palette.length];
+          ctx.beginPath();
+          let x = rand() * size;
+          let y = rand() * size;
+          ctx.moveTo(x, y);
+          const step = size / 40;
+          for (let k = 0; k < 12; k++) {
+            if (rand() < 0.5) x += rand() < 0.5 ? step : -step;
+            else y += rand() < 0.5 ? step : -step;
+            ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+      }
+
+      async function runLadder() {
+        const table = $('ladder');
+        table.innerHTML = '';
+        for (const size of LADDER) {
+          status(`Allocating ${size}x${size}...`);
+          await nextFrame();
+          const mb = ((size * size * 4) / (1024 * 1024)).toFixed(0);
+          const t0 = performance.now();
+          let verdict;
+          try {
+            const canvas = makeBuffer(size);
+            verdict = bufferUsable(canvas);
+            canvas.width = 0;
+            canvas.height = 0;
+          } catch (err) {
+            verdict = { usable: false, why: `threw: ${String(err && err.message)}` };
+          }
+          const ms = Math.round(performance.now() - t0);
+          results.ladder.push({
+            size,
+            estimatedMb: Number(mb),
+            ok: verdict.usable,
+            why: verdict.why,
+            ms,
+          });
+          row(
+            table,
+            `${size}x${size}  ~${mb} MB`,
+            verdict.usable ? `ok  (${ms} ms)` : `FAILED — ${verdict.why}`,
+            verdict.usable ? 'ok' : 'bad',
+          );
+          if (!verdict.usable) break;
+        }
+      }
+
+      async function runBlit() {
+        const table = $('blit');
+        table.innerHTML = '';
+        const stage = $('stage');
+        const dpr = window.devicePixelRatio || 1;
+        stage.width = Math.round(stage.clientWidth * dpr);
+        stage.height = Math.round(stage.clientHeight * dpr);
+        const view = stage.getContext('2d');
+
+        const ceiling =
+          results.ladder
+            .filter((r) => r.ok)
+            .map((r) => r.size)
+            .pop() ?? 0;
+
+        for (const size of BLIT_SIZES) {
+          if (size > ceiling) {
+            results.blit.push({ size, skipped: 'above the buffer ceiling' });
+            row(table, `${size}x${size}`, 'skipped — above the ceiling', 'warn');
+            continue;
+          }
+          status(`Painting ${size}x${size}...`);
+          await nextFrame();
+          const buffer = makeBuffer(size);
+          const ctx = buffer.getContext('2d');
+          paintPolylines(ctx, size, POLYLINES);
+
+          status(`Blitting ${size}x${size} for ${BLIT_MS / 1000}s...`);
+          await nextFrame();
+
+          const frames = [];
+          const started = performance.now();
+          let last = started;
+          await new Promise((resolve) => {
+            const tick = (now) => {
+              frames.push(now - last);
+              last = now;
+              const t = (now - started) / 1000;
+              // Pan on a circle while zooming in and out, so every frame blits
+              // a different sub-rectangle at a different scale.
+              const zoom = 0.25 + 0.2 * (1 + Math.sin(t * 1.1));
+              const sw = size * zoom;
+              const sh = sw * (stage.height / stage.width);
+              const cx = size / 2 + Math.cos(t * 0.9) * (size - sw) * 0.45;
+              const cy = size / 2 + Math.sin(t * 0.7) * (size - sh) * 0.45;
+              view.clearRect(0, 0, stage.width, stage.height);
+              view.drawImage(
+                buffer,
+                Math.max(0, cx - sw / 2),
+                Math.max(0, cy - sh / 2),
+                sw,
+                sh,
+                0,
+                0,
+                stage.width,
+                stage.height,
+              );
+              if (now - started < BLIT_MS) requestAnimationFrame(tick);
+              else resolve();
+            };
+            requestAnimationFrame(tick);
+          });
+
+          buffer.width = 0;
+          buffer.height = 0;
+
+          // The first frame's delta includes paint and upload, not steady state.
+          const steady = frames.slice(2).sort((a, b) => a - b);
+          const median = steady[Math.floor(steady.length / 2)] ?? 0;
+          const p95 = steady[Math.floor(steady.length * 0.95)] ?? 0;
+          const fps = median > 0 ? 1000 / median : 0;
+          const worstFps = p95 > 0 ? 1000 / p95 : 0;
+          const dropped = steady.filter((d) => d > 20).length;
+
+          results.blit.push({
+            size,
+            frames: steady.length,
+            medianFrameMs: Number(median.toFixed(2)),
+            p95FrameMs: Number(p95.toFixed(2)),
+            medianFps: Number(fps.toFixed(1)),
+            p95Fps: Number(worstFps.toFixed(1)),
+            framesOver20ms: dropped,
+          });
+          const cls = fps >= 55 ? 'ok' : fps >= 40 ? 'warn' : 'bad';
+          row(
+            table,
+            `${size}x${size}`,
+            `${fps.toFixed(0)} fps median, ${worstFps.toFixed(0)} fps p95 — ${dropped}/${steady.length} frames over 20 ms`,
+            cls,
+          );
+        }
+      }
+
+      $('run').addEventListener('click', async () => {
+        $('run').disabled = true;
+        $('copy').disabled = true;
+        results.ladder = [];
+        results.blit = [];
+        try {
+          await runLadder();
+          await runBlit();
+          status('Done. Tap "Copy results" and paste them back.');
+        } catch (err) {
+          status(`Stopped: ${String(err && err.message)}`);
+          results.error = String(err && err.stack);
+        }
+        $('raw').textContent = JSON.stringify(results, null, 2);
+        $('run').disabled = false;
+        $('copy').disabled = false;
+      });
+
+      $('copy').addEventListener('click', async () => {
+        const text = JSON.stringify(results, null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+          status('Copied.');
+        } catch {
+          status('Clipboard blocked — select the Raw block below and copy it.');
+        }
+      });
+
+      describeDevice();
+    </script>
+  </body>
+</html>

@@ -18,6 +18,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: `${base}index.html`,
+        // Without this the navigation route answers every path with the app
+        // shell, so a standalone page is unreachable on any device that has
+        // already installed the worker.
+        navigateFallbackDenylist: [/bench\.html$/],
       },
       manifest: {
         name: 'Arrow Maze',
