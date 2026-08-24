@@ -178,17 +178,18 @@ export function probeReadback(
 ): boolean {
   const x = Math.max(0, widthPx - 1);
   const y = Math.max(0, heightPx - 1);
+  ctx.save();
   try {
-    ctx.save();
     ctx.clearRect(x, y, 1, 1);
     ctx.fillStyle = '#ff00ff';
     ctx.fillRect(x, y, 1, 1);
     const data = ctx.getImageData(x, y, 1, 1).data;
     ctx.clearRect(x, y, 1, 1);
-    ctx.restore();
     return data[0] === 255 && data[1] === 0 && data[2] === 255 && data[3] === 255;
   } catch {
     return false;
+  } finally {
+    ctx.restore();
   }
 }
 
@@ -231,10 +232,21 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   const canvas = createCanvas();
   let liveCtx: CanvasRenderingContext2D | null = null;
 
+  // Resizing to an over-budget canvas can throw outright on some platforms
+  // rather than returning null or a blank surface — that is just another
+  // failed rung, not a reason to abandon the ladder.
+  const allocate = (budget: BufferBudget): CanvasRenderingContext2D | null => {
+    try {
+      canvas.width = budget.widthPx;
+      canvas.height = budget.heightPx;
+      return canvas.getContext('2d');
+    } catch {
+      return null;
+    }
+  };
+
   const probe = (budget: BufferBudget): boolean => {
-    canvas.width = budget.widthPx;
-    canvas.height = budget.heightPx;
-    const ctx = canvas.getContext('2d');
+    const ctx = allocate(budget);
     if (ctx === null) return false;
     liveCtx = ctx;
     return probeReadback(ctx, budget.widthPx, budget.heightPx);
@@ -248,11 +260,7 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     options,
   );
 
-  if (liveCtx === null) {
-    canvas.width = budget.widthPx;
-    canvas.height = budget.heightPx;
-    liveCtx = canvas.getContext('2d');
-  }
+  if (liveCtx === null) liveCtx = allocate(budget);
   if (liveCtx === null) throw new Error('2d canvas context unavailable');
 
   const viewport = createViewport({ scale: budget.pixelsPerCell });
@@ -277,13 +285,18 @@ export interface AnimationLayer {
   readonly canvas: CanvasLike;
   readonly ctx: CanvasRenderingContext2D;
   readonly dpr: number;
+  /** CSS px the backing store was sized from — what the pre-scaled context now draws in. */
+  readonly cssWidth: number;
+  readonly cssHeight: number;
 }
 
 /**
  * A screen-sized layer for the single segment currently exiting. Not capped
- * or probed — far under budget at any real screen size. `cssWidth`/`cssHeight`
- * are CSS px; the backing store is sized up by `dpr` so the animation layer
- * matches the static layer's device resolution rather than rendering soft.
+ * or probed — far under budget at any real screen size. The backing store is
+ * sized in device pixels (`cssWidth`/`cssHeight` times `dpr`), and the context
+ * is pre-scaled by `dpr` so a caller — `strokeSegmentPolyline`, the viewport —
+ * keeps drawing in the same CSS-pixel coordinates it already uses for the
+ * static layer, rather than converting to device pixels itself.
  */
 export function createAnimationLayer(
   cssWidth: number,
@@ -299,10 +312,11 @@ export function createAnimationLayer(
   canvas.height = Math.max(1, Math.round(cssHeight * dpr));
   const ctx = canvas.getContext('2d');
   if (ctx === null) throw new Error('2d canvas context unavailable');
-  return { canvas, ctx, dpr };
+  ctx.scale(dpr, dpr);
+  return { canvas, ctx, dpr, cssWidth, cssHeight };
 }
 
-/** Clears the animation layer to its full backing-store size. */
+/** Clears the animation layer, in the CSS-pixel coordinates its pre-scaled context draws in. */
 export function clearAnimationLayer(layer: AnimationLayer): void {
-  layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+  layer.ctx.clearRect(0, 0, layer.cssWidth, layer.cssHeight);
 }

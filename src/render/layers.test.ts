@@ -245,6 +245,10 @@ class FakeCtx {
   moveTo(): void {}
   lineTo(): void {}
   stroke(): void {}
+  readonly scaleCalls: [number, number][] = [];
+  scale(sx: number, sy: number): void {
+    this.scaleCalls.push([sx, sy]);
+  }
 }
 
 function fakeCanvasFactory(allocationLimitPx: number): () => CanvasLike {
@@ -294,6 +298,29 @@ describe('probeReadback', () => {
 
     const after = Array.from(fake.getImageData(0, 0, 1, 1).data);
     expect(after).toEqual(before);
+  });
+
+  it('always pairs save with restore, even when getImageData throws', () => {
+    let saveCalls = 0;
+    let restoreCalls = 0;
+    const ctx = {
+      fillStyle: '',
+      save(): void {
+        saveCalls++;
+      },
+      restore(): void {
+        restoreCalls++;
+      },
+      clearRect(): void {},
+      fillRect(): void {},
+      getImageData(): never {
+        throw new Error('tainted canvas');
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    expect(probeReadback(ctx, 10, 10)).toBe(false);
+    expect(saveCalls).toBe(1);
+    expect(restoreCalls).toBe(1);
   });
 });
 
@@ -365,6 +392,47 @@ describe('createStaticLayer', () => {
     expect(layer.budget.degraded).toBe(true);
     expect(layer.budget.pixelsPerCell).toBeCloseTo(81.92, 2);
   });
+
+  it('degrades instead of throwing when resizing an over-budget canvas throws outright', () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // 20px/cell, 10, 5, 2.5 and 1.25 all resize to an area over this; the
+    // floor rung (1px/cell, 40x40 = 1600px) is the first that fits.
+    const throwAbovePx = 2000;
+    const canvas: CanvasLike & { widthValue: number; heightValue: number } = {
+      widthValue: 0,
+      heightValue: 0,
+      get width() {
+        return this.widthValue;
+      },
+      set width(value: number) {
+        if (value * this.heightValue > throwAbovePx) throw new Error('allocation failed');
+        this.widthValue = value;
+      },
+      get height() {
+        return this.heightValue;
+      },
+      set height(value: number) {
+        if (this.widthValue * value > throwAbovePx) throw new Error('allocation failed');
+        this.heightValue = value;
+      },
+      getContext(id: '2d') {
+        if (id !== '2d') return null;
+        return new FakeCtx(
+          this.widthValue,
+          this.heightValue,
+          true,
+        ) as unknown as CanvasRenderingContext2D;
+      },
+    };
+
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: () => canvas,
+    });
+
+    expect(layer.budget.widthPx * layer.budget.heightPx).toBeLessThanOrEqual(throwAbovePx);
+    expect(layer.allocationOk).toBe(true);
+  });
 });
 
 describe('redrawStaticLayer', () => {
@@ -412,25 +480,31 @@ describe('redrawStaticLayer', () => {
 });
 
 describe('createAnimationLayer / clearAnimationLayer', () => {
-  it('is a 1:1 backing store at dpr 1', () => {
+  it('is a 1:1 backing store at dpr 1 and does not rescale the context', () => {
     const layer = createAnimationLayer(390, 844, 1, fakeCanvasFactory(10_000_000));
     expect(layer.canvas.width).toBe(390);
     expect(layer.canvas.height).toBe(844);
+    expect(layer.cssWidth).toBe(390);
+    expect(layer.cssHeight).toBe(844);
     expect(layer.dpr).toBe(1);
+    expect((layer.ctx as unknown as FakeCtx).scaleCalls).toEqual([[1, 1]]);
   });
 
-  it('scales the CSS screen size by dpr to size the backing store', () => {
+  it('scales the backing store to device pixels and pre-scales the context by dpr, so a caller keeps drawing in CSS pixels', () => {
     const layer = createAnimationLayer(390, 844, 3, fakeCanvasFactory(10_000_000));
     expect(layer.canvas.width).toBe(1170);
     expect(layer.canvas.height).toBe(2532);
+    expect(layer.cssWidth).toBe(390);
+    expect(layer.cssHeight).toBe(844);
     expect(layer.dpr).toBe(3);
+    expect((layer.ctx as unknown as FakeCtx).scaleCalls).toEqual([[3, 3]]);
   });
 
-  it('clears the full backing store', () => {
+  it('clears the full backing store, in the CSS-pixel coordinates the pre-scaled context draws in', () => {
     let cleared: [number, number, number, number] | undefined;
     const canvas: CanvasLike = {
-      width: 100,
-      height: 200,
+      width: 300,
+      height: 600,
       getContext: () =>
         ({
           clearRect: (x: number, y: number, w: number, h: number) => {
@@ -438,7 +512,7 @@ describe('createAnimationLayer / clearAnimationLayer', () => {
           },
         }) as unknown as CanvasRenderingContext2D,
     };
-    const layer = { canvas, ctx: canvas.getContext('2d')!, dpr: 1 };
+    const layer = { canvas, ctx: canvas.getContext('2d')!, dpr: 3, cssWidth: 100, cssHeight: 200 };
     clearAnimationLayer(layer);
     expect(cleared).toEqual([0, 0, 100, 200]);
   });
