@@ -11,7 +11,7 @@
  */
 
 import { strokeSegmentPolyline } from './draw.js';
-import { createBufferViewport, type Viewport } from './viewport.js';
+import { createBufferViewport, type CanvasLike, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
 export const MAX_CANVAS_DIMENSION = 8192;
@@ -167,12 +167,7 @@ export function removedSetsDiffer(a: ReadonlySet<SegmentId>, b: ReadonlySet<Segm
   return false;
 }
 
-/** The canvas surface both layers are built on. */
-export interface CanvasLike {
-  width: number;
-  height: number;
-  getContext(contextId: '2d'): CanvasRenderingContext2D | null;
-}
+export type { CanvasLike } from './viewport.js';
 
 /**
  * Per-channel slack allowed when reading the probe pixel back. Wide enough to
