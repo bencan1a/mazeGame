@@ -3,12 +3,16 @@
  *
  * A direct hit reads `occupancy` once and returns whatever segment is there,
  * free or blocked: the player aimed at it and owns the result, including a
- * bounce. Only when that cell is empty or out of bounds does the radius
- * search take over, and it answers a different question — the nearest free
- * segment to tolerate a miss by — so it never returns a blocked one. It
- * scans every cell in a bounding box around the tapped cell, wide enough to
- * cover the radius, and keeps the one whose square is closest to the exact
- * tap point, in CSS pixels, not cell count, among those `isFree` accepts.
+ * bounce. `occupancy` is part of the immutable `Board` and keeps naming a
+ * removed segment at its old cells forever, so a removed occupant is treated
+ * as empty rather than returned — otherwise every cleared segment leaves a
+ * dead zone where a tap neither hits nor snaps. Only an empty, removed, or
+ * out-of-bounds cell falls through to the radius search, which answers a
+ * different question — the nearest free segment to tolerate a miss by — so
+ * it never returns a blocked one. It scans every cell in a bounding box
+ * around the tapped cell, wide enough to cover the radius, and keeps the
+ * one whose square is closest to the exact tap point, in CSS pixels, not
+ * cell count, among those `isFree` accepts.
  */
 
 import type { Board, SegmentId } from '../core/types.js';
@@ -17,6 +21,9 @@ import { cssPixelToCell } from '../render/viewport.js';
 
 /** Injected rather than read from game state, so this module stays testable with no game state at all. */
 export type FreePredicate = (id: SegmentId) => boolean;
+
+/** Injected alongside `FreePredicate`; distinguishes "gone" from "blocked", which `isFree` alone cannot. */
+export type RemovedPredicate = (id: SegmentId) => boolean;
 
 export interface HitTestOptions {
   /** Search radius, in CSS pixels, measured from the tap point to each candidate cell's nearest edge. */
@@ -35,11 +42,12 @@ function requireNonNegativeFinite(value: number, name: string): void {
 /**
  * Resolves a CSS-pixel tap to a segment id, or `null` for a miss.
  *
- * A tap directly on a segment returns that segment's id whether or not it is
- * free — the caller decides what a blocked direct hit means (a bounce).
- * A tap on an empty cell instead searches `radiusCssPx` for the nearest free
- * segment, and only ever returns a free one there; with none in radius the
- * result is `null`, a miss with nothing to bounce off of.
+ * A tap directly on a segment still on the board returns that segment's id
+ * whether or not it is free — the caller decides what a blocked direct hit
+ * means (a bounce). A tap on a cell that is empty, out of bounds, or holds a
+ * segment `isRemoved` accepts instead searches `radiusCssPx` for the nearest
+ * free segment, and only ever returns a free one there; with none in radius
+ * the result is `null`, a miss with nothing to bounce off of.
  *
  * A non-finite `point` (a `NaN` from a malformed pointer event) is a miss,
  * not a thrown error or an out-of-bounds cell read.
@@ -49,6 +57,7 @@ export function hitTest(
   viewport: Viewport<'css'>,
   point: CssPixel,
   isFree: FreePredicate,
+  isRemoved: RemovedPredicate,
   options?: HitTestOptions,
 ): SegmentId | null {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
@@ -59,7 +68,7 @@ export function hitTest(
   const center = cssPixelToCell(viewport, point);
   if (isInBounds(board, center.x, center.y)) {
     const direct = board.occupancy[center.y * board.width + center.x] as SegmentId;
-    if (direct !== 0) return direct;
+    if (direct !== 0 && !isRemoved(direct)) return direct;
   }
 
   return nearestFreeInRadius(board, viewport, point, center.x, center.y, radiusCssPx, isFree);
