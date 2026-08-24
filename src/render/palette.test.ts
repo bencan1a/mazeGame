@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { PALETTE, PALETTE_SIZE, paletteColor } from './palette.js';
+import { DEFAULT_PALETTE_SIZE } from '../core/color/index.js';
 
 describe('paletteColor', () => {
-  it('has exactly 6 hues, matching the palette size the generator colours against', () => {
-    expect(PALETTE_SIZE).toBe(6);
+  it('covers at least as many hues as the generator colours against, so a raised DEFAULT_PALETTE_SIZE cannot silently outrun it', () => {
+    expect(PALETTE_SIZE).toBeGreaterThanOrEqual(DEFAULT_PALETTE_SIZE);
   });
 
   it('returns a distinct colour for every index', () => {

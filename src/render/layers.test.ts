@@ -14,7 +14,7 @@ import {
   removedSetsDiffer,
   type CanvasLike,
 } from './layers.js';
-import { ARROWHEAD_OVERHANG_CELLS, drawArrowhead } from './draw.js';
+import { ARROWHEAD_OVERHANG_CELLS, MIN_LEGIBLE_ARROWHEAD_CSS_PX, drawArrowhead } from './draw.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import { createBufferViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
@@ -512,13 +512,45 @@ describe('createStaticLayer', () => {
     }
   });
 
-  it('exposes legibleUnzoomed as true at the resting CSS scale (0.95 cells * 10 px/cell = 9.5px, over the 9px floor)', () => {
-    const board = ACYCLIC_BOARD;
+  it('exposes legibleUnzoomed as true for a small board at the default reference viewport', () => {
+    const board = ACYCLIC_BOARD; // 4 cells across; ~97.5 CSS px/cell at the 390px default
     const layer = createStaticLayer(board, {
       requestedPixelsPerCell: 20,
       createCanvas: fakeCanvasFactory(1_000_000),
     });
     expect(layer.legibleUnzoomed).toBe(true);
+  });
+
+  it('exposes legibleUnzoomed as false for a board too wide for the default reference viewport', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(100_000_000),
+    });
+    expect(layer.legibleUnzoomed).toBe(false);
+  });
+
+  it('flips legibleUnzoomed when the caller supplies its actual, roomier viewport size', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(100_000_000),
+      cssViewportWidth: roomy,
+      cssViewportHeight: roomy,
+    });
+    expect(layer.legibleUnzoomed).toBe(true);
+  });
+
+  it('uses the smaller of cssViewportWidth and cssViewportHeight, so a landscape width alone cannot report legible', () => {
+    const board = { width: 60, height: 60 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(100_000_000),
+      cssViewportWidth: 844,
+      cssViewportHeight: 390,
+    });
+    expect(layer.legibleUnzoomed).toBe(false);
   });
 
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {

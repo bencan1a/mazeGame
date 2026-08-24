@@ -252,11 +252,12 @@ export interface StaticLayer {
    */
   readonly legibleUnzoomed: boolean;
   /**
-   * Segment ids `redrawStaticLayer` could not draw on its most recent call,
-   * because of malformed data (an out-of-range palette index or `segDir`).
-   * Empty on a healthy board. Such a segment is still tappable via
-   * `occupancy` even though nothing is drawn for it, so a caller may want to
-   * warn rather than leave it silently invisible.
+   * Segment ids `redrawStaticLayer` could not fully draw on its most recent
+   * call, because of malformed data (an out-of-range palette index or
+   * `segDir`). Empty on a healthy board. Left partly or fully undrawn — a
+   * one-cell segment's dot strokes before its arrowhead can throw — the
+   * segment is still tappable via `occupancy` regardless, so a caller may
+   * want to warn rather than leave it silently wrong.
    */
   readonly droppedSegments: SegmentId[];
 }
@@ -270,6 +271,8 @@ export interface StaticLayerOptions extends DegradationOptions {
   readonly requestedPixelsPerCell?: number;
   /** Actual CSS width the board will render into unzoomed, for `legibleUnzoomed`. Defaults to `REFERENCE_CSS_VIEWPORT_WIDTH`. */
   readonly cssViewportWidth?: number;
+  /** Actual CSS height the board will render into unzoomed, for `legibleUnzoomed`. Defaults to `REFERENCE_CSS_VIEWPORT_WIDTH`. */
+  readonly cssViewportHeight?: number;
   readonly createCanvas?: () => CanvasLike;
 }
 
@@ -278,9 +281,10 @@ function defaultCreateCanvas(): CanvasLike {
 }
 
 /**
- * Allocates the static offscreen buffer sized to hold the whole board plus
- * the arrowhead overhang at its edges, degrading resolution until a drawn
- * pixel reads back correctly.
+ * Allocates the static offscreen buffer sized to hold the whole board,
+ * padded by any arrowhead overhang past a border cell's own edge (zero at
+ * the current constants — see `ARROWHEAD_OVERHANG_CELLS`), degrading
+ * resolution until a drawn pixel reads back correctly.
  */
 export function createStaticLayer(board: Board, options: StaticLayerOptions = {}): StaticLayer {
   const createCanvas = options.createCanvas ?? defaultCreateCanvas;
@@ -288,9 +292,10 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     options.requestedPixelsPerCell ??
     recommendedPixelsPerCell(options.dpr ?? 1, options.maxZoom ?? DEFAULT_MAX_ZOOM);
 
-  // A head on the board's outer cell points outward, so its arrowhead
-  // reaches past the board's own edge; pad the buffer so that tip is not
-  // clipped, on every side.
+  // A head on the board's outer cell points outward. Its arrowhead reaches
+  // to that cell's own edge exactly at the current constants, so this pads
+  // by zero; it only does real work if a future arrowhead size change
+  // pushes the tip or a base corner past the cell.
   const paddedWidth = board.width + 2 * ARROWHEAD_OVERHANG_CELLS;
   const paddedHeight = board.height + 2 * ARROWHEAD_OVERHANG_CELLS;
 
@@ -333,7 +338,11 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
 
   const originPx = ARROWHEAD_OVERHANG_CELLS * budget.pixelsPerCell;
   const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
-  const legibleUnzoomed = isBoardLegibleUnzoomed(board.width, options.cssViewportWidth);
+  const legibleUnzoomed = isBoardLegibleUnzoomed(
+    board.width,
+    options.cssViewportWidth,
+    options.cssViewportHeight,
+  );
   return {
     canvas,
     ctx: liveCtx,

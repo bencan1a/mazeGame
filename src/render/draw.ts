@@ -62,19 +62,24 @@ export const ARROWHEAD_WIDTH_CELLS = 0.7;
 export const MIN_LEGIBLE_ARROWHEAD_CSS_PX = 9;
 
 /**
- * How far past its cell's outer edge an arrowhead's tip can reach, in
- * cells. Zero at the current `ARROWHEAD_LENGTH_CELLS` (the triangle is
- * bounded by the cell itself), kept as a formula rather than a literal 0 so
- * a future change to that constant keeps the static buffer correctly padded
- * instead of silently clipping again.
+ * How far past its cell's outer edge an arrowhead can reach in either axis,
+ * in cells: the tip along its direction, or a base corner across it. Zero
+ * at the current constants (the triangle is bounded by the cell itself);
+ * covers both `ARROWHEAD_LENGTH_CELLS` and `ARROWHEAD_WIDTH_CELLS` so a
+ * future increase past 1 cell in either keeps the static buffer padded
+ * instead of clipping again.
  */
-export const ARROWHEAD_OVERHANG_CELLS = Math.max(0, ARROWHEAD_LENGTH_CELLS / 2 - 0.5);
+export const ARROWHEAD_OVERHANG_CELLS = Math.max(
+  0,
+  ARROWHEAD_LENGTH_CELLS / 2 - 0.5,
+  ARROWHEAD_WIDTH_CELLS / 2 - 0.5,
+);
 
 /**
- * Reference CSS viewport width the ~8-10 CSS px legibility floor's "about 40
- * cells across" figure assumes — roughly a phone in portrait.
- * `isBoardLegibleUnzoomed`'s default when a caller does not know its actual
- * on-screen width yet.
+ * Reference CSS viewport size the ~8-10 CSS px legibility floor's "about 40
+ * cells across" figure assumes — roughly a phone's width in portrait, the
+ * smaller of its two axes and so the default for both when a caller does
+ * not yet know its actual on-screen width or height.
  */
 export const REFERENCE_CSS_VIEWPORT_WIDTH = 390;
 
@@ -104,17 +109,23 @@ export function isLegibleAtScale(viewport: Viewport<'css'>): boolean {
 
 /**
  * Whether a board `boardWidthCells` cells across reads its arrowheads
- * unzoomed in a CSS viewport `availableCssWidth` wide — the actual on-screen
- * scale, not a board-independent constant. Below this the UI must require
- * zoom rather than render mush.
+ * unzoomed in a CSS viewport `availableCssWidth` by `availableCssHeight` —
+ * the actual on-screen scale, not a board-independent constant. A board is
+ * square, so the smaller of the two axes is what actually constrains it:
+ * a wide-but-short landscape viewport can fit a board by width alone and
+ * still crop it to an illegible scale by height. Below this the UI must
+ * require zoom rather than render mush.
  */
 export function isBoardLegibleUnzoomed(
   boardWidthCells: number,
   availableCssWidth: number = REFERENCE_CSS_VIEWPORT_WIDTH,
+  availableCssHeight: number = REFERENCE_CSS_VIEWPORT_WIDTH,
 ): boolean {
   requirePositiveFinite(boardWidthCells, 'boardWidthCells');
   requirePositiveFinite(availableCssWidth, 'availableCssWidth');
-  return isLegibleAtScale(createViewport({ scale: availableCssWidth / boardWidthCells }));
+  requirePositiveFinite(availableCssHeight, 'availableCssHeight');
+  const constrainingCssSize = Math.min(availableCssWidth, availableCssHeight);
+  return isLegibleAtScale(createViewport({ scale: constrainingCssSize / boardWidthCells }));
 }
 
 /**

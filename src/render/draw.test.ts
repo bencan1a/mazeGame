@@ -336,16 +336,27 @@ describe('isBoardLegibleUnzoomed', () => {
     expect(isBoardLegibleUnzoomed(100)).toBe(false);
   });
 
-  it('uses the actual available CSS width when given one, not just the default', () => {
-    // A 100-cell board is legible if the viewport is wide enough.
-    expect(isBoardLegibleUnzoomed(100, 100 * MIN_LEGIBLE_ARROWHEAD_CSS_PX)).toBe(true);
-    // A 20-cell board is illegible in a narrow viewport.
-    expect(isBoardLegibleUnzoomed(20, 20 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX - 1))).toBe(false);
+  it('uses the actual available CSS size when given one, not just the default', () => {
+    // A 100-cell board is legible if the viewport is wide and tall enough.
+    const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
+    expect(isBoardLegibleUnzoomed(100, roomy, roomy)).toBe(true);
+    // A 20-cell board is illegible in a viewport too small in both axes.
+    const cramped = 20 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX - 1);
+    expect(isBoardLegibleUnzoomed(20, cramped, cramped)).toBe(false);
   });
 
-  it('defaults to REFERENCE_CSS_VIEWPORT_WIDTH', () => {
+  it('uses the smaller of width and height, so a wide-but-short landscape viewport is not legible by width alone', () => {
+    // 60 cells across a landscape phone: width 844 alone gives ~14 px/cell
+    // (legible), but the constraining height of 390 gives ~6.5 (not).
+    expect(isBoardLegibleUnzoomed(60, 844, 390)).toBe(false);
+    // With a tall-enough height too, the same width does report legible —
+    // confirming it was the height, not the board, that flipped the answer.
+    expect(isBoardLegibleUnzoomed(60, 844, 844)).toBe(true);
+  });
+
+  it('defaults both width and height to REFERENCE_CSS_VIEWPORT_WIDTH', () => {
     expect(isBoardLegibleUnzoomed(40)).toBe(
-      isBoardLegibleUnzoomed(40, REFERENCE_CSS_VIEWPORT_WIDTH),
+      isBoardLegibleUnzoomed(40, REFERENCE_CSS_VIEWPORT_WIDTH, REFERENCE_CSS_VIEWPORT_WIDTH),
     );
   });
 
@@ -355,5 +366,9 @@ describe('isBoardLegibleUnzoomed', () => {
 
   it.each([NaN, Infinity, 0, -1])('rejects an availableCssWidth of %p', (bad) => {
     expect(() => isBoardLegibleUnzoomed(40, bad)).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, 0, -1])('rejects an availableCssHeight of %p', (bad) => {
+    expect(() => isBoardLegibleUnzoomed(40, REFERENCE_CSS_VIEWPORT_WIDTH, bad)).toThrow(RangeError);
   });
 });
