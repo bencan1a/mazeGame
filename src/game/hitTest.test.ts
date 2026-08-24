@@ -55,7 +55,7 @@ function nearestMatchBoard(): Board {
 const ALWAYS_FREE: FreePredicate = () => true;
 const NEVER_REMOVED: RemovedPredicate = () => false;
 
-describe('hitTest: direct hit', () => {
+describe('hitTest: direct hit — approved deviation: a blocked segment bounces rather than redirects', () => {
   it('selects a free segment tapped directly', () => {
     const board = twoSegmentBoard();
     const viewport = createViewport({ scale: 10 });
@@ -66,7 +66,7 @@ describe('hitTest: direct hit', () => {
     expect(result).toBe(FREE_ID);
   });
 
-  it("returns a blocked segment tapped directly, not the radius search's free alternative", () => {
+  it("by decision, returns a blocked segment tapped directly rather than redirecting to the radius search's free alternative", () => {
     const board = twoSegmentBoard();
     const viewport = createViewport({ scale: 10 });
     const state = stateWithRemoved(board, []);
@@ -80,7 +80,7 @@ describe('hitTest: direct hit', () => {
     expect(result).toBe(BLOCKED_ID);
   });
 
-  it('returns the same occupant regardless of free/blocked status, since a direct hit never consults isFree', () => {
+  it('confirms the decision holds regardless of free/blocked status: a direct hit never consults isFree', () => {
     const board = twoSegmentBoard();
     const viewport = createViewport({ scale: 10 });
     const point = cssPixel(45, 15);
@@ -99,7 +99,7 @@ describe('hitTest: direct hit', () => {
   });
 });
 
-describe('hitTest: a direct hit on a blocked segment is a bounce', () => {
+describe('hitTest: the approved bounce-on-blocked-direct-hit costs a life, as intended', () => {
   it('drives tap() to a bounced outcome that costs exactly one life', () => {
     const board = twoSegmentBoard();
     const viewport = createViewport({ scale: 10 });
