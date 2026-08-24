@@ -9,6 +9,7 @@ import {
   degradeBudget,
   planDegradation,
   probeReadback,
+  recommendedPixelsPerCell,
   redrawStaticLayer,
   removedSetsDiffer,
   type CanvasLike,
@@ -41,6 +42,43 @@ describe('computeBufferBudget', () => {
     const budget = computeBufferBudget(20, 20, 8192 / 20, 8192);
     expect(budget.degraded).toBe(false);
   });
+
+  it.each([NaN, Infinity, -Infinity, 0, -5])(
+    'rejects a requestedPixelsPerCell of %p rather than producing NaN geometry',
+    (bad) => {
+      expect(() => computeBufferBudget(40, 40, bad)).toThrow(RangeError);
+    },
+  );
+
+  it.each([NaN, Infinity, 0, -1])('rejects a boardWidth of %p', (bad) => {
+    expect(() => computeBufferBudget(bad, 40, 20)).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, 0, -1])('rejects a maxDimension of %p', (bad) => {
+    expect(() => computeBufferBudget(40, 40, 20, bad)).toThrow(RangeError);
+  });
+});
+
+describe('recommendedPixelsPerCell', () => {
+  it('is base CSS px per cell times the zoom ceiling times dpr', () => {
+    expect(recommendedPixelsPerCell(1)).toBe(30); // 10 * 3 * 1
+    expect(recommendedPixelsPerCell(2, 4, 5)).toBe(40); // 5 * 4 * 2
+  });
+
+  it('at dpr 3 on a 100x100 board, lands on the spike-measured cap of ~81 device px per cell', () => {
+    const requested = recommendedPixelsPerCell(3);
+    const budget = computeBufferBudget(100, 100, requested, MAX_CANVAS_DIMENSION);
+    expect(budget.degraded).toBe(true);
+    expect(budget.pixelsPerCell).toBeCloseTo(81.92, 2);
+  });
+
+  it('does not ask for the cap on a small board', () => {
+    const requested = recommendedPixelsPerCell(1);
+    const budget = computeBufferBudget(20, 20, requested, MAX_CANVAS_DIMENSION);
+    expect(budget.degraded).toBe(false);
+    expect(budget.widthPx).toBe(600);
+    expect(budget.widthPx).toBeLessThan(MAX_CANVAS_DIMENSION);
+  });
 });
 
 describe('degradeBudget', () => {
@@ -63,6 +101,7 @@ describe('planDegradation', () => {
     const plan = planDegradation(40, 40, 20, () => true);
     expect(plan.attempts).toHaveLength(1);
     expect(plan.budget.pixelsPerCell).toBe(20);
+    expect(plan.ok).toBe(true);
   });
 
   it('halves resolution until the probe succeeds', () => {
@@ -75,6 +114,7 @@ describe('planDegradation', () => {
     expect(plan.budget.pixelsPerCell).toBe(5);
     expect(plan.budget.degraded).toBe(true);
     expect(plan.attempts.map((a) => a.ok)).toEqual([false, false, true]);
+    expect(plan.ok).toBe(true);
   });
 
   it('gives up gracefully at the floor rather than looping forever', () => {
@@ -82,11 +122,29 @@ describe('planDegradation', () => {
     expect(plan.budget.pixelsPerCell).toBe(2);
     expect(plan.attempts.every((a) => !a.ok)).toBe(true);
     expect(plan.attempts.length).toBeGreaterThan(1);
+    expect(plan.ok).toBe(false);
   });
 
   it('respects a custom max dimension', () => {
     const plan = planDegradation(100, 100, 300, () => true, { maxDimension: 1024 });
     expect(plan.budget.widthPx).toBeLessThanOrEqual(1024);
+  });
+
+  it('terminates within a bounded number of attempts even with an extreme floor', () => {
+    const plan = planDegradation(100, 100, 8192, () => false, { minPixelsPerCell: 1e-6 });
+    expect(plan.attempts.length).toBeLessThanOrEqual(64);
+    expect(plan.ok).toBe(false);
+  });
+
+  it('rejects a non-finite requestedPixelsPerCell rather than looping forever', () => {
+    expect(() => planDegradation(40, 40, NaN, () => true)).toThrow(RangeError);
+    expect(() => planDegradation(40, 40, Infinity, () => true)).toThrow(RangeError);
+  });
+
+  it('rejects a non-finite minPixelsPerCell', () => {
+    expect(() => planDegradation(40, 40, 20, () => true, { minPixelsPerCell: NaN })).toThrow(
+      RangeError,
+    );
   });
 });
 
@@ -121,7 +179,20 @@ class FakeCtx {
   fillStyle = '';
   save(): void {}
   restore(): void {}
-  clearRect(): void {}
+  clearRect(x: number, y: number, w: number, h: number): void {
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const px = x + dx;
+        const py = y + dy;
+        if (px < 0 || py < 0 || px >= this.width || py >= this.height) continue;
+        const i = (py * this.width + px) * 4;
+        this.pixels[i] = 0;
+        this.pixels[i + 1] = 0;
+        this.pixels[i + 2] = 0;
+        this.pixels[i + 3] = 0;
+      }
+    }
+  }
   fillRect(x: number, y: number, w: number, h: number): void {
     if (!this.allocated) return;
     for (let dy = 0; dy < h; dy++) {
@@ -194,34 +265,83 @@ describe('probeReadback', () => {
     const ctx = new FakeCtx(10, 10, false) as unknown as CanvasRenderingContext2D;
     expect(probeReadback(ctx, 10, 10)).toBe(false);
   });
+
+  it('leaves no drawn pixel behind once the probe is done', () => {
+    const fake = new FakeCtx(10, 10, true);
+    const ctx = fake as unknown as CanvasRenderingContext2D;
+    probeReadback(ctx, 10, 10);
+    const data = fake.getImageData(9, 9, 1, 1).data;
+    expect(Array.from(data)).toEqual([0, 0, 0, 0]);
+  });
 });
 
 describe('createStaticLayer', () => {
   it('renders a fixture board at the requested resolution when it is under budget', () => {
     const board = ACYCLIC_BOARD; // 4x4
-    const layer = createStaticLayer(board, 20, { createCanvas: fakeCanvasFactory(1_000_000) });
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+    });
     expect(layer.budget.degraded).toBe(false);
     expect(layer.budget.widthPx).toBe(80);
     expect(layer.budget.heightPx).toBe(80);
     expect(layer.viewport.scale).toBe(20);
+    expect(layer.allocationOk).toBe(true);
   });
 
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {
     // 100 wide, 1 tall, one segment; only tiny allocations "succeed".
     const board = makeBoard({ art: `${'a'.repeat(99)}A`, params: { gridSize: 100 } });
-    const layer = createStaticLayer(board, 300, {
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 300,
       createCanvas: fakeCanvasFactory(500),
       maxDimension: 8192,
     });
     expect(layer.budget.degraded).toBe(true);
+    expect(layer.allocationOk).toBe(true);
+    expect(layer.attempts.length).toBeGreaterThan(1);
     expect(probeReadback(layer.ctx, layer.budget.widthPx, layer.budget.heightPx)).toBe(true);
+  });
+
+  it('reports allocationOk false when no rung ever actually allocates', () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(0),
+    });
+    expect(layer.allocationOk).toBe(false);
+    expect(layer.attempts.every((a) => !a.ok)).toBe(true);
   });
 
   it('is capped at 8192 device pixels per side by default', () => {
     const board = { width: 100, height: 100 } as unknown as Board;
-    const layer = createStaticLayer(board, 300, { createCanvas: fakeCanvasFactory(100_000_000) });
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 300,
+      createCanvas: fakeCanvasFactory(100_000_000),
+    });
     expect(layer.budget.widthPx).toBeLessThanOrEqual(MAX_CANVAS_DIMENSION);
     expect(layer.budget.heightPx).toBeLessThanOrEqual(MAX_CANVAS_DIMENSION);
+  });
+
+  it('without an explicit request, sizes to what the board needs rather than the cap', () => {
+    const board = { width: 20, height: 20 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      dpr: 1,
+      createCanvas: fakeCanvasFactory(100_000_000),
+    });
+    expect(layer.budget.degraded).toBe(false);
+    expect(layer.budget.widthPx).toBe(600); // 20 cells * (10 base * 3 maxZoom * 1 dpr)
+    expect(layer.budget.widthPx).toBeLessThan(MAX_CANVAS_DIMENSION);
+  });
+
+  it('without an explicit request at dpr 3 on a 100x100 board, matches the spike-measured cap', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = createStaticLayer(board, {
+      dpr: 3,
+      createCanvas: fakeCanvasFactory(100_000_000),
+    });
+    expect(layer.budget.degraded).toBe(true);
+    expect(layer.budget.pixelsPerCell).toBeCloseTo(81.92, 2);
   });
 });
 
@@ -255,6 +375,8 @@ describe('redrawStaticLayer', () => {
       ctx: canvas.getContext('2d')!,
       budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
       viewport: { scale: 20, dpr: 1, originX: 0, originY: 0 },
+      allocationOk: true,
+      attempts: [],
     };
 
     redrawStaticLayer(layer, board, new Set());
@@ -268,10 +390,18 @@ describe('redrawStaticLayer', () => {
 });
 
 describe('createAnimationLayer / clearAnimationLayer', () => {
-  it('sizes the canvas to the requested screen dimensions', () => {
-    const layer = createAnimationLayer(390, 844, fakeCanvasFactory(10_000_000));
+  it('is a 1:1 backing store at dpr 1', () => {
+    const layer = createAnimationLayer(390, 844, 1, fakeCanvasFactory(10_000_000));
     expect(layer.canvas.width).toBe(390);
     expect(layer.canvas.height).toBe(844);
+    expect(layer.dpr).toBe(1);
+  });
+
+  it('scales the CSS screen size by dpr to size the backing store', () => {
+    const layer = createAnimationLayer(390, 844, 3, fakeCanvasFactory(10_000_000));
+    expect(layer.canvas.width).toBe(1170);
+    expect(layer.canvas.height).toBe(2532);
+    expect(layer.dpr).toBe(3);
   });
 
   it('clears the full backing store', () => {
@@ -286,7 +416,7 @@ describe('createAnimationLayer / clearAnimationLayer', () => {
           },
         }) as unknown as CanvasRenderingContext2D,
     };
-    const layer = { canvas, ctx: canvas.getContext('2d')! };
+    const layer = { canvas, ctx: canvas.getContext('2d')!, dpr: 1 };
     clearAnimationLayer(layer);
     expect(cleared).toEqual([0, 0, 100, 200]);
   });
