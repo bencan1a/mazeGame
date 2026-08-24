@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   cellCenterToCssPixel,
+  cellCenterX,
+  cellCenterY,
   cellSizeInDevicePixels,
   cellToCssPixel,
   cellToDevicePixel,
@@ -21,6 +23,26 @@ describe('createViewport', () => {
   it('keeps every explicit field', () => {
     const viewport = createViewport({ scale: 20, dpr: 3, originX: 5, originY: -8 });
     expect(viewport).toEqual({ scale: 20, dpr: 3, originX: 5, originY: -8 });
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a scale of %p', (bad) => {
+    expect(() => createViewport({ scale: bad })).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a dpr of %p', (bad) => {
+    expect(() => createViewport({ scale: 20, dpr: bad })).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('rejects a non-finite originX', (bad) => {
+    expect(() => createViewport({ scale: 20, originX: bad })).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('rejects a non-finite originY', (bad) => {
+    expect(() => createViewport({ scale: 20, originY: bad })).toThrow(RangeError);
+  });
+
+  it('allows a negative finite origin, a pan offset', () => {
+    expect(() => createViewport({ scale: 20, originX: -500, originY: -20 })).not.toThrow();
   });
 });
 
@@ -110,5 +132,14 @@ describe('cssPixelToDevicePixel / devicePixelToCssPixel', () => {
 describe('cellSizeInDevicePixels', () => {
   it('multiplies scale by dpr', () => {
     expect(cellSizeInDevicePixels(createViewport({ scale: 27, dpr: 3 }))).toBe(81);
+  });
+});
+
+describe('cellCenterX / cellCenterY', () => {
+  it('matches cellCenterToCssPixel component-wise, without allocating a Cell or a Point', () => {
+    const viewport = createViewport({ scale: 20, originX: 5, originY: -3 });
+    const point = cellCenterToCssPixel(viewport, { x: 4, y: 7 });
+    expect(cellCenterX(viewport, 4)).toBe(point.x);
+    expect(cellCenterY(viewport, 7)).toBe(point.y);
   });
 });

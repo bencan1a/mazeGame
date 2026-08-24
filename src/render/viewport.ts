@@ -35,13 +35,35 @@ export interface ViewportInit {
   readonly originY?: number;
 }
 
+function requireFinite(value: number, name: string): void {
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${name} must be a finite number, got ${value}`);
+  }
+}
+
+function requirePositiveFinite(value: number, name: string): void {
+  requireFinite(value, name);
+  if (value <= 0) {
+    throw new RangeError(`${name} must be positive, got ${value}`);
+  }
+}
+
+/**
+ * A caller across the render boundary hands this whatever the platform gave
+ * it — `devicePixelRatio`, a layout measurement — so a non-finite or
+ * non-positive `scale`/`dpr` is rejected here rather than turning every
+ * pixel <-> cell conversion downstream into `NaN` or `Infinity`.
+ */
 export function createViewport(init: ViewportInit): Viewport {
-  return {
-    scale: init.scale,
-    dpr: init.dpr ?? 1,
-    originX: init.originX ?? 0,
-    originY: init.originY ?? 0,
-  };
+  const scale = init.scale;
+  const dpr = init.dpr ?? 1;
+  const originX = init.originX ?? 0;
+  const originY = init.originY ?? 0;
+  requirePositiveFinite(scale, 'scale');
+  requirePositiveFinite(dpr, 'dpr');
+  requireFinite(originX, 'originX');
+  requireFinite(originY, 'originY');
+  return { scale, dpr, originX, originY };
 }
 
 /** Top-left corner of `cell`, in CSS pixels. */
@@ -54,11 +76,20 @@ export function cellToCssPixel(viewport: Viewport, cell: Cell): Point {
 
 /** Center of `cell`, in CSS pixels. */
 export function cellCenterToCssPixel(viewport: Viewport, cell: Cell): Point {
-  const half = viewport.scale / 2;
-  return {
-    x: viewport.originX + cell.x * viewport.scale + half,
-    y: viewport.originY + cell.y * viewport.scale + half,
-  };
+  return { x: cellCenterX(viewport, cell.x), y: cellCenterY(viewport, cell.y) };
+}
+
+/**
+ * X component of a cell's center, in CSS pixels, without allocating a Point —
+ * for hot loops that would otherwise allocate one object per cell.
+ */
+export function cellCenterX(viewport: Viewport, cellX: number): number {
+  return viewport.originX + cellX * viewport.scale + viewport.scale / 2;
+}
+
+/** Y component of a cell's center, in CSS pixels. See `cellCenterX`. */
+export function cellCenterY(viewport: Viewport, cellY: number): number {
+  return viewport.originY + cellY * viewport.scale + viewport.scale / 2;
 }
 
 /** The cell containing a CSS-pixel point. Not bounds-checked against the board. */
