@@ -204,8 +204,14 @@ sit in the middle of the measured range on every axis, not at an extreme.**
 Denser/shorter-piece cells reach `dagDepth` up to 22.5 and `meanFreeSetSize`
 up to 16.0; sparser/longer-piece cells go as low as `dagDepth` 7.8 and
 `meanFreeSetSize` 5.3. The peel gives up nothing measurable at this setting
-(`belowMinimum: 0`), and the achieved segment-length mean (7.78) is close to
-the 7.5 the #88 commit message reports reading off the reference boards.
+(`belowMinimum: 0`), and the achieved segment-length mean of 7.78 matches the
+7.49 measured on the same defaults when they were chosen.
+
+That is agreement between two runs of the same generator, **not** agreement
+with the reference art. Nobody has extracted a length distribution from the
+boards in `docs/reference/` — they were matched by eye. Until someone does,
+"the defaults look like the art" rests on judgement, and this sweep cannot
+promote it.
 
 **Verdict: this sweep supports the #88 choice** as a non-extreme, reasonable
 starting point — it does not contradict it, and it does not sharpen it to a
