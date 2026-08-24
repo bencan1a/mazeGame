@@ -130,7 +130,10 @@ export function createGestureArbiter(
     mode = 'pinching';
     pinchIdA = idA;
     pinchIdB = idB;
-    prevPinchDistance = distance(a, b);
+    // In CSS pixels, matching how onPointerMove measures it -- otherwise
+    // the first scaleFactor mixes a CSS-space numerator with a
+    // raw-coordinate baseline under a non-uniform mapper.
+    prevPinchDistance = distance(toCssPixel(a.x, a.y), toCssPixel(b.x, b.y));
     handlers.onPinchStart?.();
   }
 
@@ -191,7 +194,11 @@ export function createGestureArbiter(
       const a = pinchIdA === null ? undefined : pointers.get(pinchIdA);
       const b = pinchIdB === null ? undefined : pointers.get(pinchIdB);
       if (a === undefined || b === undefined) return;
-      const dist = distance(a, b);
+      // Distance is measured in CSS pixels, like the focal point, the pan
+      // delta and the slop check: a non-uniform mapper scales x and y
+      // differently, so a raw-coordinate distance would report the wrong
+      // ratio for a diagonal pinch.
+      const dist = distance(toCssPixel(a.x, a.y), toCssPixel(b.x, b.y));
       // Guard both operands: a zero numerator is as unusable to a consumer
       // multiplying its scale by scaleFactor as a zero denominator would be
       // to divide by — either produces a scale of exactly 0, which
@@ -236,15 +243,23 @@ export function createGestureArbiter(
 
     if (mode === 'pinching') {
       if (!wasPinchMember) return;
+      const otherId = event.pointerId === pinchIdA ? pinchIdB : pinchIdA;
       handlers.onPinchEnd?.();
       endGesture();
-      // The other pointer, if still down, stays tracked but idle: its own
-      // moves are ignored (mode is 'idle', so nothing matches its id as a
-      // primary or pinch member) rather than resumed as a pan or a tap
-      // candidate, which risks firing one from where the pinch happened to
-      // end. It is not inert forever, though — a fresh pointerdown from a
-      // different id pairs immediately with it into a new pinch, without
-      // this one needing to release and press again itself.
+
+      // The other pointer, if still down, resumes as a pan from here rather
+      // than going idle: the gesture is already well past slop and this
+      // pointer has an established position to continue from, so there is
+      // no spurious-tap risk the way there would be for a fresh press.
+      // Lifting one finger of a two-finger gesture and continuing to drag
+      // with the other is an ordinary phone gesture.
+      const otherPos = otherId === null ? undefined : pointers.get(otherId);
+      if (otherId !== null && otherPos !== undefined) {
+        mode = 'panning';
+        primaryId = otherId;
+        startPos = otherPos;
+        handlers.onPanStart?.();
+      }
       return;
     }
 

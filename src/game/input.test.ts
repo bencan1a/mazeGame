@@ -217,7 +217,7 @@ describe('createGestureArbiter: pinch', () => {
     expect(handlers.calls.pinchStart).toBe(1);
   });
 
-  it('does not resume the leftover pointer as a tap or drag candidate once a pinch ends', () => {
+  it('resumes the leftover pointer as a pan once one pinch finger lifts, rather than freezing it', () => {
     const handlers = makeHandlers();
     const arbiter = createGestureArbiter(handlers);
 
@@ -225,17 +225,16 @@ describe('createGestureArbiter: pinch', () => {
     arbiter.onPointerDown(pointerEvent(2, 100, 0));
     arbiter.onPointerUp(pointerEvent(1, 0, 0));
     expect(handlers.calls.pinchEnd).toBe(1);
-    expect(handlers.calls.panStart).toBe(0);
+    // The pan resumes immediately from pointer 2's current position -- no
+    // slop check, since the gesture is already well past it.
+    expect(handlers.calls.panStart).toBe(1);
 
-    arbiter.onPointerMove(pointerEvent(2, 100, 40));
-    arbiter.onPointerUp(pointerEvent(2, 100, 40));
+    arbiter.onPointerMove(pointerEvent(2, 300, 0)); // a 200px drag continues from here
+    expect(handlers.calls.panMove).toEqual([[200, 0]]);
+
+    arbiter.onPointerUp(pointerEvent(2, 300, 0));
+    expect(handlers.calls.panEnd).toBe(1);
     expect(handlers.calls.tap).toEqual([]);
-    expect(handlers.calls.panStart).toBe(0);
-
-    // A fresh press on the same pointer id starts a normal tap candidate again.
-    arbiter.onPointerDown(pointerEvent(2, 5, 5));
-    arbiter.onPointerUp(pointerEvent(2, 5, 5));
-    expect(handlers.calls.tap).toEqual([cssPixel(5, 5)]);
   });
 
   it('a cancelled pinch pointer ends the pinch without a tap', () => {
