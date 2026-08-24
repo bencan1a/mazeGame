@@ -102,10 +102,9 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
 }
 
 /**
- * Fills the arrowhead at a segment's head, pointing along `segDir`. Read
- * directly off `segDir` rather than the last two points of the polyline: a
- * one-cell segment has no terminal stroke to infer a direction from, and
- * `segDir` is the one source that is valid for both cases.
+ * Fills the arrowhead at a segment's head, pointing along `segDir` — the
+ * one source valid for both a multi-cell segment's terminal stroke and a
+ * one-cell segment with none.
  */
 export function drawArrowhead<S extends PixelSpace>(
   ctx: FillContext2D,
@@ -128,12 +127,16 @@ export function drawArrowhead<S extends PixelSpace>(
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
 
-  const halfLength = (ARROWHEAD_LENGTH_CELLS * viewport.scale) / 2;
+  // The body stroke's round cap covers a disk of this radius around the
+  // head center; starting the triangle's base there keeps every point of
+  // the arrowhead at or beyond that radius, clear of the stroke.
+  const capRadius = (LINE_WIDTH_CELLS * viewport.scale) / 2;
+  const length = ARROWHEAD_LENGTH_CELLS * viewport.scale;
   const halfWidth = (ARROWHEAD_WIDTH_CELLS * viewport.scale) / 2;
-  const tipX = cx + dx * halfLength;
-  const tipY = cy + dy * halfLength;
-  const baseX = cx - dx * halfLength;
-  const baseY = cy - dy * halfLength;
+  const baseX = cx + dx * capRadius;
+  const baseY = cy + dy * capRadius;
+  const tipX = cx + dx * (capRadius + length);
+  const tipY = cy + dy * (capRadius + length);
   // Perpendicular to (dx, dy): rotate a quarter turn.
   const perpX = -dy * halfWidth;
   const perpY = dx * halfWidth;

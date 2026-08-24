@@ -125,76 +125,80 @@ describe('strokeSegmentPolyline', () => {
 });
 
 describe('drawArrowhead', () => {
-  const half = (ARROWHEAD_LENGTH_CELLS * 10) / 2;
-  const halfWidth = (ARROWHEAD_WIDTH_CELLS * 10) / 2;
+  const scale = 10;
+  // The body stroke's round cap has this radius; the arrowhead starts clear of it.
+  const capRadius = (LINE_WIDTH_CELLS * scale) / 2;
+  const length = ARROWHEAD_LENGTH_CELLS * scale;
+  const reach = capRadius + length;
+  const halfWidth = (ARROWHEAD_WIDTH_CELLS * scale) / 2;
 
-  it('points north: tip above the head cell center, base below', () => {
+  it('points north: tip above the head cell center, base clear of the stroke cap', () => {
     // A\na: head at (0,0), tail at (0,1) -> terminal stroke north
     const board = makeBoard(['A', 'a'].join('\n'));
     const ctx = makeFakeCtx();
-    const viewport = createViewport({ scale: 10 });
+    const viewport = createViewport({ scale });
 
     drawArrowhead(ctx, board, 1, viewport);
 
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
-      { op: 'moveTo', x: 5, y: 5 - half },
-      { op: 'lineTo', x: 5 + halfWidth, y: 5 + half },
-      { op: 'lineTo', x: 5 - halfWidth, y: 5 + half },
+      { op: 'moveTo', x: 5, y: 5 - reach },
+      { op: 'lineTo', x: 5 + halfWidth, y: 5 - capRadius },
+      { op: 'lineTo', x: 5 - halfWidth, y: 5 - capRadius },
       { op: 'closePath' },
       { op: 'fill' },
     ]);
   });
 
-  it('points east: tip right of the head cell center, base left', () => {
+  it('points east: tip right of the head cell center, base clear of the stroke cap', () => {
     // aA: tail at (0,0), head at (1,0) -> terminal stroke east
     const board = makeBoard('aA');
     const ctx = makeFakeCtx();
-    const viewport = createViewport({ scale: 10 });
+    const viewport = createViewport({ scale });
 
     drawArrowhead(ctx, board, 1, viewport);
 
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
-      { op: 'moveTo', x: 15 + half, y: 5 },
-      { op: 'lineTo', x: 15 - half, y: 5 + halfWidth },
-      { op: 'lineTo', x: 15 - half, y: 5 - halfWidth },
+      { op: 'moveTo', x: 15 + reach, y: 5 },
+      { op: 'lineTo', x: 15 + capRadius, y: 5 + halfWidth },
+      { op: 'lineTo', x: 15 + capRadius, y: 5 - halfWidth },
       { op: 'closePath' },
       { op: 'fill' },
     ]);
   });
 
-  it('points south: tip below the head cell center, base above', () => {
+  it('points south: tip below the head cell center, base clear of the stroke cap', () => {
     // a\nA: tail at (0,0), head at (0,1) -> terminal stroke south
     const board = makeBoard(['a', 'A'].join('\n'));
     const ctx = makeFakeCtx();
-    const viewport = createViewport({ scale: 10 });
+    const viewport = createViewport({ scale });
 
     drawArrowhead(ctx, board, 1, viewport);
 
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
-      { op: 'moveTo', x: 5, y: 15 + half },
-      { op: 'lineTo', x: 5 - halfWidth, y: 15 - half },
-      { op: 'lineTo', x: 5 + halfWidth, y: 15 - half },
+      { op: 'moveTo', x: 5, y: 15 + reach },
+      { op: 'lineTo', x: 5 - halfWidth, y: 15 + capRadius },
+      { op: 'lineTo', x: 5 + halfWidth, y: 15 + capRadius },
       { op: 'closePath' },
       { op: 'fill' },
     ]);
   });
 
-  it('points west: tip left of the head cell center, base right', () => {
+  it('points west: tip left of the head cell center, base clear of the stroke cap', () => {
     // Aa: head at (0,0), tail at (1,0) -> terminal stroke west
     const board = makeBoard('Aa');
     const ctx = makeFakeCtx();
-    const viewport = createViewport({ scale: 10 });
+    const viewport = createViewport({ scale });
 
     drawArrowhead(ctx, board, 1, viewport);
 
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
-      { op: 'moveTo', x: 5 - half, y: 5 },
-      { op: 'lineTo', x: 5 + half, y: 5 - halfWidth },
-      { op: 'lineTo', x: 5 + half, y: 5 + halfWidth },
+      { op: 'moveTo', x: 5 - reach, y: 5 },
+      { op: 'lineTo', x: 5 - capRadius, y: 5 - halfWidth },
+      { op: 'lineTo', x: 5 - capRadius, y: 5 + halfWidth },
       { op: 'closePath' },
       { op: 'fill' },
     ]);
@@ -203,11 +207,27 @@ describe('drawArrowhead', () => {
   it('draws a one-cell segment using its explicit segDir, not any inferred geometry', () => {
     const board = makeBoard({ art: 'A', dirs: { a: 'E' } });
     const ctx = makeFakeCtx();
-    const viewport = createViewport({ scale: 10 });
+    const viewport = createViewport({ scale });
 
     drawArrowhead(ctx, board, 1, viewport);
 
-    expect(ctx.calls[1]).toEqual({ op: 'moveTo', x: 5 + half, y: 5 });
+    expect(ctx.calls[1]).toEqual({ op: 'moveTo', x: 5 + reach, y: 5 });
+  });
+
+  it('sits entirely clear of the stroke cap disk, not straddling it', () => {
+    const board = makeBoard(['A', 'a'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale });
+
+    drawArrowhead(ctx, board, 1, viewport);
+
+    const headCx = 5;
+    const headCy = 5;
+    for (const call of ctx.calls) {
+      if (call.op !== 'moveTo' && call.op !== 'lineTo') continue;
+      const distance = Math.hypot(call.x - headCx, call.y - headCy);
+      expect(distance).toBeGreaterThanOrEqual(capRadius - 1e-9);
+    }
   });
 
   it('fills from the palette by segColor', () => {

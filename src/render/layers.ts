@@ -10,8 +10,8 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { drawSegment } from './draw.js';
-import { createBufferViewport, type Viewport } from './viewport.js';
+import { drawSegment, isLegibleAtScale } from './draw.js';
+import { createBufferViewport, createViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
 export const MAX_CANVAS_DIMENSION = 8192;
@@ -245,6 +245,12 @@ export interface StaticLayer {
   readonly allocationOk: boolean;
   /** Every rung the degradation ladder tried, in order, for diagnostics. */
   readonly attempts: readonly DegradationAttempt[];
+  /**
+   * Whether an arrowhead reads as a direction at the board's resting zoom
+   * (`BASE_CSS_PIXELS_PER_CELL`, 1x dpr). False means a caller must require
+   * the player to zoom in before this board is playable.
+   */
+  readonly legibleUnzoomed: boolean;
 }
 
 export interface StaticLayerOptions extends DegradationOptions {
@@ -309,7 +315,16 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   const liveOk = ok && probeReadback(liveCtx, budget.widthPx, budget.heightPx);
 
   const viewport = createBufferViewport(budget.pixelsPerCell);
-  return { canvas, ctx: liveCtx, budget, viewport, allocationOk: liveOk, attempts };
+  const legibleUnzoomed = isLegibleAtScale(createViewport({ scale: BASE_CSS_PIXELS_PER_CELL }));
+  return {
+    canvas,
+    ctx: liveCtx,
+    budget,
+    viewport,
+    allocationOk: liveOk,
+    attempts,
+    legibleUnzoomed,
+  };
 }
 
 /** Redraws every non-removed segment. The caller decides when that is needed — see `removedSetsDiffer`. */
@@ -322,7 +337,11 @@ export function redrawStaticLayer(
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
-    drawSegment(ctx, board, id, viewport);
+    try {
+      drawSegment(ctx, board, id, viewport);
+    } catch {
+      // A malformed segment loses itself, not the rest of the frame.
+    }
   }
 }
 

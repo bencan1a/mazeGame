@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BASE_CSS_PIXELS_PER_CELL,
   MAX_CANVAS_DIMENSION,
   MIN_PIXELS_PER_CELL,
   clearAnimationLayer,
@@ -14,8 +15,9 @@ import {
   removedSetsDiffer,
   type CanvasLike,
 } from './layers.js';
+import { isLegibleAtScale } from './draw.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
-import { createBufferViewport } from './viewport.js';
+import { createBufferViewport, createViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
 
 describe('computeBufferBudget', () => {
@@ -463,6 +465,17 @@ describe('createStaticLayer', () => {
     expect(layer.allocationOk).toBe(true);
   });
 
+  it('exposes legibleUnzoomed, matching isLegibleAtScale at the resting CSS scale', () => {
+    const board = ACYCLIC_BOARD;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+    });
+    expect(layer.legibleUnzoomed).toBe(
+      isLegibleAtScale(createViewport({ scale: BASE_CSS_PIXELS_PER_CELL })),
+    );
+  });
+
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {
     // 100 wide, 1 tall, one segment; only tiny allocations "succeed".
     const board = makeBoard({ art: `${'a'.repeat(99)}A`, params: { gridSize: 100 } });
@@ -671,6 +684,7 @@ describe('redrawStaticLayer', () => {
       viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
+      legibleUnzoomed: true,
     };
 
     redrawStaticLayer(layer, board, new Set());

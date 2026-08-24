@@ -2,8 +2,7 @@
  * The colour `segColor` indexes into. Six hues from the Okabe-Ito
  * colour-blind-safe set (dropping black and yellow, the two that read poorly
  * against a board), chosen to stay distinguishable from each other on a
- * small screen. Adjacency itself is the generator's job — greedy colouring
- * never gives two touching segments the same index.
+ * small screen.
  */
 export const PALETTE: readonly string[] = [
   '#e69f00',
