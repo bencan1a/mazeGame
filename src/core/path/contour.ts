@@ -28,7 +28,11 @@ export type ContourResult = ContourOk | ContourFailed;
 export function buildContourPath(
   mask: Mask,
   rng: Rng,
-  /** Forwarded to `buildSpanningTree`'s `turnBias`; see its doc comment. */
+  /**
+   * Bias toward turning rather than carrying straight on, in `[0, 1]`, applied
+   * while the spanning tree grows. `undefined` picks uniformly among the
+   * directions available at each step.
+   */
   turnBias?: number,
 ): ContourResult {
   const tiling = classifyTiling(mask);
