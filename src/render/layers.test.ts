@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import {
   MAX_CANVAS_DIMENSION,
   MIN_PIXELS_PER_CELL,
@@ -7,13 +8,21 @@ import {
   createAnimationLayer,
   createStaticLayer,
   degradeBudget,
+  isLayerLegibleUnzoomed,
   planDegradation,
   probeReadback,
   recommendedPixelsPerCell,
   redrawStaticLayer,
   removedSetsDiffer,
   type CanvasLike,
+  type StaticLayer,
 } from './layers.js';
+import {
+  ARROWHEAD_OVERHANG_CELLS,
+  MIN_LEGIBLE_ARROWHEAD_CSS_PX,
+  REFERENCE_CSS_VIEWPORT_WIDTH,
+  drawArrowhead,
+} from './draw.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import { createBufferViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
@@ -313,6 +322,8 @@ class FakeCtx {
   moveTo(): void {}
   lineTo(): void {}
   stroke(): void {}
+  closePath(): void {}
+  fill(): void {}
 }
 
 function fakeCanvasFactory(allocationLimitPx: number): () => CanvasLike {
@@ -451,14 +462,62 @@ describe('createStaticLayer', () => {
       requestedPixelsPerCell: 20,
       createCanvas: fakeCanvasFactory(1_000_000),
     });
+    const paddedSide = 4 + 2 * ARROWHEAD_OVERHANG_CELLS;
     expect(layer.budget.degraded).toBe(false);
-    expect(layer.budget.widthPx).toBe(80);
-    expect(layer.budget.heightPx).toBe(80);
+    expect(layer.budget.widthPx).toBe(Math.round(20 * paddedSide));
+    expect(layer.budget.heightPx).toBe(Math.round(20 * paddedSide));
     expect(layer.viewport.scale).toBe(20);
     // The viewport maps cell -> buffer pixel, not cell -> CSS pixel: a
     // different space, tagged so it cannot be handed to a CSS-space consumer.
     expect(layer.viewport.space).toBe('buffer');
     expect(layer.allocationOk).toBe(true);
+  });
+
+  it('offsets the viewport origin by the arrowhead overhang, so cell 0 is not flush with the buffer edge', () => {
+    const board = ACYCLIC_BOARD;
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+    });
+    const expectedOrigin = ARROWHEAD_OVERHANG_CELLS * layer.viewport.scale;
+    expect(layer.viewport.originX).toBe(expectedOrigin);
+    expect(layer.viewport.originY).toBe(expectedOrigin);
+  });
+
+  it('pads the buffer enough that a border head arrowhead tip stays inside the canvas', () => {
+    // A single segment whose head sits on the board's own top-left corner,
+    // pointing further off-board (north): the worst case for clipping.
+    const board = makeBoard({ art: 'A', dirs: { a: 'N' } });
+    const layer = createStaticLayer(board, {
+      requestedPixelsPerCell: 20,
+      createCanvas: fakeCanvasFactory(1_000_000),
+    });
+    const calls: { x: number; y: number }[] = [];
+    const ctx = {
+      fillStyle: '',
+      beginPath(): void {},
+      moveTo(x: number, y: number): void {
+        calls.push({ x, y });
+      },
+      lineTo(x: number, y: number): void {
+        calls.push({ x, y });
+      },
+      closePath(): void {},
+      fill(): void {},
+    };
+
+    drawArrowhead(ctx, board, 1, layer.viewport);
+
+    // Rounding the buffer to whole device pixels can leave a sub-pixel
+    // epsilon outside [0, dim]; only a real clip (more than a pixel) matters.
+    const epsilon = 1e-6;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const { x, y } of calls) {
+      expect(x).toBeGreaterThanOrEqual(-epsilon);
+      expect(y).toBeGreaterThanOrEqual(-epsilon);
+      expect(x).toBeLessThanOrEqual(layer.budget.widthPx + epsilon);
+      expect(y).toBeLessThanOrEqual(layer.budget.heightPx + epsilon);
+    }
   });
 
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {
@@ -501,8 +560,10 @@ describe('createStaticLayer', () => {
       dpr: 1,
       createCanvas: fakeCanvasFactory(100_000_000),
     });
+    // 20 cells, padded by the arrowhead overhang, at 10 base * 3 maxZoom * 1 dpr.
+    const expectedWidthPx = Math.round((20 + 2 * ARROWHEAD_OVERHANG_CELLS) * 30);
     expect(layer.budget.degraded).toBe(false);
-    expect(layer.budget.widthPx).toBe(600); // 20 cells * (10 base * 3 maxZoom * 1 dpr)
+    expect(layer.budget.widthPx).toBe(expectedWidthPx);
     expect(layer.budget.widthPx).toBeLessThan(MAX_CANVAS_DIMENSION);
   });
 
@@ -512,8 +573,9 @@ describe('createStaticLayer', () => {
       dpr: 3,
       createCanvas: fakeCanvasFactory(100_000_000),
     });
+    const expectedPixelsPerCell = MAX_CANVAS_DIMENSION / (100 + 2 * ARROWHEAD_OVERHANG_CELLS);
     expect(layer.budget.degraded).toBe(true);
-    expect(layer.budget.pixelsPerCell).toBeCloseTo(81.92, 2);
+    expect(layer.budget.pixelsPerCell).toBeCloseTo(expectedPixelsPerCell, 6);
   });
 
   it('reports allocationOk false when the final re-allocation silently fails', () => {
@@ -546,7 +608,8 @@ describe('createStaticLayer', () => {
   it('degrades instead of throwing when resizing an over-budget canvas throws outright', () => {
     const board = { width: 40, height: 40 } as unknown as Board;
     // 20px/cell, 10, 5, 2.5 and 1.25 all resize to an area over this; the
-    // floor rung (1px/cell, 40x40 = 1600px) is the first that fits.
+    // floor rung (1px/cell, padded by the arrowhead overhang) is the first
+    // that fits.
     const throwAbovePx = 2000;
     const canvas: CanvasLike & { widthValue: number; heightValue: number } = {
       widthValue: 0,
@@ -587,9 +650,11 @@ describe('createStaticLayer', () => {
   it('always re-allocates at the final budget, so the canvas matches it even when the ladder left a stale, differently-sized context live', () => {
     const board = { width: 40, height: 40 } as unknown as Board;
     // Readback never succeeds, so the ladder degrades all the way to the
-    // floor (1px/cell, 40x40). Resizing to 40x40 fails transiently — once —
-    // during the ladder's own probe, leaving a larger (50x50) context live;
-    // the unconditional final re-allocate must retry and succeed.
+    // floor (1px/cell, padded by the arrowhead overhang). Resizing to the
+    // floor width fails transiently — once — during the ladder's own probe,
+    // leaving a larger, differently-sized context live; the unconditional
+    // final re-allocate must retry and succeed.
+    const floorWidth = Math.round(1 * (40 + 2 * ARROWHEAD_OVERHANG_CELLS));
     let floorResizeAttempts = 0;
     const canvas: CanvasLike & { widthValue: number; heightValue: number } = {
       widthValue: 0,
@@ -598,7 +663,7 @@ describe('createStaticLayer', () => {
         return this.widthValue;
       },
       set width(value: number) {
-        if (value === 40) {
+        if (value === floorWidth) {
           floorResizeAttempts++;
           if (floorResizeAttempts === 1) throw new Error('transient allocation failure');
         }
@@ -627,15 +692,205 @@ describe('createStaticLayer', () => {
       createCanvas: () => canvas,
     });
 
-    expect(layer.budget.widthPx).toBe(40);
-    expect(layer.budget.heightPx).toBe(40);
+    expect(layer.budget.widthPx).toBe(floorWidth);
+    expect(layer.budget.heightPx).toBe(floorWidth);
     expect(layer.canvas.width).toBe(layer.budget.widthPx);
     expect(layer.canvas.height).toBe(layer.budget.heightPx);
   });
 });
 
+describe('computeBufferBudget rounding', () => {
+  it('never sizes the buffer narrower than the cells it must hold', () => {
+    // dpr 2.625 gives a fractional pixelsPerCell, and an arrowhead tip lands
+    // exactly on the far cell edge, so rounding down clips it.
+    const budget = computeBufferBudget(3, 3, 78.75, MAX_CANVAS_DIMENSION);
+    expect(budget.widthPx).toBeGreaterThanOrEqual(budget.pixelsPerCell * 3);
+    expect(budget.heightPx).toBeGreaterThanOrEqual(budget.pixelsPerCell * 3);
+  });
+
+  it('holds that for every cell count and fractional resolution', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 100 }),
+        fc.double({ min: 0.5, max: 200, noNaN: true }),
+        (cells, pixelsPerCell) => {
+          const budget = computeBufferBudget(cells, cells, pixelsPerCell, MAX_CANVAS_DIMENSION);
+          // Only meaningful below the dimension cap; at the cap the budget's
+          // own pixelsPerCell is reduced to fit, which the check follows.
+          expect(budget.widthPx).toBeGreaterThanOrEqual(
+            Math.min(MAX_CANVAS_DIMENSION, budget.pixelsPerCell * cells),
+          );
+        },
+      ),
+    );
+  });
+});
+
+describe('isLayerLegibleUnzoomed', () => {
+  function makeLayer(pixelsPerCell: number): StaticLayer {
+    return {
+      canvas: { width: 0, height: 0, getContext: () => null },
+      ctx: {} as CanvasRenderingContext2D,
+      budget: { pixelsPerCell, widthPx: 1, heightPx: 1, degraded: false },
+      viewport: createBufferViewport(pixelsPerCell),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+  }
+
+  it('reports a small board legible in the reference viewport, given a roomy buffer', () => {
+    const board = { width: 4, height: 4 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(true);
+  });
+
+  it('reports a wide board illegible in the reference viewport', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+  });
+
+  it('is a live query, not a snapshot: the same layer answers differently for different viewport sizes', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = makeLayer(1000);
+    const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+    expect(isLayerLegibleUnzoomed(layer, board, roomy, roomy)).toBe(true);
+  });
+
+  it('uses the smaller of the viewport width and height, so a landscape width alone cannot report legible', () => {
+    const board = { width: 60, height: 60 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(isLayerLegibleUnzoomed(layer, board, 844, 390)).toBe(false);
+    expect(isLayerLegibleUnzoomed(layer, board, 844, 844)).toBe(true);
+  });
+
+  it('uses board height too, so a narrow-but-tall board is not judged legible by width alone', () => {
+    // 10 wide, 80 tall: width alone gives 39 px/cell (legible), but the
+    // constraining height ratio at the reference viewport is 4.875 (not).
+    const board = { width: 10, height: 80 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+  });
+
+  it("folds in the buffer's own achieved resolution, so a degraded buffer reports illegible even with a roomy viewport", () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // The viewport alone would be legible (390 / 40 = 9.75 px/cell), but the
+    // buffer only ever stored 2 px/cell — the degradation ladder's floor —
+    // so blitting it up to fill that viewport is mush, not a sharp arrow.
+    const degradedLayer = makeLayer(2);
+    expect(
+      isLayerLegibleUnzoomed(
+        degradedLayer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+
+    const healthyLayer = makeLayer(30);
+    expect(
+      isLayerLegibleUnzoomed(
+        healthyLayer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(true);
+  });
+
+  it('divides the buffer resolution by dpr, converting device pixels per cell to CSS pixels per cell', () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // 20 device px/cell looks roomy, but at dpr 3 that is only ~6.67 CSS
+    // px/cell — below the floor even in a large viewport.
+    const layer = makeLayer(20);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        1,
+      ),
+    ).toBe(true);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        3,
+      ),
+    ).toBe(false);
+  });
+
+  it('treats a missing or zero viewport width/height as unmeasured rather than throwing, falling back to the reference', () => {
+    const board = ACYCLIC_BOARD;
+    const layer = makeLayer(1000);
+    expect(() => isLayerLegibleUnzoomed(layer, board, 0, 0)).not.toThrow();
+    expect(isLayerLegibleUnzoomed(layer, board, 0, 0)).toBe(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    );
+  });
+
+  it.each([NaN, Infinity, 0, -1])('falls back to dpr 1 rather than throwing on %p', (bad) => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    const layer = makeLayer(1000);
+    const answer = isLayerLegibleUnzoomed(
+      layer,
+      board,
+      REFERENCE_CSS_VIEWPORT_WIDTH,
+      REFERENCE_CSS_VIEWPORT_WIDTH,
+      bad,
+    );
+    expect(answer).toBe(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        1,
+      ),
+    );
+  });
+});
+
 describe('redrawStaticLayer', () => {
-  it('draws every segment not in the removed set, one moveTo per segment', () => {
+  it('draws every segment not in the removed set, one moveTo for the body and one for its arrowhead', () => {
     const board = ACYCLIC_BOARD; // 3 segments
     let clears = 0;
     let moveToCount = 0;
@@ -648,6 +903,7 @@ describe('redrawStaticLayer', () => {
             clears++;
           },
           strokeStyle: '',
+          fillStyle: '',
           lineWidth: 0,
           lineJoin: 'miter' as CanvasLineJoin,
           lineCap: 'butt' as CanvasLineCap,
@@ -657,6 +913,8 @@ describe('redrawStaticLayer', () => {
           },
           lineTo(): void {},
           stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
         }) as unknown as CanvasRenderingContext2D,
     };
     const layer = {
@@ -666,15 +924,142 @@ describe('redrawStaticLayer', () => {
       viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
+      droppedSegments: [],
     };
 
     redrawStaticLayer(layer, board, new Set());
     expect(clears).toBe(1);
-    expect(moveToCount).toBe(3);
+    expect(moveToCount).toBe(3 * 2);
 
     redrawStaticLayer(layer, board, new Set([1]));
     expect(clears).toBe(2);
-    expect(moveToCount).toBe(3 + 2);
+    expect(moveToCount).toBe(3 * 2 + 2 * 2);
+  });
+
+  it('draws the rest of the board when one segment has malformed data', () => {
+    const board = ACYCLIC_BOARD; // 3 segments
+    const originalDir = board.segDir[0];
+    board.segDir[0] = 255; // strokeSegmentPolyline now needs segDir too, so segment 1 draws nothing
+    let moveToCount = 0;
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {},
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {
+            moveToCount++;
+          },
+          lineTo(): void {},
+          stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d')!,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+
+    try {
+      expect(() => redrawStaticLayer(layer, board, new Set())).not.toThrow();
+      // 2 healthy segments * 2 moveTo (body + arrowhead) each; segment 1 draws nothing.
+      expect(moveToCount).toBe(2 * 2);
+      expect(layer.droppedSegments).toEqual([1]);
+    } finally {
+      board.segDir[0] = originalDir as number;
+    }
+  });
+
+  it('replaces droppedSegments with a fresh array each call, rather than mutating the same instance', () => {
+    const board = ACYCLIC_BOARD;
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {},
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {},
+          lineTo(): void {},
+          stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d')!,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+
+    const firstReference = layer.droppedSegments;
+    redrawStaticLayer(layer, board, new Set());
+    const secondReference = layer.droppedSegments;
+    redrawStaticLayer(layer, board, new Set());
+    const thirdReference = layer.droppedSegments;
+
+    // A caller holding on to an earlier array must see it as it was then,
+    // not emptied or refilled underneath it — that is what lets a consumer
+    // that compares by identity (e.g. React state) notice the change at all.
+    expect(secondReference).not.toBe(firstReference);
+    expect(thirdReference).not.toBe(secondReference);
+  });
+
+  it('does not swallow a failure that is not malformed segment data', () => {
+    const board = ACYCLIC_BOARD;
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {},
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {},
+          lineTo(): void {},
+          stroke(): void {
+            throw new Error('context is lost');
+          },
+          closePath(): void {},
+          fill(): void {},
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d')!,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+
+    expect(() => redrawStaticLayer(layer, board, new Set())).toThrow('context is lost');
   });
 });
 

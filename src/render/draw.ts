@@ -1,16 +1,26 @@
 /**
- * Segment polyline drawing: the one seam both the static layer and the
- * snake-out animation stroke through. No arrowheads, no palette — a plain
- * stroke in a placeholder colour.
+ * Segment drawing: the two seams both the static layer and the snake-out
+ * animation stroke through — a segment's body (`strokeSegmentPolyline`) and
+ * its arrowhead (`drawArrowhead`) — plus `drawSegment`, which is both of
+ * those in the segment's palette colour, and `drawSegmentGuarded`, the same
+ * draw with malformed per-segment data turned into a skip instead of a
+ * throw.
  */
 
-import { cellCenterX, cellCenterY, type PixelSpace, type Viewport } from './viewport.js';
-import { xOf, yOf } from '../core/grid.js';
-import type { Board, SegmentId } from '../core/types.js';
+import { DX, DY, xOf, yOf } from '../core/grid.js';
+import {
+  cellCenterX,
+  cellCenterY,
+  createViewport,
+  type PixelSpace,
+  type Viewport,
+} from './viewport.js';
+import { paletteColor } from './palette.js';
+import type { Board, Direction, SegmentId } from '../core/types.js';
 
 /**
- * The subset of `CanvasRenderingContext2D` drawing needs, so tests can stroke
- * against a hand-written fake instead of a real canvas.
+ * The subset of `CanvasRenderingContext2D` stroking needs, so tests can
+ * stroke against a hand-written fake instead of a real canvas.
  */
 export interface StrokeContext2D {
   strokeStyle: string | CanvasGradient | CanvasPattern;
@@ -23,14 +33,142 @@ export interface StrokeContext2D {
   stroke(): void;
 }
 
-export const PLACEHOLDER_STROKE_STYLE = '#94a3b8';
+/** The subset of `CanvasRenderingContext2D` filling the arrowhead triangle needs. */
+export interface FillContext2D {
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  beginPath(): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  closePath(): void;
+  fill(): void;
+}
+
 /** Line width as a fraction of one cell, scaled by the viewport at draw time. */
-export const PLACEHOLDER_LINE_WIDTH_CELLS = 0.3;
+export const LINE_WIDTH_CELLS = 0.3;
+/**
+ * Arrowhead length as a fraction of one cell, scaled by the viewport at draw
+ * time. Bounded at 1 and enforced below: the triangle spans the head cell
+ * exactly (-0.5 to +0.5 of a cell about its centre) and must never reach
+ * into a neighbouring cell — hit testing is per-cell, so a tip that spills
+ * over would select a different segment than the one the player is looking
+ * at.
+ */
+export const ARROWHEAD_LENGTH_CELLS = 1;
+/**
+ * Arrowhead base width as a fraction of one cell, scaled by the viewport at
+ * draw time. Bounded at 1 and enforced below, for the same reason as
+ * `ARROWHEAD_LENGTH_CELLS`: a base corner past a cell's edge reads as the
+ * neighbouring segment's.
+ */
+export const ARROWHEAD_WIDTH_CELLS = 0.7;
+
+function assertBoundedByOneCell(name: string, valueCells: number): void {
+  if (valueCells > 1) {
+    throw new RangeError(
+      `${name} must not exceed 1 cell, got ${valueCells}: hit testing is per-cell, and ` +
+        'an arrowhead reaching past its own cell would tap the wrong segment',
+    );
+  }
+}
+assertBoundedByOneCell('ARROWHEAD_LENGTH_CELLS', ARROWHEAD_LENGTH_CELLS);
+assertBoundedByOneCell('ARROWHEAD_WIDTH_CELLS', ARROWHEAD_WIDTH_CELLS);
 
 /**
- * Strokes one segment's polyline, cell-center to cell-center, through
- * `viewport`. A single-cell segment has no line to draw, so it gets a dot —
- * a zero-length subpath with a round cap — rather than vanishing silently.
+ * CSS px an arrowhead needs to read as a direction on a real phone screen —
+ * the single source `isLegibleAtScale` checks against. Current best
+ * estimate; a device measurement replaces this one value.
+ */
+export const MIN_LEGIBLE_ARROWHEAD_CSS_PX = 9;
+
+/**
+ * How far past its cell's outer edge an arrowhead could reach in either
+ * axis, in cells — always 0, because `ARROWHEAD_LENGTH_CELLS` and
+ * `ARROWHEAD_WIDTH_CELLS` are asserted at or under 1 cell above and must
+ * stay there. A formula rather than a literal 0 so a bug in that assertion
+ * cannot also silently reintroduce buffer clipping as a second failure.
+ */
+export const ARROWHEAD_OVERHANG_CELLS = Math.max(
+  0,
+  ARROWHEAD_LENGTH_CELLS / 2 - 0.5,
+  ARROWHEAD_WIDTH_CELLS / 2 - 0.5,
+);
+
+/**
+ * Reference CSS viewport size the ~8-10 CSS px legibility floor's "about 40
+ * cells across" figure assumes — roughly a phone's width in portrait, the
+ * smaller of its two axes and so the default for both when a caller does
+ * not yet know its actual on-screen width or height.
+ */
+export const REFERENCE_CSS_VIEWPORT_WIDTH = 390;
+
+function requirePositiveFinite(value: number, name: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive finite number, got ${value}`);
+  }
+}
+
+function requireDirection(board: Board, segmentId: SegmentId): Direction {
+  const dir = board.segDir[segmentId - 1];
+  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) {
+    throw new RangeError(`segment ${segmentId} has an invalid segDir: ${String(dir)}`);
+  }
+  return dir;
+}
+
+/**
+ * Whether an arrowhead drawn at `viewport`'s scale reads as a direction.
+ * `viewport` must be `'css'`-space: that is what the player actually sees,
+ * unlike the static buffer's own backing-store resolution.
+ */
+export function isLegibleAtScale(viewport: Viewport<'css'>): boolean {
+  requirePositiveFinite(viewport.scale, 'viewport.scale');
+  return ARROWHEAD_LENGTH_CELLS * viewport.scale >= MIN_LEGIBLE_ARROWHEAD_CSS_PX;
+}
+
+/**
+ * Whether a `boardWidthCells` by `boardHeightCells` board reads its
+ * arrowheads unzoomed in a CSS viewport `availableCssWidth` by
+ * `availableCssHeight` — the board's actual fit-to-viewport scale, not a
+ * board-independent constant. Fitting a board into a viewport is bounded by
+ * whichever axis is tighter in either direction, so this takes the smaller
+ * of the two ratios: a wide-but-short landscape viewport can fit a wide
+ * board by width alone and still crop it to an illegible scale by height,
+ * and a tall narrow board is equally bounded by width. Below this the UI
+ * must require zoom rather than render mush.
+ */
+export function isBoardLegibleUnzoomed(
+  boardWidthCells: number,
+  boardHeightCells: number,
+  availableCssWidth: number = REFERENCE_CSS_VIEWPORT_WIDTH,
+  availableCssHeight: number = REFERENCE_CSS_VIEWPORT_WIDTH,
+): boolean {
+  requirePositiveFinite(boardWidthCells, 'boardWidthCells');
+  requirePositiveFinite(boardHeightCells, 'boardHeightCells');
+  requirePositiveFinite(availableCssWidth, 'availableCssWidth');
+  requirePositiveFinite(availableCssHeight, 'availableCssHeight');
+  const fitScale = Math.min(
+    availableCssWidth / boardWidthCells,
+    availableCssHeight / boardHeightCells,
+  );
+  return isLegibleAtScale(createViewport({ scale: fitScale }));
+}
+
+/**
+ * Strokes one segment's polyline, cell-center to cell-center, except its
+ * last vertex: for a segment of two cells or more that stops mostly short
+ * of the head cell's own center, but not entirely — the stroke's rounded
+ * end deliberately reaches about 0.3 of a cell past the head cell's near
+ * edge (a full line width), so `drawArrowhead`'s base has no
+ * anti-aliasing seam against it once both are drawn. A caller that strokes
+ * the body without also drawing the arrowhead on the same frame will show
+ * that overlap as a small stub past the true half-cell edge; it is only
+ * invisible once the arrowhead's fill covers it. A single-cell segment has
+ * no line to draw, so it gets a dot — a zero-length subpath with a round
+ * cap — rather than vanishing silently.
+ *
+ * Throws `RangeError` for a malformed `segColor` or (on a multi-cell
+ * segment) `segDir` — see `drawSegmentGuarded` for a caller, such as a
+ * per-frame animation loop, that must not let one bad segment stop it.
  */
 export function strokeSegmentPolyline<S extends PixelSpace>(
   ctx: StrokeContext2D,
@@ -42,8 +180,22 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   const end = board.segStart[segmentId];
   if (start === undefined || end === undefined || end <= start) return;
 
-  ctx.strokeStyle = PLACEHOLDER_STROKE_STYLE;
-  ctx.lineWidth = PLACEHOLDER_LINE_WIDTH_CELLS * viewport.scale;
+  const multiCell = end - start > 1;
+  let setbackX = 0;
+  let setbackY = 0;
+  if (multiCell) {
+    const dir = requireDirection(board, segmentId);
+    // Stop short of the head cell's center by half a cell, minus the round
+    // cap's own radius so the cap still overlaps the arrowhead's base
+    // instead of merely touching it.
+    const capRadius = (LINE_WIDTH_CELLS * viewport.scale) / 2;
+    const setback = 0.5 * viewport.scale - capRadius;
+    setbackX = (DX[dir] as number) * setback;
+    setbackY = (DY[dir] as number) * setback;
+  }
+
+  ctx.strokeStyle = paletteColor(board.segColor[segmentId - 1] as number);
+  ctx.lineWidth = LINE_WIDTH_CELLS * viewport.scale;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
@@ -52,8 +204,12 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   let lastY = 0;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
-    const px = cellCenterX(viewport, xOf(cellIndex, board.width));
-    const py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    let px = cellCenterX(viewport, xOf(cellIndex, board.width));
+    let py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    if (i === end - 1) {
+      px -= setbackX;
+      py -= setbackY;
+    }
     if (i === start) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
     lastX = px;
@@ -61,4 +217,93 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   }
   if (end - start === 1) ctx.lineTo(lastX, lastY);
   ctx.stroke();
+}
+
+/**
+ * Fills the arrowhead at a segment's head, pointing along `segDir` — the
+ * one source valid for both a multi-cell segment's terminal stroke and a
+ * one-cell segment with none. The triangle spans exactly the head cell, so
+ * it never reads as belonging to a neighbouring cell's segment.
+ *
+ * Throws `RangeError` for a malformed `segColor` or `segDir` — see
+ * `drawSegmentGuarded`.
+ */
+export function drawArrowhead<S extends PixelSpace>(
+  ctx: FillContext2D,
+  board: Board,
+  segmentId: SegmentId,
+  viewport: Viewport<S>,
+): void {
+  const start = board.segStart[segmentId - 1];
+  const end = board.segStart[segmentId];
+  if (start === undefined || end === undefined || end <= start) return;
+
+  const dir = requireDirection(board, segmentId);
+  const headCell = board.segCells[end - 1] as number;
+  const cx = cellCenterX(viewport, xOf(headCell, board.width));
+  const cy = cellCenterY(viewport, yOf(headCell, board.width));
+  const dx = DX[dir] as number;
+  const dy = DY[dir] as number;
+
+  const half = (ARROWHEAD_LENGTH_CELLS * viewport.scale) / 2;
+  const halfWidth = (ARROWHEAD_WIDTH_CELLS * viewport.scale) / 2;
+  const tipX = cx + dx * half;
+  const tipY = cy + dy * half;
+  const baseX = cx - dx * half;
+  const baseY = cy - dy * half;
+  // Perpendicular to (dx, dy): rotate a quarter turn.
+  const perpX = -dy * halfWidth;
+  const perpY = dx * halfWidth;
+
+  ctx.fillStyle = paletteColor(board.segColor[segmentId - 1] as number);
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(baseX + perpX, baseY + perpY);
+  ctx.lineTo(baseX - perpX, baseY - perpY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * One segment, body and arrowhead, in its palette colour.
+ *
+ * Throws `RangeError` for a malformed `segColor` or `segDir` — see
+ * `drawSegmentGuarded` for a total version.
+ */
+export function drawSegment<S extends PixelSpace>(
+  ctx: StrokeContext2D & FillContext2D,
+  board: Board,
+  segmentId: SegmentId,
+  viewport: Viewport<S>,
+): void {
+  strokeSegmentPolyline(ctx, board, segmentId, viewport);
+  drawArrowhead(ctx, board, segmentId, viewport);
+}
+
+/**
+ * `drawSegment`, with a malformed `segColor` or `segDir` turned into a
+ * skipped throw instead of a crash: returns whether it drew *completely*,
+ * not whether it drew at all — a one-cell segment's dot still strokes
+ * before a bad `segDir` makes `drawArrowhead` throw, so `false` can mean
+ * something was drawn. The one guard both `redrawStaticLayer`'s
+ * per-segment loop and a per-frame animation caller need, so that one bad
+ * segment cannot stop either — a loop over many segments would otherwise
+ * lose the rest of the frame past the bad one, and a
+ * single-segment-per-frame caller would otherwise stop scheduling its next
+ * frame at all. Anything else — a dead canvas context, say — still
+ * propagates rather than being absorbed here.
+ */
+export function drawSegmentGuarded<S extends PixelSpace>(
+  ctx: StrokeContext2D & FillContext2D,
+  board: Board,
+  segmentId: SegmentId,
+  viewport: Viewport<S>,
+): boolean {
+  try {
+    drawSegment(ctx, board, segmentId, viewport);
+    return true;
+  } catch (err) {
+    if (!(err instanceof RangeError)) throw err;
+    return false;
+  }
 }

@@ -10,7 +10,12 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { strokeSegmentPolyline } from './draw.js';
+import {
+  ARROWHEAD_OVERHANG_CELLS,
+  REFERENCE_CSS_VIEWPORT_WIDTH,
+  drawSegmentGuarded,
+  isBoardLegibleUnzoomed,
+} from './draw.js';
 import { createBufferViewport, type CanvasLike, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -19,8 +24,14 @@ export const MIN_PIXELS_PER_CELL = 1;
 /** Backstop against a runaway ladder: enough rungs to halve from the cap to 1 several times over. */
 const MAX_DEGRADATION_ATTEMPTS = 64;
 
-/** CSS px per board cell at 1x zoom, 1x dpr — the static buffer's resting resolution. */
-export const BASE_CSS_PIXELS_PER_CELL = 10;
+/**
+ * Buffer-resolution baseline, in CSS px per board cell: what
+ * `recommendedPixelsPerCell` multiplies by the zoom ceiling and dpr to get
+ * the buffer's actual stored resolution. Not what the player sees at 1x
+ * zoom — the buffer is deliberately oversampled past the resting display
+ * scale so that zooming in needs no repaint.
+ */
+export const BUFFER_BASE_CSS_PIXELS_PER_CELL = 10;
 /** Zoom level the static buffer stays sharp up to before a `drawImage` blit would blur it. */
 export const DEFAULT_MAX_ZOOM = 3;
 
@@ -40,6 +51,17 @@ function requirePositiveFinite(value: number, name: string): void {
 }
 
 /**
+ * A viewport dimension the platform handed us (e.g. a `clientWidth` read
+ * before layout), rather than one the caller chose. Zero, missing, or
+ * non-finite means "cannot judge yet", not a programming error, so this
+ * absorbs it into `fallback` instead of throwing — legibility queries must
+ * never be able to throw over an unmeasured layout.
+ */
+function resolveCssViewportDimension(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/**
  * The largest `pixelsPerCell` that keeps both buffer dimensions within
  * `maxDimension`, capped at `requestedPixelsPerCell`.
  */
@@ -56,10 +78,10 @@ export function computeBufferBudget(
 
   const maxBoardDim = Math.max(boardWidth, boardHeight, 1);
   const cappedPixelsPerCell = Math.min(requestedPixelsPerCell, maxDimension / maxBoardDim);
-  const widthPx = Math.max(1, Math.min(maxDimension, Math.round(cappedPixelsPerCell * boardWidth)));
+  const widthPx = Math.max(1, Math.min(maxDimension, Math.ceil(cappedPixelsPerCell * boardWidth)));
   const heightPx = Math.max(
     1,
-    Math.min(maxDimension, Math.round(cappedPixelsPerCell * boardHeight)),
+    Math.min(maxDimension, Math.ceil(cappedPixelsPerCell * boardHeight)),
   );
   return {
     pixelsPerCell: cappedPixelsPerCell,
@@ -70,19 +92,20 @@ export function computeBufferBudget(
 }
 
 /**
- * What the board actually needs at rest: cells across a target CSS px per
- * cell times the zoom ceiling times dpr. `createStaticLayer` clamps this to
- * `MAX_CANVAS_DIMENSION` — this is the number it clamps, not the cap itself.
+ * The buffer resolution needed to stay sharp up to `maxZoom`: a
+ * buffer-resolution baseline in CSS px per cell, times the zoom ceiling,
+ * times dpr. `createStaticLayer` clamps this to `MAX_CANVAS_DIMENSION` —
+ * this is the number it clamps, not the cap itself.
  */
 export function recommendedPixelsPerCell(
   dpr: number,
   maxZoom: number = DEFAULT_MAX_ZOOM,
-  baseCssPixelsPerCell: number = BASE_CSS_PIXELS_PER_CELL,
+  bufferBaseCssPixelsPerCell: number = BUFFER_BASE_CSS_PIXELS_PER_CELL,
 ): number {
   requirePositiveFinite(dpr, 'dpr');
   requirePositiveFinite(maxZoom, 'maxZoom');
-  requirePositiveFinite(baseCssPixelsPerCell, 'baseCssPixelsPerCell');
-  return baseCssPixelsPerCell * maxZoom * dpr;
+  requirePositiveFinite(bufferBaseCssPixelsPerCell, 'bufferBaseCssPixelsPerCell');
+  return bufferBaseCssPixelsPerCell * maxZoom * dpr;
 }
 
 /**
@@ -240,6 +263,20 @@ export interface StaticLayer {
   readonly allocationOk: boolean;
   /** Every rung the degradation ladder tried, in order, for diagnostics. */
   readonly attempts: readonly DegradationAttempt[];
+  /**
+   * Segment ids the most recent `redrawStaticLayer` call could not fully
+   * draw, because of malformed data (an out-of-range palette index or
+   * `segDir`). Empty on a healthy board. Left partly or fully undrawn — a
+   * one-cell segment's dot strokes before its arrowhead can throw — the
+   * segment is still tappable via `occupancy` regardless, so a caller may
+   * want to warn rather than leave it silently wrong.
+   *
+   * `redrawStaticLayer` replaces this array wholesale on every call rather
+   * than mutating it in place, so a caller holding a reference from an
+   * earlier call keeps seeing that call's own result — safe to store in
+   * state that compares by identity.
+   */
+  droppedSegments: readonly SegmentId[];
 }
 
 export interface StaticLayerOptions extends DegradationOptions {
@@ -258,13 +295,22 @@ function defaultCreateCanvas(): CanvasLike {
 
 /**
  * Allocates the static offscreen buffer sized to hold the whole board,
- * degrading resolution until a drawn pixel reads back correctly.
+ * padded by any arrowhead overhang past a border cell's own edge (zero at
+ * the current constants — see `ARROWHEAD_OVERHANG_CELLS`), degrading
+ * resolution until a drawn pixel reads back correctly.
  */
 export function createStaticLayer(board: Board, options: StaticLayerOptions = {}): StaticLayer {
   const createCanvas = options.createCanvas ?? defaultCreateCanvas;
   const requestedPixelsPerCell =
     options.requestedPixelsPerCell ??
     recommendedPixelsPerCell(options.dpr ?? 1, options.maxZoom ?? DEFAULT_MAX_ZOOM);
+
+  // A head on the board's outer cell points outward. Its arrowhead reaches
+  // to that cell's own edge exactly at the current constants, so this pads
+  // by zero; it only does real work if a future arrowhead size change
+  // pushes the tip or a base corner past the cell.
+  const paddedWidth = board.width + 2 * ARROWHEAD_OVERHANG_CELLS;
+  const paddedHeight = board.height + 2 * ARROWHEAD_OVERHANG_CELLS;
 
   const canvas = createCanvas();
 
@@ -288,8 +334,8 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   };
 
   const { budget, attempts, ok } = planDegradation(
-    board.width,
-    board.height,
+    paddedWidth,
+    paddedHeight,
     requestedPixelsPerCell,
     probe,
     options,
@@ -303,8 +349,53 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
   if (liveCtx === null) throw new Error('2d canvas context unavailable');
   const liveOk = ok && probeReadback(liveCtx, budget.widthPx, budget.heightPx);
 
-  const viewport = createBufferViewport(budget.pixelsPerCell);
-  return { canvas, ctx: liveCtx, budget, viewport, allocationOk: liveOk, attempts };
+  const originPx = ARROWHEAD_OVERHANG_CELLS * budget.pixelsPerCell;
+  const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
+  return {
+    canvas,
+    ctx: liveCtx,
+    budget,
+    viewport,
+    allocationOk: liveOk,
+    attempts,
+    droppedSegments: [],
+  };
+}
+
+/**
+ * Whether `layer` reads its arrowheads legibly right now, for `board`
+ * displayed unzoomed in a live CSS viewport `availableCssWidth` by
+ * `availableCssHeight` — a query the caller makes per layout (on mount,
+ * rotate, resize), not a value cached at buffer creation. A cached flag
+ * cannot track any of that: the buffer is resolution-independent, so
+ * nothing rebuilds it on rotate or resize, and its own achieved resolution
+ * (`layer.budget.pixelsPerCell`, which the degradation ladder may have
+ * reduced) bounds what can actually render sharp regardless of how much
+ * room the viewport has. This folds both in: it caps the viewport size by
+ * what the buffer can supply without blurring, then asks
+ * `isBoardLegibleUnzoomed` — the pure scale check — whether what is left
+ * clears the floor.
+ *
+ * `availableCssWidth`/`availableCssHeight` are platform measurements (a
+ * `clientWidth` read before layout can legitimately be 0), so an unusable
+ * value falls back to `REFERENCE_CSS_VIEWPORT_WIDTH` rather than throwing —
+ * an advisory answer must never itself be the thing that throws. `dpr`
+ * converts the buffer's device-pixel resolution to the CSS-pixel terms the
+ * viewport size and the legibility floor are both expressed in.
+ */
+export function isLayerLegibleUnzoomed(
+  layer: StaticLayer,
+  board: Board,
+  availableCssWidth: number,
+  availableCssHeight: number,
+  dpr = 1,
+): boolean {
+  const width = resolveCssViewportDimension(availableCssWidth, REFERENCE_CSS_VIEWPORT_WIDTH);
+  const height = resolveCssViewportDimension(availableCssHeight, REFERENCE_CSS_VIEWPORT_WIDTH);
+  const bufferCssPixelsPerCell = layer.budget.pixelsPerCell / resolveCssViewportDimension(dpr, 1);
+  const effectiveWidth = Math.min(width, bufferCssPixelsPerCell * board.width);
+  const effectiveHeight = Math.min(height, bufferCssPixelsPerCell * board.height);
+  return isBoardLegibleUnzoomed(board.width, board.height, effectiveWidth, effectiveHeight);
 }
 
 /** Redraws every non-removed segment. The caller decides when that is needed — see `removedSetsDiffer`. */
@@ -315,10 +406,12 @@ export function redrawStaticLayer(
 ): void {
   const { ctx, viewport, budget } = layer;
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
+  const dropped: SegmentId[] = [];
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
-    strokeSegmentPolyline(ctx, board, id, viewport);
+    if (!drawSegmentGuarded(ctx, board, id, viewport)) dropped.push(id);
   }
+  layer.droppedSegments = dropped;
 }
 
 export interface AnimationLayer {
