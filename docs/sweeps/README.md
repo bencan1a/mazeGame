@@ -2,10 +2,6 @@
 
 Gate for milestone M2. Closes #17.
 
-**This is a `docs/**` change** and therefore a shared-file lane under
-[`WORKFLOW.md`](../WORKFLOW.md) — flag it on review. It adds only report
-content and reproducible sweep specs/data; no code in `src/harness/` changed.
-
 Machine: this repo's dev container, run via `npm run harness`. It is a shared
 cloud runner, not a phone — see [`TESTING.md`](../TESTING.md). Every
 `generationMs` figure below is wall clock on that machine and should be read

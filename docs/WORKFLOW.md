@@ -64,16 +64,17 @@ Milestones map to M0–M5 in the plan.
 
 Concurrency works because streams do not share files. Stay in your lane.
 
-| Path                                                                                                                  | Owner                             |
-| --------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `src/core/mask/**`                                                                                                    | S1 mask                           |
-| `src/core/path/**`                                                                                                    | S2 path                           |
-| `src/core/segment/**`, `src/core/orient/**`, `src/core/color/**`                                                      | S3 topology                       |
-| `src/core/validate/**`, `src/core/metrics.ts`, `src/harness/**`                                                       | S4 harness                        |
-| `src/render/**`                                                                                                       | S5 renderer                       |
-| `src/game/**`, `src/ui/**`, `src/pwa/**`                                                                              | S6 app                            |
-| `.github/**`, `.claude/**`, root config, `scripts/**`                                                                 | S7 infra                          |
-| **`src/core/types.ts`, `src/core/generate.ts`, `src/core/rng.ts`, `src/core/grid.ts`, `test/fixtures/**`, `docs/**`** | **shared — contract rules apply** |
+| Path                                                                                                       | Owner                             |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `src/core/mask/**`                                                                                         | S1 mask                           |
+| `src/core/path/**`                                                                                         | S2 path                           |
+| `src/core/segment/**`, `src/core/orient/**`, `src/core/color/**`                                           | S3 topology                       |
+| `src/core/validate/**`, `src/core/metrics.ts`, `src/harness/**`                                            | S4 harness                        |
+| `src/render/**`                                                                                            | S5 renderer                       |
+| `src/game/**`, `src/ui/**`, `src/pwa/**`                                                                   | S6 app                            |
+| `.github/**`, `.claude/**`, root config, `scripts/**`                                                      | S7 infra                          |
+| **`src/core/types.ts`, `src/core/generate.ts`, `src/core/rng.ts`, `src/core/grid.ts`, `test/fixtures/**`** | **shared — contract rules apply** |
+| `docs/**`                                                                                                  | anyone, in the PR that earns it   |
 
 Need something from another lane? Do not reach in and change it. Open an issue
 against that lane, label it `blocked`, and work around it with a fixture
@@ -112,6 +113,19 @@ Shared files are the one place where parallel work can genuinely break. So:
 
 A contract PR that also contains feature work will be sent back, because it
 cannot be reviewed for the thing that actually matters.
+
+### Documentation is not a contract
+
+`docs/**` is owned by whoever is doing the work it describes. A measurement, a
+decision or a finding ships in the same PR as the change that produced it — no
+`contract-change` issue, no separate PR, no waiting. Nothing downstream
+compiles against prose, so none of the breakage this section exists to prevent
+is possible; splitting the note out only puts it further from the evidence for
+it, which is how documentation goes stale.
+
+Two things in `docs/` are still contracts and still take the rules above: what
+`docs/CONTRACTS.md` **specifies**, because other lanes code against it, and an
+ADR, because superseding one is a decision rather than a note.
 
 ## Rules an agent must not break
 
