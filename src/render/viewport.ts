@@ -232,13 +232,14 @@ export function zoomViewportAt(
 }
 
 /**
- * How far past the static buffer's own achieved CSS px/cell (`bufferPixelsPerCell / dpr`)
- * `maxZoomScale` allows a magnified blit to go — 4x is a raster upscale that
- * still reads sharp. A `drawImage` blit costs the same single call at any
- * scale, so this is a legibility choice, not a memory one; the buffer's
- * resolution itself is capped once, at allocation.
+ * How far past the static buffer's own achieved CSS px/cell
+ * (`bufferPixelsPerCell / dpr`) `maxZoomScale` allows a magnified blit to go.
+ * The buffer is already sized to hold the intended maximum zoom (`layers.ts`
+ * sizes it at `BASE_CSS_PIXELS_PER_CELL * DEFAULT_MAX_ZOOM`), so 1 keeps the
+ * ceiling at the buffer's own native resolution rather than upscaling past
+ * the detail it holds. A caller with headroom to spare can raise it.
  */
-export const DEFAULT_MAX_UPSCALE = 4;
+export const DEFAULT_MAX_UPSCALE = 1;
 
 /**
  * The zoom ceiling for `clampZoomScale`: `maxUpscale` times the buffer's own
@@ -268,12 +269,19 @@ export function maxZoomScale(
  * against a canvas that hasn't been measured yet is legitimately zero, not
  * caller error. If `maxScale` is ever built some other way and ends up below
  * `minScale`, the result is `maxScale`.
+ *
+ * `scale` itself is never rejected, however degenerate: a pinch computes it
+ * as a distance ratio, and two pointers coinciding or one lifting mid-gesture
+ * yields exactly 0, Infinity, or NaN. A clamp's job is to resolve an
+ * out-of-range input, not reject it, so 0 and either Infinity already land on
+ * the nearer bound through `Math.min`/`Math.max`; NaN has no defined
+ * position to compare and settles at `minScale`.
  */
 export function clampZoomScale(scale: number, minScale: number, maxScale: number): number {
-  requirePositiveFinite(scale, 'scale');
   requireNonNegativeFinite(minScale, 'minScale');
   requirePositiveFinite(maxScale, 'maxScale');
   if (minScale > maxScale) return maxScale;
+  if (Number.isNaN(scale)) return minScale;
   return Math.min(Math.max(scale, minScale), maxScale);
 }
 
@@ -344,27 +352,33 @@ export interface BlitRects {
  * `canvasCssHeight` included — and `blitStaticLayer` treats that as "draw
  * nothing this frame" rather than passing a degenerate rect to `drawImage`.
  *
- * `bufferPixelsPerCell` is the static buffer's own scale (`Viewport<'buffer'>.scale`).
+ * Takes the whole `bufferViewport` rather than only its `scale`, and honours
+ * `originX`/`originY`: a buffer with padding around the board content (an
+ * arrowhead overhang margin, say) places cell (0, 0) away from the buffer's
+ * own pixel (0, 0), and dropping that offset would sample the wrong region
+ * of the buffer with no type error to catch it. `bufferWidthPx`/
+ * `bufferHeightPx` are the buffer canvas's own full pixel dimensions — the
+ * bound the source rect is clipped to — independent of where the origin
+ * places cell (0, 0) within them.
  */
 export function computeBlitRects(
   viewport: Viewport<'css'>,
-  bufferPixelsPerCell: number,
+  bufferViewport: Viewport<'buffer'>,
   bufferWidthPx: number,
   bufferHeightPx: number,
   canvasCssWidth: number,
   canvasCssHeight: number,
 ): BlitRects | null {
-  requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
   requirePositiveFinite(bufferWidthPx, 'bufferWidthPx');
   requirePositiveFinite(bufferHeightPx, 'bufferHeightPx');
   requireNonNegativeFinite(canvasCssWidth, 'canvasCssWidth');
   requireNonNegativeFinite(canvasCssHeight, 'canvasCssHeight');
 
-  const cssToBuffer = bufferPixelsPerCell / viewport.scale;
-  const srcLeft = (0 - viewport.originX) * cssToBuffer;
-  const srcTop = (0 - viewport.originY) * cssToBuffer;
-  const srcRight = (canvasCssWidth - viewport.originX) * cssToBuffer;
-  const srcBottom = (canvasCssHeight - viewport.originY) * cssToBuffer;
+  const cssToBuffer = bufferViewport.scale / viewport.scale;
+  const srcLeft = bufferViewport.originX + (0 - viewport.originX) * cssToBuffer;
+  const srcTop = bufferViewport.originY + (0 - viewport.originY) * cssToBuffer;
+  const srcRight = bufferViewport.originX + (canvasCssWidth - viewport.originX) * cssToBuffer;
+  const srcBottom = bufferViewport.originY + (canvasCssHeight - viewport.originY) * cssToBuffer;
 
   const sourceX = Math.max(0, srcLeft);
   const sourceY = Math.max(0, srcTop);
@@ -382,9 +396,11 @@ export function computeBlitRects(
     return null;
   }
 
-  const bufferToCss = viewport.scale / bufferPixelsPerCell;
-  const destX = (viewport.originX + sourceX * bufferToCss) * viewport.dpr;
-  const destY = (viewport.originY + sourceY * bufferToCss) * viewport.dpr;
+  const bufferToCss = viewport.scale / bufferViewport.scale;
+  const destX =
+    (viewport.originX + (sourceX - bufferViewport.originX) * bufferToCss) * viewport.dpr;
+  const destY =
+    (viewport.originY + (sourceY - bufferViewport.originY) * bufferToCss) * viewport.dpr;
   const destWidth = sourceWidth * bufferToCss * viewport.dpr;
   const destHeight = sourceHeight * bufferToCss * viewport.dpr;
   if (
@@ -400,13 +416,16 @@ export function computeBlitRects(
 }
 
 /**
- * The `drawImage`/`clearRect` surface `blitStaticLayer` needs, with
- * `drawImage`'s image parameter bound to the real DOM `CanvasImageSource`
- * type. A real `CanvasRenderingContext2D` satisfies this directly; a test
- * fake reaches it through an `unknown` cast, the same pattern `layers.ts`
- * uses for `probeReadback`.
+ * The `save`/`setTransform`/`clearRect`/`drawImage`/`restore` surface
+ * `blitStaticLayer` needs, with `drawImage`'s image parameter bound to the
+ * real DOM `CanvasImageSource` type. A real `CanvasRenderingContext2D`
+ * satisfies this directly; a test fake reaches it through an `unknown` cast,
+ * the same pattern `layers.ts` uses for `probeReadback`.
  */
 export interface BlitContext2D {
+  save(): void;
+  restore(): void;
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   clearRect(x: number, y: number, w: number, h: number): void;
   drawImage(
     image: CanvasImageSource,
@@ -427,12 +446,17 @@ export interface BlitContext2D {
  * is `null` when nothing overlaps (see `computeBlitRects`), in which case the
  * clear still runs so a previous frame's content doesn't linger.
  *
- * `ctx` must not be pre-scaled by device pixel ratio: `rects` and
- * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` are already in raw device
+ * `rects` and `canvasDeviceWidthPx`/`canvasDeviceHeightPx` are in raw device
  * pixels — the visible canvas's own `width`/`height` backing-store size, read
  * off the canvas itself rather than recomputed as `canvasCssWidth * dpr`:
  * allocating a canvas rounds that product to an integer, so the two can
- * differ by a device pixel and under-clear the edge.
+ * differ by a device pixel and under-clear the edge. `ctx` is reset to the
+ * identity transform before the clear and draw, and the reset is not
+ * optional: `AnimationLayer.ctx` in `layers.ts` is the identical
+ * `CanvasRenderingContext2D` type but pre-scaled by device pixel ratio, so
+ * nothing in the type system stops that context reaching here by mistake,
+ * and doing the device-pixel arithmetic through a stale dpr-scaled transform
+ * would blit and clear at the wrong scale.
  *
  * `canvasDeviceWidthPx`/`canvasDeviceHeightPx` accept zero: a canvas
  * mid-layout with no measured size yet is routine, not caller error, and the
@@ -448,19 +472,25 @@ export function blitStaticLayer(
   requireNonNegativeFinite(canvasDeviceWidthPx, 'canvasDeviceWidthPx');
   requireNonNegativeFinite(canvasDeviceHeightPx, 'canvasDeviceHeightPx');
   if (canvasDeviceWidthPx === 0 || canvasDeviceHeightPx === 0) return;
-  ctx.clearRect(0, 0, canvasDeviceWidthPx, canvasDeviceHeightPx);
-  if (rects === null) return;
-  // CanvasLike's declared shape can't prove it's a real image source, but the
-  // canvas it wraps at runtime always is.
-  ctx.drawImage(
-    image as unknown as CanvasImageSource,
-    rects.sourceX,
-    rects.sourceY,
-    rects.sourceWidth,
-    rects.sourceHeight,
-    rects.destX,
-    rects.destY,
-    rects.destWidth,
-    rects.destHeight,
-  );
+  ctx.save();
+  try {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvasDeviceWidthPx, canvasDeviceHeightPx);
+    if (rects === null) return;
+    // CanvasLike's declared shape can't prove it's a real image source, but
+    // the canvas it wraps at runtime always is.
+    ctx.drawImage(
+      image as unknown as CanvasImageSource,
+      rects.sourceX,
+      rects.sourceY,
+      rects.sourceWidth,
+      rects.sourceHeight,
+      rects.destX,
+      rects.destY,
+      rects.destWidth,
+      rects.destHeight,
+    );
+  } finally {
+    ctx.restore();
+  }
 }

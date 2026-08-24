@@ -344,14 +344,15 @@ describe('zoomViewportAt followed by clampPan', () => {
 });
 
 describe('maxZoomScale', () => {
-  it("is maxUpscale times the buffer's achieved CSS px/cell, on a healthy buffer", () => {
+  it("defaults to the buffer's own achieved CSS px/cell, on a healthy buffer", () => {
     // 30 buffer px/cell at dpr 1 is the default buffer's native resolution
-    // (10 base * 3 maxZoom); 4x that is 120.
-    expect(maxZoomScale(0, 30, 1)).toBe(120);
+    // (10 base * 3 maxZoom); the buffer already holds that much detail, no
+    // more, so DEFAULT_MAX_UPSCALE 1 keeps the ceiling right there.
+    expect(maxZoomScale(0, 30, 1)).toBe(30);
   });
 
   it('divides by dpr to convert buffer pixels to CSS pixels', () => {
-    expect(maxZoomScale(0, 30, 3)).toBeCloseTo(40, 6); // (30 / 3) * 4
+    expect(maxZoomScale(0, 30, 3)).toBeCloseTo(10, 6); // 30 / 3
   });
 
   it('tightens instead of running away on a degraded buffer', () => {
@@ -365,7 +366,11 @@ describe('maxZoomScale', () => {
   });
 
   it('accepts a zero minScale — a fit-to-canvas minimum against an unmeasured canvas', () => {
-    expect(maxZoomScale(0, 30, 1)).toBe(120);
+    expect(maxZoomScale(0, 30, 1)).toBe(30);
+  });
+
+  it('an explicit maxUpscale above 1 still scales the buffer-derived ceiling', () => {
+    expect(maxZoomScale(0, 30, 1, 4)).toBe(120);
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
@@ -438,12 +443,41 @@ describe('clampZoomScale', () => {
     expect(clampZoomScale(1000, 40, 5)).toBe(5);
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a scale of %p', (bad) => {
-    expect(() => clampZoomScale(bad, 5, 40)).toThrow(RangeError);
+  it('never throws on a degenerate scale — a pinch computing 0, Infinity, -Infinity or NaN', () => {
+    expect(clampZoomScale(0, 5, 40)).toBe(5);
+    expect(clampZoomScale(Infinity, 5, 40)).toBe(40);
+    expect(clampZoomScale(-Infinity, 5, 40)).toBe(5);
+    expect(clampZoomScale(NaN, 5, 40)).toBe(5);
+  });
+
+  it('resolves a negative scale to minScale, the same as any other out-of-range value', () => {
+    expect(clampZoomScale(-100, 5, 40)).toBe(5);
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a minScale of %p', (bad) => {
     expect(() => clampZoomScale(20, bad, 40)).toThrow(RangeError);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a maxScale of %p', (bad) => {
+    expect(() => clampZoomScale(20, 5, bad)).toThrow(RangeError);
+  });
+
+  it('never throws, for any scale including non-finite ones, across arbitrary bounds', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.double({ noNaN: false }),
+          fc.constant(NaN),
+          fc.constant(Infinity),
+          fc.constant(-Infinity),
+        ),
+        fc.double({ min: 0, max: 1e6, noNaN: true }),
+        fc.double({ min: 0.001, max: 1e6, noNaN: true }),
+        (scale, minScale, maxScale) => {
+          expect(() => clampZoomScale(scale, minScale, maxScale)).not.toThrow();
+        },
+      ),
+    );
   });
 
   it('never exceeds maxZoomScale composed with it, and never falls below fit-to-canvas', () => {
@@ -580,7 +614,7 @@ describe('clampPan', () => {
 describe('computeBlitRects', () => {
   it('covers the whole canvas when the board exactly fills it', () => {
     const viewport = createViewport({ scale: 10, originX: 0, originY: 0 });
-    const rects = computeBlitRects(viewport, 20, 200, 200, 100, 100);
+    const rects = computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100);
     expect(rects).toEqual({
       sourceX: 0,
       sourceY: 0,
@@ -595,7 +629,7 @@ describe('computeBlitRects', () => {
 
   it('scales the dest rect by dpr', () => {
     const viewport = createViewport({ scale: 10, originX: 0, originY: 0, dpr: 2 });
-    const rects = computeBlitRects(viewport, 20, 200, 200, 100, 100);
+    const rects = computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100);
     expect(rects).toEqual({
       sourceX: 0,
       sourceY: 0,
@@ -612,7 +646,7 @@ describe('computeBlitRects', () => {
     // Board origin at CSS x=-50 (10 cells * scale 10 = 100px wide board,
     // half scrolled past the canvas's left edge).
     const viewport = createViewport({ scale: 10, originX: -50, originY: 0 });
-    const rects = computeBlitRects(viewport, 20, 200, 200, 100, 100); // 20 buffer px/cell
+    const rects = computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100);
     expect(rects).not.toBeNull();
     // The visible half of the board, cells 5..10, is buffer px 100..200.
     expect(rects?.sourceX).toBeCloseTo(100, 6);
@@ -621,9 +655,38 @@ describe('computeBlitRects', () => {
     expect(rects?.destWidth).toBeCloseTo(50, 6);
   });
 
+  it('shifts both rects by the buffer viewport origin, for a buffer padded around the board content', () => {
+    // A 10px margin on every side of the buffer, ahead of the board content,
+    // e.g. room for an arrowhead overhang past the outermost cell.
+    const viewport = createViewport({ scale: 10, originX: 0, originY: 0 });
+    const bufferViewport = createBufferViewport(20, 10, 10);
+    const rects = computeBlitRects(viewport, bufferViewport, 220, 220, 100, 100);
+    expect(rects).toEqual({
+      sourceX: 10,
+      sourceY: 10,
+      sourceWidth: 200,
+      sourceHeight: 200,
+      destX: 0,
+      destY: 0,
+      destWidth: 100,
+      destHeight: 100,
+    });
+  });
+
+  it('clips a padded buffer to its own full canvas, not just the board-content region the origin offsets to', () => {
+    // Zoomed out enough that the visible CSS rect maps past the buffer's
+    // left/top margin; the source rect must not go negative.
+    const viewport = createViewport({ scale: 10, originX: 50, originY: 50 });
+    const bufferViewport = createBufferViewport(20, 10, 10);
+    const rects = computeBlitRects(viewport, bufferViewport, 220, 220, 100, 100);
+    expect(rects).not.toBeNull();
+    expect(rects?.sourceX).toBe(0);
+    expect(rects?.sourceY).toBe(0);
+  });
+
   it('is null when the viewport and the buffer do not overlap at all', () => {
     const viewport = createViewport({ scale: 10, originX: 10_000, originY: 0 });
-    expect(computeBlitRects(viewport, 20, 200, 200, 100, 100)).toBeNull();
+    expect(computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100)).toBeNull();
   });
 
   it('is null rather than an all-NaN rect when an extreme scale overflows the arithmetic', () => {
@@ -631,7 +694,7 @@ describe('computeBlitRects', () => {
     // input validation; dividing by it overflows to Infinity, and
     // `0 * Infinity` downstream is NaN, which a plain `<= 0` guard misses.
     const viewport = createViewport({ scale: 5e-320, originX: 0, originY: 0 });
-    expect(computeBlitRects(viewport, 20, 200, 200, 100, 100)).toBeNull();
+    expect(computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100)).toBeNull();
   });
 
   it('never returns a rect with a non-finite field, across a wide range of scales including extreme ones', () => {
@@ -642,7 +705,7 @@ describe('computeBlitRects', () => {
         fc.double({ min: -1e6, max: 1e6, noNaN: true }),
         (scale, originX, originY) => {
           const viewport = createViewport({ scale, originX, originY });
-          const rects = computeBlitRects(viewport, 20, 200, 200, 100, 100);
+          const rects = computeBlitRects(viewport, createBufferViewport(20), 200, 200, 100, 100);
           if (rects === null) return;
           for (const value of Object.values(rects)) {
             expect(Number.isFinite(value)).toBe(true);
@@ -652,35 +715,30 @@ describe('computeBlitRects', () => {
     );
   });
 
-  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a bufferPixelsPerCell of %p', (bad) => {
-    expect(() => computeBlitRects(createViewport({ scale: 10 }), bad, 200, 200, 100, 100)).toThrow(
-      RangeError,
-    );
-  });
-
   it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a bufferWidthPx of %p', (bad) => {
-    expect(() => computeBlitRects(createViewport({ scale: 10 }), 20, bad, 200, 100, 100)).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      computeBlitRects(createViewport({ scale: 10 }), createBufferViewport(20), bad, 200, 100, 100),
+    ).toThrow(RangeError);
   });
 
   it('treats a zero-size canvas as no overlap rather than an error — a routine mid-layout state', () => {
     const viewport = createViewport({ scale: 10 });
-    expect(computeBlitRects(viewport, 20, 200, 200, 0, 100)).toBeNull();
-    expect(computeBlitRects(viewport, 20, 200, 200, 100, 0)).toBeNull();
-    expect(computeBlitRects(viewport, 20, 200, 200, 0, 0)).toBeNull();
+    const bufferViewport = createBufferViewport(20);
+    expect(computeBlitRects(viewport, bufferViewport, 200, 200, 0, 100)).toBeNull();
+    expect(computeBlitRects(viewport, bufferViewport, 200, 200, 100, 0)).toBeNull();
+    expect(computeBlitRects(viewport, bufferViewport, 200, 200, 0, 0)).toBeNull();
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasCssWidth of %p', (bad) => {
-    expect(() => computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, bad, 100)).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      computeBlitRects(createViewport({ scale: 10 }), createBufferViewport(20), 200, 200, bad, 100),
+    ).toThrow(RangeError);
   });
 
   it.each([NaN, Infinity, -Infinity, -1])('rejects a canvasCssHeight of %p', (bad) => {
-    expect(() => computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, 100, bad)).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      computeBlitRects(createViewport({ scale: 10 }), createBufferViewport(20), 200, 200, 100, bad),
+    ).toThrow(RangeError);
   });
 
   it('always overlaps once the viewport has gone through clampPan, whatever the board or canvas size', () => {
@@ -704,7 +762,7 @@ describe('computeBlitRects', () => {
           const bufferHeightPx = boardHeight * bufferScale;
           const rects = computeBlitRects(
             viewport,
-            bufferScale,
+            createBufferViewport(bufferScale),
             bufferWidthPx,
             bufferHeightPx,
             bounds.canvasCssWidth,
@@ -722,6 +780,18 @@ const FAKE_IMAGE: CanvasLike = { width: 1, height: 1, getContext: () => null };
 class FakeBlitCtx implements BlitContext2D {
   drawImageCalls: unknown[][] = [];
   clearRectCalls: unknown[][] = [];
+  saveCalls = 0;
+  restoreCalls = 0;
+  setTransformCalls: number[][] = [];
+  save(): void {
+    this.saveCalls++;
+  }
+  restore(): void {
+    this.restoreCalls++;
+  }
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
+    this.setTransformCalls.push([a, b, c, d, e, f]);
+  }
   clearRect(x: number, y: number, w: number, h: number): void {
     this.clearRectCalls.push([x, y, w, h]);
   }
@@ -797,7 +867,7 @@ describe('blitStaticLayer', () => {
 
   it('does exactly one drawImage call per frame across a simulated pan, never touching per-segment drawing', () => {
     const ctx = new FakeBlitCtx();
-    const bufferPixelsPerCell = 20;
+    const bufferViewport = createBufferViewport(20);
     const bufferWidthPx = 2000;
     const bufferHeightPx = 2000;
     let viewport: Viewport<'css'> = createViewport({ scale: 10 });
@@ -812,7 +882,7 @@ describe('blitStaticLayer', () => {
       viewport = clampPan(panViewport(viewport, 7, -3), bounds);
       const rects = computeBlitRects(
         viewport,
-        bufferPixelsPerCell,
+        bufferViewport,
         bufferWidthPx,
         bufferHeightPx,
         bounds.canvasCssWidth,
@@ -822,8 +892,9 @@ describe('blitStaticLayer', () => {
     }
     expect(ctx.drawImageCalls.length).toBe(frameCount);
     expect(ctx.clearRectCalls.length).toBe(frameCount);
-    // BlitContext2D exposes only clearRect/drawImage, so there is no
-    // per-segment stroking surface for a pan frame to reach for at all.
+    // BlitContext2D exposes only save/restore/setTransform/clearRect/
+    // drawImage, so there is no per-segment stroking surface for a pan frame
+    // to reach for at all.
   });
 });
 
@@ -831,6 +902,15 @@ describe('blitStaticLayer against the real render types', () => {
   it('compiles and runs against a real CanvasRenderingContext2D and a StaticLayer canvas, not just the fake', () => {
     const calls: unknown[][] = [];
     const realCtx = {
+      save(): void {
+        calls.push(['save']);
+      },
+      restore(): void {
+        calls.push(['restore']);
+      },
+      setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
+        calls.push(['setTransform', a, b, c, d, e, f]);
+      },
       clearRect(x: number, y: number, w: number, h: number): void {
         calls.push(['clearRect', x, y, w, h]);
       },
@@ -854,14 +934,24 @@ describe('blitStaticLayer against the real render types', () => {
       getContext: () => null,
     };
 
-    const rects = computeBlitRects(createViewport({ scale: 10 }), 20, 200, 200, 100, 100);
+    const rects = computeBlitRects(
+      createViewport({ scale: 10 }),
+      createBufferViewport(20),
+      200,
+      200,
+      100,
+      100,
+    );
     // No cast on staticLayerCanvas: if blitStaticLayer's image parameter ever
     // regresses to CanvasImageSource, this line stops compiling.
     blitStaticLayer(realCtx, staticLayerCanvas, rects, 100, 100);
 
     expect(calls).toEqual([
+      ['save'],
+      ['setTransform', 1, 0, 0, 1, 0, 0],
       ['clearRect', 0, 0, 100, 100],
       ['drawImage', staticLayerCanvas, 0, 0, 200, 200, 0, 0, 100, 100],
+      ['restore'],
     ]);
   });
 });
