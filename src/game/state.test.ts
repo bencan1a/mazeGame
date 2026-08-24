@@ -114,6 +114,43 @@ describe('tap: invalid segment ids', () => {
     expect(state.removedCount).toBe(1);
     expect(state.lives).toBe(PLAY_PARAMS.lives);
   });
+
+  it('treats NaN as a miss rather than passing a false range check', () => {
+    // Every comparison against NaN is false, so a plain `id < 1 || id > n`
+    // guard lets it through; this only holds with an explicit integer check.
+    const state = tap(freshGame(), NaN);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+
+  it('treats undefined as a miss, the value an out-of-bounds occupancy read produces', () => {
+    const state = tap(freshGame(), undefined as unknown as number);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+
+  it('treats a fractional id as a miss', () => {
+    const state = tap(freshGame(), 1.5);
+    expect(state.lastOutcome).toEqual({ kind: 'miss' });
+    expect(state.removedCount).toBe(0);
+    expect(state.lives).toBe(PLAY_PARAMS.lives);
+  });
+});
+
+describe('isFree: invalid ids', () => {
+  it('is false for id 0, the reserved empty-cell value from occupancy', () => {
+    expect(isFree(freshGame(), 0)).toBe(false);
+  });
+
+  it('is false for an id past segmentCount, a negative id, NaN, and a fractional id', () => {
+    const state = freshGame();
+    expect(isFree(state, ACYCLIC_BOARD.segmentCount + 1)).toBe(false);
+    expect(isFree(state, -1)).toBe(false);
+    expect(isFree(state, NaN)).toBe(false);
+    expect(isFree(state, 1.5)).toBe(false);
+  });
 });
 
 describe('tap queue during animation', () => {
@@ -168,6 +205,21 @@ describe('win', () => {
     state = settle(tap(state, 2));
     const won = state;
     expect(tap(won, 1)).toBe(won);
+  });
+});
+
+describe('createGameState with zero lives', () => {
+  it('starts already lost rather than granting a free bounce', () => {
+    // The lose condition is otherwise only checked after a decrement, which
+    // would let a 0-lives game absorb one bounce before registering as lost.
+    const state = createGameState(ACYCLIC_BOARD, { ...PLAY_PARAMS, lives: 0 });
+    expect(state.status).toBe('lost');
+    expect(state.lives).toBe(0);
+  });
+
+  it('ignores taps immediately, since it never leaves the lost state', () => {
+    const state = createGameState(ACYCLIC_BOARD, { ...PLAY_PARAMS, lives: 0 });
+    expect(tap(state, 3)).toBe(state);
   });
 });
 

@@ -36,27 +36,37 @@ export interface GameState {
 
 const MISS_OUTCOME: TapOutcome = { kind: 'miss' };
 
-/** A fresh game on `board`, no segments removed, full lives, empty queue. */
+/**
+ * A fresh game on `board`, no segments removed, empty queue. Lives start at
+ * `playParams.lives`; a non-positive value starts already `'lost'`, since the
+ * terminal condition is otherwise only checked after a decrement.
+ */
 export function createGameState(board: Board, playParams: PlayParams): GameState {
+  const lives = playParams.lives;
   return {
     board,
     playParams,
     removed: new Uint8Array(board.segmentCount + 1),
     removedCount: 0,
-    lives: playParams.lives,
+    lives,
     queue: [],
     animating: false,
-    status: 'playing',
+    status: lives <= 0 ? 'lost' : 'playing',
     lastOutcome: null,
   };
 }
 
 /**
- * True when segment `id` is not yet removed and every segment its ray is
- * blocked by has already been removed. Reads the CSR blocking digraph
+ * True when `id` is a valid, not-yet-removed segment and every segment its
+ * ray is blocked by has already been removed. Reads the CSR blocking digraph
  * directly: O(out-degree), not a ray walk.
+ *
+ * Validates `id` itself rather than trusting the caller: this is the
+ * predicate a tap-radius search injects, and it is handed whatever a hit
+ * test read out of `occupancy`, including the reserved empty-cell value 0.
  */
 export function isFree(state: GameState, id: SegmentId): boolean {
+  if (!isValidSegmentId(state.board, id)) return false;
   if (state.removed[id] === 1) return false;
   const { board, removed } = state;
   const start = board.edgeStart[id - 1] as number;
@@ -66,6 +76,11 @@ export function isFree(state: GameState, id: SegmentId): boolean {
     if (removed[target] !== 1) return false;
   }
   return true;
+}
+
+/** A segment id is an integer in `1..segmentCount`; `Number.isInteger` also excludes `NaN`. */
+function isValidSegmentId(board: Board, id: number): boolean {
+  return Number.isInteger(id) && id >= 1 && id <= board.segmentCount;
 }
 
 export function isRemoved(state: GameState, id: SegmentId): boolean {
@@ -112,12 +127,7 @@ function processQueue(state: GameState): GameState {
 }
 
 function resolveOne(state: GameState, input: TapInput): GameState {
-  if (
-    input === null ||
-    input < 1 ||
-    input > state.board.segmentCount ||
-    state.removed[input] === 1
-  ) {
+  if (input === null || !isValidSegmentId(state.board, input) || state.removed[input] === 1) {
     return { ...state, lastOutcome: MISS_OUTCOME };
   }
 
