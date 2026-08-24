@@ -156,8 +156,8 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
   }
 
   if (windowStart >= path.totalLength) return;
-  const leadArcLength =
-    path.dashLength > 0 ? Math.min(windowStart + path.dashLength, path.totalLength) : windowStart;
+  const leadArcLength = path.dashLength > 0 ? windowStart + path.dashLength : windowStart;
+  if (leadArcLength > path.totalLength) return;
 
   const uniformEdgeCount = path.edgeDirs.length - 1;
   const uniformLength = uniformEdgeCount * path.scale;
@@ -238,8 +238,13 @@ export function createDomScheduler(): SnakeOutScheduler {
 export interface SnakeOutAnimationOptions {
   readonly board: Board;
   readonly segmentId: SegmentId;
-  /** The screen viewport pan/zoom maintains — the same one hit testing and the static-layer blit use. */
-  readonly viewport: Viewport<'css'>;
+  /**
+   * The screen viewport pan/zoom maintains — the same one hit testing and the
+   * static-layer blit use. Pass a getter when the viewport can change during
+   * the exit: pan and pinch replace it, and a path built against the old one
+   * draws the segment at a scale and origin the blit no longer uses.
+   */
+  readonly viewport: Viewport<'css'> | (() => Viewport<'css'>);
   readonly durationMs: number;
   readonly layer: AnimationLayer;
   readonly scheduler: SnakeOutScheduler;
@@ -262,7 +267,10 @@ export interface SnakeOutAnimation {
  * than a throw out of a per-frame loop.
  */
 export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): SnakeOutAnimation {
-  const { board, segmentId, viewport, durationMs, layer, scheduler, onComplete } = options;
+  const { board, segmentId, durationMs, layer, scheduler, onComplete } = options;
+  const readViewport = (): Viewport<'css'> =>
+    typeof options.viewport === 'function' ? options.viewport() : options.viewport;
+  const viewport = readViewport();
   requireValidSegmentId(board, segmentId);
   requirePositiveFiniteDuration(durationMs);
 
@@ -273,6 +281,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const finish = (): void => {
     if (settled) return;
     settled = true;
+    clearAnimationLayer(layer);
     if (frameHandle !== null) {
       scheduler.cancelFrame(frameHandle);
       frameHandle = null;
@@ -296,7 +305,16 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return { cancel: finish };
   }
 
-  const path = buildExitPath(board, segmentId, viewport);
+  let pathViewport = viewport;
+  let path = buildExitPath(board, segmentId, pathViewport);
+  const currentPath = (): ExitPath => {
+    const now = readViewport();
+    if (now !== pathViewport) {
+      pathViewport = now;
+      path = buildExitPath(board, segmentId, pathViewport);
+    }
+    return path;
+  };
   const startTime = scheduler.now();
   drawSnakeOutFrame(layer.ctx, path, 0);
 
@@ -304,7 +322,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     frameHandle = null;
     const progress = (time - startTime) / durationMs;
     clearAnimationLayer(layer);
-    drawSnakeOutFrame(layer.ctx, path, progress);
+    drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     if (progress >= 1) {
       complete();
     } else {
@@ -316,7 +334,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   unsubscribeVisible = scheduler.onVisible(() => {
     if (scheduler.now() - startTime < durationMs) return;
     clearAnimationLayer(layer);
-    drawSnakeOutFrame(layer.ctx, path, 1);
+    drawSnakeOutFrame(layer.ctx, currentPath(), 1);
     complete();
   });
 

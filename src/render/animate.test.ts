@@ -286,15 +286,34 @@ describe('drawSnakeOutFrame', () => {
     }
   });
 
-  it('hides the leading arrowhead once the piece has fully exited', () => {
+  it('hides the leading arrowhead once the head itself has left the board', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
-    const midCtx = new FakeCtx();
-    drawSnakeOutFrame(midCtx, path, 0.5);
-    expect(midCtx.calls.some((c) => c.op === 'fill')).toBe(true);
+    // The head leads the dash window by the segment's own body length, so it
+    // clears the path's end well before the tail does.
+    const headExitsAt = 1 - path.dashLength / path.totalLength;
+
+    const beforeCtx = new FakeCtx();
+    drawSnakeOutFrame(beforeCtx, path, headExitsAt / 2);
+    expect(beforeCtx.calls.some((c) => c.op === 'fill')).toBe(true);
+
+    const afterCtx = new FakeCtx();
+    drawSnakeOutFrame(afterCtx, path, Math.min(1, headExitsAt + 0.05));
+    expect(afterCtx.calls.some((c) => c.op === 'fill')).toBe(false);
 
     const endCtx = new FakeCtx();
     drawSnakeOutFrame(endCtx, path, 1);
     expect(endCtx.calls.some((c) => c.op === 'fill')).toBe(false);
+  });
+
+  it('keeps the arrowhead moving rather than parked while the head is still on the path', () => {
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const headExitsAt = 1 - path.dashLength / path.totalLength;
+    const fillsAt = (t: number): string => {
+      const ctx = new FakeCtx();
+      drawSnakeOutFrame(ctx, path, t);
+      return JSON.stringify(ctx.calls.filter((c) => c.op === 'lineTo' || c.op === 'moveTo'));
+    };
+    expect(fillsAt(headExitsAt * 0.3)).not.toBe(fillsAt(headExitsAt * 0.9));
   });
 
   it('draws only the moving arrowhead for a one-cell segment, never a stroke', () => {
@@ -524,5 +543,59 @@ describe('startSnakeOutAnimation', () => {
     runQueuedFrames(scheduler, 100);
 
     expect(staticCtx.calls.length).toBe(callsAfterRedraw);
+  });
+});
+
+describe('startSnakeOutAnimation, mid-flight changes', () => {
+  it('clears the animation layer on cancel rather than stranding a half-drawn segment', () => {
+    const { layer, ctx } = fakeAnimationLayer();
+    const scheduler = fakeScheduler();
+    const animation = startSnakeOutAnimation({
+      board: ACYCLIC_BOARD,
+      segmentId: 1,
+      viewport: createViewport({ scale: 10 }),
+      durationMs: 300,
+      layer,
+      scheduler,
+      onComplete: () => {},
+    });
+
+    scheduler.clock.value = 150;
+    runQueuedFrames(scheduler, 150);
+    const drawnBeforeCancel = ctx.calls.length;
+
+    animation.cancel();
+
+    const clearsAfterCancel = ctx.calls
+      .slice(drawnBeforeCancel)
+      .filter((c) => c.op === 'clearRect').length;
+    expect(clearsAfterCancel).toBeGreaterThan(0);
+  });
+
+  it('rebuilds the path when a pan replaces the viewport during the exit', () => {
+    const { layer, ctx } = fakeAnimationLayer();
+    const scheduler = fakeScheduler();
+    let viewport = createViewport({ scale: 10 });
+    startSnakeOutAnimation({
+      board: ACYCLIC_BOARD,
+      segmentId: 1,
+      viewport: () => viewport,
+      durationMs: 300,
+      layer,
+      scheduler,
+      onComplete: () => {},
+    });
+
+    scheduler.clock.value = 100;
+    runQueuedFrames(scheduler, 100);
+    const beforePan = ctx.calls.filter((c) => c.op === 'moveTo');
+
+    viewport = createViewport({ scale: 10, originX: 250, originY: 130 });
+    scheduler.clock.value = 200;
+    runQueuedFrames(scheduler, 200);
+    const afterPan = ctx.calls.filter((c) => c.op === 'moveTo').slice(beforePan.length);
+
+    expect(afterPan.length).toBeGreaterThan(0);
+    expect(afterPan[0]).not.toEqual(beforePan[0]);
   });
 });
