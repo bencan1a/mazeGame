@@ -136,14 +136,16 @@ export function planDegradation(
 
   let budget = computeBufferBudget(boardWidth, boardHeight, requestedPixelsPerCell, maxDimension);
   const attempts: DegradationAttempt[] = [];
+  let lastAttempt: DegradationAttempt = { budget, ok: false };
   for (let attempt = 0; attempt < MAX_DEGRADATION_ATTEMPTS; attempt++) {
-    const ok = probe(budget);
-    attempts.push({ budget, ok });
-    if (ok || budget.pixelsPerCell <= minPixelsPerCell) return { budget, attempts, ok };
+    lastAttempt = { budget, ok: probe(budget) };
+    attempts.push(lastAttempt);
+    if (lastAttempt.ok || budget.pixelsPerCell <= minPixelsPerCell) {
+      return { budget, attempts, ok: lastAttempt.ok };
+    }
     budget = degradeBudget(budget, boardWidth, boardHeight, maxDimension, minPixelsPerCell);
   }
-  const last = attempts[attempts.length - 1];
-  return { budget, attempts, ok: last?.ok ?? false };
+  return { budget: lastAttempt.budget, attempts, ok: lastAttempt.ok };
 }
 
 /** True when the two removed-segment sets differ, the trigger to redraw the static layer. */
@@ -161,10 +163,13 @@ export interface CanvasLike {
 }
 
 /**
- * Draws one pixel and reads it back, then clears it. An allocation that
- * silently failed comes back as an untouched (typically transparent-black)
- * pixel instead of throwing, which is why allocation success alone cannot be
- * trusted.
+ * Draws one pixel at the buffer's far corner and reads it back. Touches only
+ * that single pixel — cleared before drawing to give the read an unambiguous
+ * starting state, and cleared again after — so it is safe to call on a layer
+ * that already holds drawn content, not just at allocation time. An
+ * allocation that silently failed comes back as an untouched (typically
+ * transparent-black) pixel instead of throwing, which is why allocation
+ * success alone cannot be trusted.
  */
 export function probeReadback(
   ctx: CanvasRenderingContext2D,
@@ -175,7 +180,7 @@ export function probeReadback(
   const y = Math.max(0, heightPx - 1);
   try {
     ctx.save();
-    ctx.clearRect(0, 0, widthPx, heightPx);
+    ctx.clearRect(x, y, 1, 1);
     ctx.fillStyle = '#ff00ff';
     ctx.fillRect(x, y, 1, 1);
     const data = ctx.getImageData(x, y, 1, 1).data;
@@ -286,6 +291,9 @@ export function createAnimationLayer(
   dpr: number,
   createCanvas: () => CanvasLike = defaultCreateCanvas,
 ): AnimationLayer {
+  requirePositiveFinite(cssWidth, 'cssWidth');
+  requirePositiveFinite(cssHeight, 'cssHeight');
+  requirePositiveFinite(dpr, 'dpr');
   const canvas = createCanvas();
   canvas.width = Math.max(1, Math.round(cssWidth * dpr));
   canvas.height = Math.max(1, Math.round(cssHeight * dpr));

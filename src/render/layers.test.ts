@@ -146,6 +146,17 @@ describe('planDegradation', () => {
       RangeError,
     );
   });
+
+  it('when the attempt bound is reached before the floor, returns the last probed budget rather than one never tried', () => {
+    // Halving from 100 needs far more than the attempt bound to reach 1e-20,
+    // so the loop exhausts its bound without ever satisfying the floor check.
+    const plan = planDegradation(40, 40, 100, () => false, { minPixelsPerCell: 1e-20 });
+    const lastProbed = plan.attempts[plan.attempts.length - 1];
+    expect(lastProbed).toBeDefined();
+    expect(lastProbed?.budget.pixelsPerCell).toBeGreaterThan(1e-20);
+    expect(plan.budget).toEqual(lastProbed?.budget);
+    expect(plan.ok).toBe(false);
+  });
 });
 
 describe('removedSetsDiffer', () => {
@@ -272,6 +283,17 @@ describe('probeReadback', () => {
     probeReadback(ctx, 10, 10);
     const data = fake.getImageData(9, 9, 1, 1).data;
     expect(Array.from(data)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('does not touch pixels outside the probed corner, so it is safe to call on a layer that already holds drawn content', () => {
+    const fake = new FakeCtx(10, 10, true);
+    fake.fillRect(0, 0, 1, 1); // stand-in for a previously drawn segment
+    const before = Array.from(fake.getImageData(0, 0, 1, 1).data);
+
+    probeReadback(fake as unknown as CanvasRenderingContext2D, 10, 10);
+
+    const after = Array.from(fake.getImageData(0, 0, 1, 1).data);
+    expect(after).toEqual(before);
   });
 });
 
@@ -420,4 +442,25 @@ describe('createAnimationLayer / clearAnimationLayer', () => {
     clearAnimationLayer(layer);
     expect(cleared).toEqual([0, 0, 100, 200]);
   });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a cssWidth of %p', (bad) => {
+    expect(() => createAnimationLayer(bad, 100, 1, fakeCanvasFactory(1_000_000))).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])('rejects a cssHeight of %p', (bad) => {
+    expect(() => createAnimationLayer(100, bad, 1, fakeCanvasFactory(1_000_000))).toThrow(
+      RangeError,
+    );
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1])(
+    'rejects a dpr of %p rather than silently sizing a 0x0 canvas',
+    (bad) => {
+      expect(() => createAnimationLayer(390, 844, bad, fakeCanvasFactory(1_000_000))).toThrow(
+        RangeError,
+      );
+    },
+  );
 });
