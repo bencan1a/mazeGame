@@ -4,7 +4,7 @@
  * stroke in a placeholder colour.
  */
 
-import { cellCenterToCssPixel, type Viewport } from './viewport.js';
+import { cellCenterX, cellCenterY, type Viewport } from './viewport.js';
 import { xOf, yOf } from '../core/grid.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -52,12 +52,12 @@ export function strokeSegmentPolyline(
   let lastY = 0;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
-    const cell = { x: xOf(cellIndex, board.width), y: yOf(cellIndex, board.width) };
-    const point = cellCenterToCssPixel(viewport, cell);
-    if (i === start) ctx.moveTo(point.x, point.y);
-    else ctx.lineTo(point.x, point.y);
-    lastX = point.x;
-    lastY = point.y;
+    const px = cellCenterX(viewport, xOf(cellIndex, board.width));
+    const py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    if (i === start) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+    lastX = px;
+    lastY = py;
   }
   if (end - start === 1) ctx.lineTo(lastX, lastY);
   ctx.stroke();
