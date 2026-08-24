@@ -1,0 +1,7 @@
+{
+  "seeds": 10,
+  "seedBase": 9001,
+  "params": {
+    "gridSize": [40, 100]
+  }
+}

@@ -1,0 +1,43 @@
+name: Generation-time regression check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  perf-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # A relative check against a committed baseline (src/harness/perf-baseline.json),
+      # at a fixed seed set (src/harness/perf-regression.sweep.json). Soft gate:
+      # continue-on-error keeps a regression from blocking a merge, while still
+      # showing as a failed step and writing the job summary below.
+      - name: Run harness at fixed seeds and compare to baseline
+        id: perf
+        continue-on-error: true
+        run: npx tsx src/harness/perfCheckCli.ts
+
+      - name: Report the soft-gate outcome
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.perf.outcome }}" = "failure" ]; then
+            echo "::warning::Generation-time regression check did not pass — see the job summary. This does not block the merge."
+          fi

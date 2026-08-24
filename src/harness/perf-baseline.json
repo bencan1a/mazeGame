@@ -1,0 +1,34 @@
+{
+  "cells": [
+    {
+      "gridSize": 40,
+      "seedCount": 10,
+      "params": {
+        "gridSize": 40,
+        "meanPieceLength": 6,
+        "pieceLengthVariance": 8,
+        "minPieceLength": 2,
+        "bendProbability": 0.6,
+        "minStraightRun": 2,
+        "fillFraction": 0.45
+      },
+      "meanMs": 20.57713,
+      "maxMs": 44.16790299999997
+    },
+    {
+      "gridSize": 100,
+      "seedCount": 10,
+      "params": {
+        "gridSize": 100,
+        "meanPieceLength": 6,
+        "pieceLengthVariance": 8,
+        "minPieceLength": 2,
+        "bendProbability": 0.6,
+        "minStraightRun": 2,
+        "fillFraction": 0.45
+      },
+      "meanMs": 205.7611895,
+      "maxMs": 214.5641099999999
+    }
+  ]
+}
