@@ -1,0 +1,7 @@
+{
+  "seeds": 10,
+  "params": {
+    "gridSize": [40, 100],
+    "meanPieceLength": [4, 6, 10, 14, 20]
+  }
+}
