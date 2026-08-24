@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultCellParams } from './paramGrid.js';
 import { main } from './perfCheckCli.js';
 import type { Clock } from './run.js';
 
@@ -68,15 +69,17 @@ describe('main: comparison against a freshly recorded baseline', () => {
   });
 
   it('fails loudly, naming gridSize and seeds, when the baseline is far below the real run', () => {
-    writeFileSync(
-      baselinePath,
-      JSON.stringify({
-        cells: [
-          { gridSize: 12, seedCount: 2, meanMs: 0.0001, maxMs: 0.0001 },
-          { gridSize: 16, seedCount: 2, meanMs: 0.0001, maxMs: 0.0001 },
-        ],
-      }),
-    );
+    // Recorded from the same spec, then driven to a floor: a hand-written
+    // baseline would miss the params the comparison now checks.
+    expect(main(['--spec', specPath, '--baseline', baselinePath, '--update-baseline'])).toBe(0);
+    const recorded = JSON.parse(readFileSync(baselinePath, 'utf8')) as {
+      cells: { meanMs: number; maxMs: number }[];
+    };
+    for (const cell of recorded.cells) {
+      cell.meanMs = 0.0001;
+      cell.maxMs = 0.0001;
+    }
+    writeFileSync(baselinePath, JSON.stringify(recorded));
     const code = main(['--spec', specPath, '--baseline', baselinePath]);
     expect(code).toBe(1);
     const out = printed(logSpy);
@@ -121,7 +124,17 @@ describe('main: cannot pass vacuously', () => {
     writeFileSync(specPath, JSON.stringify({ seeds: 2, params: { gridSize: [1] } }));
     writeFileSync(
       baselinePath,
-      JSON.stringify({ cells: [{ gridSize: 1, seedCount: 2, meanMs: 5, maxMs: 5 }] }),
+      JSON.stringify({
+        cells: [
+          {
+            gridSize: 1,
+            seedCount: 2,
+            params: { ...defaultCellParams(), gridSize: 1 },
+            meanMs: 5,
+            maxMs: 5,
+          },
+        ],
+      }),
     );
     const code = main(['--spec', specPath, '--baseline', baselinePath]);
     expect(code).toBe(1);

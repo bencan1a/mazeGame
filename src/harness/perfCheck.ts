@@ -5,12 +5,23 @@ import type { Seed } from '../core/types.js';
 
 export class PerfCheckError extends Error {}
 
-export const DEFAULT_THRESHOLD_MULTIPLIER = 2;
+/**
+ * Wide because the baseline is recorded wherever a contributor happens to run
+ * it and compared on a shared runner, so an unchanged commit already lands
+ * well above 1x. It still catches the order-of-magnitude regression this
+ * exists for.
+ */
+export const DEFAULT_THRESHOLD_MULTIPLIER = 3;
 
 export interface PerfBaselineEntry {
   readonly gridSize: number;
   readonly seedCount: number;
+  /** Every generator input the timing depends on, so a change to the defaults
+   * or the spec cannot be compared against numbers measured under others. */
+  readonly params: Readonly<Record<string, number>>;
   readonly meanMs: number;
+  /** Context for whoever reads a baseline diff. Runner noise makes a single
+   * board's peak too jumpy to compare, so nothing checks this. */
   readonly maxMs: number;
 }
 
@@ -83,6 +94,16 @@ export function evaluatePerfCheck(
           'the baseline holds one figure per size, so re-record it against the current spec',
       };
     }
+    const drifted = paramsDrift(entry.params, agg.params);
+    if (drifted.length > 0) {
+      return {
+        status: 'broken',
+        gridSize: entry.gridSize,
+        reason:
+          `gridSize ${entry.gridSize} ran with ${drifted.join(', ')} — the baseline was ` +
+          'recorded under different generator inputs, so re-record it',
+      };
+    }
     if (agg.seedCount !== entry.seedCount) {
       return {
         status: 'broken',
@@ -119,7 +140,33 @@ export function evaluatePerfCheck(
       thresholdMs,
     };
   });
-  return { ok: cellVerdicts.every((v) => v.status === 'ok'), cells: cellVerdicts };
+  const baselineSizes = new Set(baseline.cells.map((c) => c.gridSize));
+  const unbaselined = aggregates
+    .map((a) => a.params.gridSize)
+    .filter((size) => !baselineSizes.has(size));
+  const extras: PerfCellVerdict[] = [...new Set(unbaselined)].map((gridSize) => ({
+    status: 'broken',
+    gridSize,
+    reason: `the spec sweeps gridSize ${gridSize} but the baseline has no entry for it`,
+  }));
+
+  const all = [...cellVerdicts, ...extras];
+  return { ok: all.every((v) => v.status === 'ok'), cells: all };
+}
+
+/** Names every input whose value differs between the baseline and this run. */
+function paramsDrift(
+  baseline: Readonly<Record<string, number>>,
+  actual: Readonly<Record<string, number>>,
+): string[] {
+  const keys = new Set([...Object.keys(baseline), ...Object.keys(actual)]);
+  const drifted: string[] = [];
+  for (const key of [...keys].sort()) {
+    if (baseline[key] !== actual[key]) {
+      drifted.push(`${key} ${String(actual[key])} against ${String(baseline[key])}`);
+    }
+  }
+  return drifted;
 }
 
 function requireFiniteNumber(value: unknown, label: string): number {
@@ -146,13 +193,25 @@ export function parseBaseline(raw: unknown): PerfBaseline {
     const record = entry as Record<string, unknown>;
     const gridSize = requireFiniteNumber(record.gridSize, `baseline cells[${i}].gridSize`);
     const seedCount = requireFiniteNumber(record.seedCount, `baseline cells[${i}].seedCount`);
+    const rawParams = record.params;
+    if (rawParams === null || typeof rawParams !== 'object') {
+      throw new PerfCheckError(`baseline cells[${i}].params is missing or not an object`);
+    }
+    const params: Record<string, number> = {};
+    for (const [key, value] of Object.entries(rawParams as Record<string, unknown>)) {
+      params[key] = requireFiniteNumber(value, `baseline cells[${i}].params.${key}`);
+    }
     const meanMs = requireFiniteNumber(record.meanMs, `baseline cells[${i}].meanMs`);
+    if (meanMs <= 0) {
+      // A threshold of zero reports every future run as a regression, for ever.
+      throw new PerfCheckError(`baseline cells[${i}].meanMs is ${meanMs}, expected above zero`);
+    }
     const maxMs = requireFiniteNumber(record.maxMs, `baseline cells[${i}].maxMs`);
     if (seen.has(gridSize)) {
       throw new PerfCheckError(`baseline has more than one entry for gridSize ${gridSize}`);
     }
     seen.add(gridSize);
-    return { gridSize, seedCount, meanMs, maxMs };
+    return { gridSize, seedCount, params, meanMs, maxMs };
   });
   return { cells };
 }
@@ -175,6 +234,7 @@ export function baselineFromAggregates(aggregates: readonly CellAggregate[]): Pe
     return {
       gridSize: agg.params.gridSize,
       seedCount: agg.seedCount,
+      params: { ...agg.params },
       meanMs: agg.generationMs.mean,
       maxMs: agg.generationMs.max,
     };

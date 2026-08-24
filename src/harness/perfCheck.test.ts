@@ -71,6 +71,11 @@ function cellAt(gridSize: number, seeds: readonly number[]): ParamCell {
   return { cellIndex: 0, params: { ...defaultCellParams(), gridSize }, seeds };
 }
 
+/** Baseline params must match what `cellAt` produces, or the drift check fires. */
+function baseParams(gridSize: number): Record<string, number> {
+  return { ...defaultCellParams(), gridSize };
+}
+
 function aggAt(
   gridSize: number,
   rows: readonly BoardRow[],
@@ -86,7 +91,7 @@ describe('evaluatePerfCheck', () => {
     const rows = seeds.map((s) => okRow(s, 40, 10));
     const aggregates = [aggAt(40, rows, seeds)];
     const baseline: PerfBaseline = {
-      cells: [{ gridSize: 40, seedCount: 3, meanMs: 10, maxMs: 10 }],
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 3, meanMs: 10, maxMs: 10 }],
     };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
@@ -102,7 +107,7 @@ describe('evaluatePerfCheck', () => {
     const rows = seeds.map((s) => okRow(s, 100, 50));
     const aggregates = [aggAt(100, rows, seeds)];
     const baseline: PerfBaseline = {
-      cells: [{ gridSize: 100, seedCount: 2, meanMs: 20, maxMs: 20 }],
+      cells: [{ gridSize: 100, params: baseParams(100), seedCount: 2, meanMs: 20, maxMs: 20 }],
     };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
@@ -116,7 +121,7 @@ describe('evaluatePerfCheck', () => {
     const rows = seeds.map((s) => failedRow(s, 40));
     const aggregates = [aggAt(40, rows, seeds)];
     const baseline: PerfBaseline = {
-      cells: [{ gridSize: 40, seedCount: 2, meanMs: 10, maxMs: 10 }],
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 2, meanMs: 10, maxMs: 10 }],
     };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
@@ -132,7 +137,9 @@ describe('evaluatePerfCheck', () => {
     const cells = [cellAt(40, seeds)];
     const rows = [okRow(1, 40, 5), okRow(2, 40, 5), failedRow(3, 40)];
     const aggregates = [aggAt(40, rows, seeds)];
-    const baseline: PerfBaseline = { cells: [{ gridSize: 40, seedCount: 3, meanMs: 5, maxMs: 5 }] };
+    const baseline: PerfBaseline = {
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 3, meanMs: 5, maxMs: 5 }],
+    };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
     expect(report.ok).toBe(false);
@@ -145,7 +152,7 @@ describe('evaluatePerfCheck', () => {
     const rows = seeds.map((s) => okRow(s, 40, 5));
     const aggregates = [aggAt(40, rows, seeds)];
     const baseline: PerfBaseline = {
-      cells: [{ gridSize: 100, seedCount: 1, meanMs: 5, maxMs: 5 }],
+      cells: [{ gridSize: 100, params: baseParams(100), seedCount: 1, meanMs: 5, maxMs: 5 }],
     };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
@@ -156,7 +163,9 @@ describe('evaluatePerfCheck', () => {
   it('is broken when a cell ran zero seeds', () => {
     const cells = [cellAt(40, [])];
     const aggregates = [aggAt(40, [], [])];
-    const baseline: PerfBaseline = { cells: [{ gridSize: 40, seedCount: 0, meanMs: 5, maxMs: 5 }] };
+    const baseline: PerfBaseline = {
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 0, meanMs: 5, maxMs: 5 }],
+    };
 
     const report = evaluatePerfCheck(cells, aggregates, baseline, 2);
     expect(report.ok).toBe(false);
@@ -172,8 +181,8 @@ describe('evaluatePerfCheck', () => {
     const aggregates = [aggAt(40, rows40, seeds40), aggAt(100, rows100, seeds100)];
     const baseline: PerfBaseline = {
       cells: [
-        { gridSize: 40, seedCount: 2, meanMs: 5, maxMs: 5 },
-        { gridSize: 100, seedCount: 2, meanMs: 5, maxMs: 5 },
+        { gridSize: 40, params: baseParams(40), seedCount: 2, meanMs: 5, maxMs: 5 },
+        { gridSize: 100, params: baseParams(100), seedCount: 2, meanMs: 5, maxMs: 5 },
       ],
     };
 
@@ -186,7 +195,7 @@ describe('evaluatePerfCheck', () => {
 describe('parseBaseline', () => {
   it('parses a well-formed baseline', () => {
     const baseline = parseBaseline({
-      cells: [{ gridSize: 40, seedCount: 10, meanMs: 15, maxMs: 30 }],
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 10, meanMs: 15, maxMs: 30 }],
     });
     expect(baseline.cells).toHaveLength(1);
   });
@@ -201,7 +210,9 @@ describe('parseBaseline', () => {
 
   it('rejects a non-numeric field', () => {
     expect(() =>
-      parseBaseline({ cells: [{ gridSize: 40, seedCount: 10, meanMs: '15', maxMs: 30 }] }),
+      parseBaseline({
+        cells: [{ gridSize: 40, params: baseParams(40), seedCount: 10, meanMs: '15', maxMs: 30 }],
+      }),
     ).toThrow(/finite number/);
   });
 
@@ -209,15 +220,17 @@ describe('parseBaseline', () => {
     expect(() =>
       parseBaseline({
         cells: [
-          { gridSize: 40, seedCount: 10, meanMs: 15, maxMs: 30 },
-          { gridSize: 40, seedCount: 10, meanMs: 16, maxMs: 31 },
+          { gridSize: 40, params: baseParams(40), seedCount: 10, meanMs: 15, maxMs: 30 },
+          { gridSize: 40, params: baseParams(40), seedCount: 10, meanMs: 16, maxMs: 31 },
         ],
       }),
     ).toThrow(/more than one entry/);
   });
 
   it('round-trips through serializeBaseline', () => {
-    const baseline: PerfBaseline = { cells: [{ gridSize: 40, seedCount: 5, meanMs: 1, maxMs: 2 }] };
+    const baseline: PerfBaseline = {
+      cells: [{ gridSize: 40, params: baseParams(40), seedCount: 5, meanMs: 1, maxMs: 2 }],
+    };
     expect(parseBaseline(JSON.parse(serializeBaseline(baseline)))).toEqual(baseline);
   });
 });

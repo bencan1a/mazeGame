@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { aggregateCells } from './aggregate.js';
 import { cellsFromSweepSpec, SweepSpecError } from './paramGrid.js';
+import type { PerfBaseline } from './perfCheck.js';
 import {
   DEFAULT_THRESHOLD_MULTIPLIER,
   PerfCheckError,
@@ -78,6 +79,35 @@ function reproCommand(specPath: string, baselinePath: string, threshold: number)
   );
 }
 
+/**
+ * A setup failure never reaches the comparison, so nothing would otherwise
+ * appear in the job summary and CI would point a reader at an empty one.
+ */
+function reportSetupFailure(
+  values: { readonly 'summary-file'?: string | undefined },
+  message: string,
+): void {
+  console.error(message);
+  const summaryPath = values['summary-file'] ?? process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath === undefined || summaryPath === '') return;
+  appendFileSync(
+    summaryPath,
+    [
+      '## Generation-time regression check',
+      '',
+      'Exited before it could compare anything:',
+      '',
+      '```',
+      message,
+      '```',
+      '',
+      'Soft gate: this does not block the merge. It is not the device measurement',
+      'of the 1s generation target, which only a phone settles.',
+      '',
+    ].join('\n'),
+  );
+}
+
 export interface MainDeps {
   readonly clock?: Clock;
 }
@@ -103,7 +133,10 @@ export function main(argv: readonly string[], deps: MainDeps = {}): number {
   const threshold =
     thresholdRaw === undefined ? DEFAULT_THRESHOLD_MULTIPLIER : Number(thresholdRaw);
   if (!Number.isFinite(threshold) || threshold <= 1) {
-    console.error(`--threshold must be a number greater than 1, got "${String(thresholdRaw)}"`);
+    reportSetupFailure(
+      values,
+      `--threshold must be a number greater than 1, got "${String(thresholdRaw)}"`,
+    );
     return 1;
   }
   const maxAttemptsRaw = values['max-attempts'];
@@ -119,13 +152,13 @@ export function main(argv: readonly string[], deps: MainDeps = {}): number {
     cells = cellsFromSweepSpec(spec);
   } catch (err) {
     if (err instanceof SweepSpecError || err instanceof PerfCheckError) {
-      console.error(err.message);
+      reportSetupFailure(values, err.message);
       return 1;
     }
     throw err;
   }
   if (cells.length === 0) {
-    console.error(`sweep spec "${specPath}" produced zero cells to run`);
+    reportSetupFailure(values, `sweep spec "${specPath}" produced zero cells to run`);
     return 1;
   }
 
@@ -133,13 +166,33 @@ export function main(argv: readonly string[], deps: MainDeps = {}): number {
     ...(deps.clock === undefined ? {} : { clock: deps.clock }),
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
   };
+  // Read before the sweep: a bad baseline is a setup error, and finding it
+  // after the run costs the whole measurement to say so.
+  const recording = values['update-baseline'] === true;
+  let baseline;
+  if (!recording) {
+    try {
+      baseline = parseBaseline(readJson(baselinePath, 'baseline'));
+    } catch (err) {
+      if (err instanceof PerfCheckError) {
+        reportSetupFailure(
+          values,
+          `${err.message}\nRun with --update-baseline to record one deliberately, ` +
+            `then commit ${baselinePath}.`,
+        );
+        return 1;
+      }
+      throw err;
+    }
+  }
+
   const rows = runCells(cells, runOptions);
   const aggregates = aggregateCells(cells, rows);
 
-  if (values['update-baseline'] === true) {
-    let baseline;
+  if (recording) {
+    let recorded;
     try {
-      baseline = baselineFromAggregates(aggregates);
+      recorded = baselineFromAggregates(aggregates);
     } catch (err) {
       if (err instanceof PerfCheckError) {
         console.error(err.message);
@@ -147,27 +200,13 @@ export function main(argv: readonly string[], deps: MainDeps = {}): number {
       }
       throw err;
     }
-    writeFileSync(baselinePath, serializeBaseline(baseline));
-    console.log(`wrote ${baseline.cells.length} cell(s) to ${baselinePath}`);
+    writeFileSync(baselinePath, serializeBaseline(recorded));
+    console.log(`wrote ${recorded.cells.length} cell(s) to ${baselinePath}`);
     console.log('Review the diff and commit it deliberately, with a note on why it moved.');
     return 0;
   }
 
-  let baseline;
-  try {
-    baseline = parseBaseline(readJson(baselinePath, 'baseline'));
-  } catch (err) {
-    if (err instanceof PerfCheckError) {
-      console.error(err.message);
-      console.error(
-        `Run with --update-baseline to record one deliberately, then commit ${baselinePath}.`,
-      );
-      return 1;
-    }
-    throw err;
-  }
-
-  const report = evaluatePerfCheck(cells, aggregates, baseline, threshold);
+  const report = evaluatePerfCheck(cells, aggregates, baseline as PerfBaseline, threshold);
   const command = reproCommand(specPath, baselinePath, threshold);
   console.log(formatPerfReport(report, command));
 

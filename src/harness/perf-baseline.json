@@ -3,14 +3,32 @@
     {
       "gridSize": 40,
       "seedCount": 10,
-      "meanMs": 16.7998915,
-      "maxMs": 33.154560000000004
+      "params": {
+        "gridSize": 40,
+        "meanPieceLength": 6,
+        "pieceLengthVariance": 8,
+        "minPieceLength": 2,
+        "bendProbability": 0.35,
+        "minStraightRun": 2,
+        "fillFraction": 0.45
+      },
+      "meanMs": 21.75991010000002,
+      "maxMs": 42.03405300000003
     },
     {
       "gridSize": 100,
       "seedCount": 10,
-      "meanMs": 147.353604,
-      "maxMs": 156.3499979999999
+      "params": {
+        "gridSize": 100,
+        "meanPieceLength": 6,
+        "pieceLengthVariance": 8,
+        "minPieceLength": 2,
+        "bendProbability": 0.35,
+        "minStraightRun": 2,
+        "fillFraction": 0.45
+      },
+      "meanMs": 228.7110494,
+      "maxMs": 318.67359599999986
     }
   ]
 }

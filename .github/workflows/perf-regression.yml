@@ -32,32 +32,12 @@ jobs:
       - name: Run harness at fixed seeds and compare to baseline
         id: perf
         continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          npx tsx src/harness/perfCheckCli.ts 2>&1 | tee "$RUNNER_TEMP/perf.log"
+        run: npx tsx src/harness/perfCheckCli.ts
 
       - name: Report the soft-gate outcome
         if: always()
         shell: bash
         run: |
-          if [ "${{ steps.perf.outcome }}" != "failure" ]; then
-            exit 0
+          if [ "${{ steps.perf.outcome }}" = "failure" ]; then
+            echo "::warning::Generation-time regression check did not pass — see the job summary. This does not block the merge."
           fi
-          # A setup failure — an unreadable spec or baseline, a bad threshold —
-          # exits before anything reaches the summary, so point at the log
-          # instead of at a summary that was never written.
-          if [ ! -s "$GITHUB_STEP_SUMMARY" ]; then
-            {
-              echo "## Generation-time regression check"
-              echo
-              echo "The check exited before it could compare anything:"
-              echo
-              echo '```'
-              tail -n 20 "$RUNNER_TEMP/perf.log" 2>/dev/null || echo "(no output captured)"
-              echo '```'
-              echo
-              echo "Soft gate: this does not block the merge. It is not the device measurement of the 1s target."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "::warning::Generation-time regression check did not pass — see the job summary. This does not block the merge."
