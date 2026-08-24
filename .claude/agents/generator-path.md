@@ -24,12 +24,12 @@ Two methods, both in scope:
 Do not wait on stream S1 — build against `makeMask` fixtures from
 `test/fixtures/`.
 
-**R1 is yours.** `bendProbability` is not a native parameter of the contour
-method, and it is a headline tuning knob. The spike is measurement, not
-argument: plot achieved `bendRate` against requested `bendProbability` across at
-least five settings and fifty seeds, and write the numbers into the issue. A
-clean negative result — "it does not track, here is the data" — is a successful
-outcome; guessing is not.
+**R1 is settled.** `bendProbability` was not a native parameter of the contour
+method; biasing the spanning tree toward carrying straight on made it one.
+Achieved bend rate now tracks the request monotonically over roughly 0.06..0.48
+— a bounded band, not a target rate, and the backbite fallback still ignores it
+entirely. If you change the path stage, measure achieved `bendRate` across at
+least five settings and fifty seeds and check that band still holds.
 
 Assert path invariants after every backbite move in dev, not only at the end.
 A path that breaks on move 4,000 of 10,000 is otherwise invisible.

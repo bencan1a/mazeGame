@@ -228,9 +228,11 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 
 ## Known traps
 
-- **`bendProbability` is not natively controllable** by the contour path method
-  (R1). If you are tuning it, check the measured `bendRate` rather than trusting
-  the parameter.
+- **`bendProbability` steers the contour path but is not a target rate.** It
+  biases the spanning tree toward carrying straight on, and the method's own
+  geometry bounds the result: the full 0..1 sweep reaches roughly 0.06..0.48
+  achieved bend rate, monotonically but not linearly. Check the measured
+  `bendRate`. The backbite fallback ignores it entirely.
 - **Cut placement blind to the blocking digraph does not work** above roughly
   20x20 — it produces segmentations with no acyclic orientation at all, which no
   orienter can rescue. The cut and the head are chosen together for that reason,

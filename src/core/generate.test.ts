@@ -6,6 +6,7 @@ import * as pathModule from './path/index.js';
 import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
+import { computeMetrics } from './metrics.js';
 import {
   DEFAULT_MAX_ATTEMPTS,
   GenerationFailedError,
@@ -422,5 +423,35 @@ describe('generateBoard: what the piece-length parameters actually deliver', () 
     }
     expect(belowMinimum).toBeGreaterThan(0);
     expect(shortest).toBeLessThan(8);
+  }, 60_000);
+});
+
+describe('generateBoard: bendProbability steers the path', () => {
+  function bendRateOver(bendProbability: number, seeds: number): number {
+    let total = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const { board, mask, path } = generateBoardWithDiagnostics(
+        paramsAt({ gridSize: 40, seed, bendProbability }),
+      );
+      total += computeMetrics(board, { mask, path, generationMs: 0 }).bendRate;
+    }
+    return total / seeds;
+  }
+
+  it('moves the achieved bend rate monotonically across its range', () => {
+    // Inert for most of this project's life: the contour path never read the
+    // parameter, so every setting produced identical boards. A regression to
+    // that is invisible without comparing settings.
+    const rates = [0, 0.3, 0.6, 1].map((p) => bendRateOver(p, 12));
+    for (let i = 1; i < rates.length; i++) {
+      expect(rates[i] as number).toBeGreaterThan(rates[i - 1] as number);
+    }
+    expect((rates[3] as number) - (rates[0] as number)).toBeGreaterThan(0.2);
+  }, 60_000);
+
+  it('lands the shipped default in the band the reference art was matched at', () => {
+    const rate = bendRateOver(DEFAULT_GEN_PARAMS.bendProbability, 12);
+    expect(rate).toBeGreaterThan(0.33);
+    expect(rate).toBeLessThan(0.41);
   }, 60_000);
 });
