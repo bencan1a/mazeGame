@@ -228,9 +228,13 @@ docs/          PRD, plan, architecture, contracts, workflow, ADRs, backlog
 
 ## Known traps
 
-- **`bendProbability` is not natively controllable** by the contour path method
-  (R1). If you are tuning it, check the measured `bendRate` rather than trusting
-  the parameter.
+- **`bendProbability` steers the contour path but is not a target rate.** It
+  biases the spanning tree toward turning, monotonically but not linearly, and
+  the reachable band depends on the board. The ceiling sits near 0.48 at every
+  size; the floor rises as the board shrinks, because a small region's own
+  boundary forces corners — around 0.06 at gridSize 100 but 0.26 at 20, where
+  no setting will give you a straight-looking board. Check the measured
+  `bendRate`. The backbite fallback ignores the parameter entirely.
 - **Cut placement blind to the blocking digraph does not work** above roughly
   20x20 — it produces segmentations with no acyclic orientation at all, which no
   orienter can rescue. The cut and the head are chosen together for that reason,

@@ -153,4 +153,131 @@ describe('buildSpanningTree', () => {
     );
     expect(countOpenEdges(tree.open)).toBe(0);
   });
+
+  describe('with turnBias', () => {
+    it('still produces a tree with n-1 symmetric edges connecting every full block', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 2, max: 10 }),
+          fc.integer({ min: 2, max: 10 }),
+          fc.integer({ min: 0, max: 2 ** 30 }),
+          fc.double({ min: 0, max: 1, noNaN: true }),
+          (halfWidth, halfHeight, seed, bias) => {
+            const blockFull = fullRectangle(halfWidth, halfHeight);
+            const tree = buildSpanningTree(
+              blockFull,
+              halfWidth,
+              halfHeight,
+              createRng(seed),
+              blockFull.indexOf(1),
+              bias,
+            );
+            expect(countOpenEdges(tree.open) / 2).toBe(halfWidth * halfHeight - 1);
+
+            for (let block = 0; block < halfWidth * halfHeight; block++) {
+              for (const dir of DIRECTIONS) {
+                if (tree.open[block * 4 + dir] !== 1) continue;
+                const neighbour = step(block, dir, halfWidth, halfHeight);
+                expect(neighbour).not.toBe(NO_CELL);
+                expect(tree.open[neighbour * 4 + opposite(dir)]).toBe(1);
+              }
+            }
+
+            const seen = new Uint8Array(blockFull.length);
+            seen[0] = 1;
+            const stack = [0];
+            let count = 1;
+            while (stack.length > 0) {
+              const cur = stack.pop() as number;
+              for (const dir of DIRECTIONS) {
+                if (tree.open[cur * 4 + dir] !== 1) continue;
+                const next = step(cur, dir, halfWidth, halfHeight);
+                if (next === NO_CELL || seen[next] === 1) continue;
+                seen[next] = 1;
+                count++;
+                stack.push(next);
+              }
+            }
+            expect(count).toBe(blockFull.length);
+          },
+        ),
+        { numRuns: 50 },
+      );
+    });
+
+    it('is deterministic for a given seed and bias', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 0, max: 2 ** 30 }),
+          fc.double({ min: 0, max: 1, noNaN: true }),
+          (seed, bias) => {
+            const halfWidth = 8;
+            const halfHeight = 8;
+            const blockFull = fullRectangle(halfWidth, halfHeight);
+            const a = buildSpanningTree(
+              blockFull,
+              halfWidth,
+              halfHeight,
+              createRng(seed),
+              blockFull.indexOf(1),
+              bias,
+            );
+            const b = buildSpanningTree(
+              blockFull,
+              halfWidth,
+              halfHeight,
+              createRng(seed),
+              blockFull.indexOf(1),
+              bias,
+            );
+            expect(a.open).toEqual(b.open);
+          },
+        ),
+        { numRuns: 20 },
+      );
+    });
+
+    it('biases the walk toward continuing straight as bias falls toward 0', () => {
+      // The fraction of non-root tree edges that carry on in the direction
+      // the walk arrived from. Forced single-candidate steps count too, so
+      // this never reaches 0 or 1 whatever the bias.
+      const straightFraction = (bias: number, seed: number): number => {
+        const halfWidth = 10;
+        const halfHeight = 10;
+        const blockFull = fullRectangle(halfWidth, halfHeight);
+        const open = buildSpanningTree(
+          blockFull,
+          halfWidth,
+          halfHeight,
+          createRng(seed),
+          blockFull.indexOf(1),
+          bias,
+        ).open;
+        const visited = new Uint8Array(blockFull.length);
+        let straight = 0;
+        let decisions = 0;
+        const walk = (block: number, arrivedFrom: number): void => {
+          visited[block] = 1;
+          for (const dir of DIRECTIONS) {
+            if (open[block * 4 + dir] !== 1) continue;
+            const next = step(block, dir, halfWidth, halfHeight);
+            if (next === NO_CELL || visited[next] === 1) continue;
+            if (arrivedFrom !== -1) {
+              decisions++;
+              if (dir === arrivedFrom) straight++;
+            }
+            walk(next, dir);
+          }
+        };
+        walk(blockFull.indexOf(1), -1);
+        return decisions > 0 ? straight / decisions : 0;
+      };
+
+      const seeds = [1, 2, 3, 4, 5];
+      const meanOf = (bias: number): number =>
+        seeds.reduce((sum, seed) => sum + straightFraction(bias, seed), 0) / seeds.length;
+
+      expect(meanOf(0.05)).toBeGreaterThan(meanOf(0.95));
+    });
+  });
 });

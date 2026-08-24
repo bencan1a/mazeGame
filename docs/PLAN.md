@@ -160,7 +160,7 @@ generated from [`scripts/backlog.json`](../scripts/backlog.json).
     produce which difficulty, and report generation time at 100×100. The sweep
     settles the _generation_ half of G3 and nothing else; frame rate and memory
     are Task 12a.
-11. **R1 spike** (S2) — `bendProbability` is not natively controllable by the
+11. **R1 spike** (S2, settled) — `bendProbability` was not natively controllable by the
     contour method. Try weighted Prim favouring straight continuation; if the
     achieved bend rate does not track the requested one, try backbite with
     annealing. **Resolve early** — it is a headline tuning knob and the answer
@@ -216,13 +216,13 @@ generated from [`scripts/backlog.json`](../scripts/backlog.json).
 
 The PRD's risks map onto scheduled work rather than sitting in a table:
 
-| Risk                                  | Where it is handled                                     | Trigger for the fallback                                                            |
-| ------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| R1 `bendProbability` not controllable | Task 11, a Wave 2 spike                                 | Achieved bend rate does not track requested across ≥ 3 settings                     |
-| R2 Orientation search won't converge  | Retired by #83: acyclicity is constructed, not searched | —                                                                                   |
-| R3 100×100 doesn't hold performance   | Task 12 spike early, Task 19 device pass                | Generation over 1s, frame rate under 60fps, or memory over the cap on real hardware |
-| R4 Legibility floor                   | Task 14, measured on device                             | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional      |
-| R5 iOS buffer memory                  | Task 12 spike, Task 15 buffer cap, Task 19 pass         | Buffer would exceed the cap → degrade to re-render on zoom                          |
+| Risk                                  | Where it is handled                                       | Trigger for the fallback                                                            |
+| ------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| R1 `bendProbability` not controllable | Retired: a spanning-tree continuation bias makes it track | —                                                                                   |
+| R2 Orientation search won't converge  | Retired by #83: acyclicity is constructed, not searched   | —                                                                                   |
+| R3 100×100 doesn't hold performance   | Task 12 spike early, Task 19 device pass                  | Generation over 1s, frame rate under 60fps, or memory over the cap on real hardware |
+| R4 Legibility floor                   | Task 14, measured on device                               | Arrowheads unreadable below 8 CSS px → zoom becomes mandatory UI, not optional      |
+| R5 iOS buffer memory                  | Task 12 spike, Task 15 buffer cap, Task 19 pass           | Buffer would exceed the cap → degrade to re-render on zoom                          |
 
 Two additional risks this plan adds:
 
@@ -271,9 +271,10 @@ verdict, and merges.
 
 Worth writing down now, so it is recognisable later:
 
-- **If the contour path method cannot be made bendy** (R1), `bendProbability`
-  stops being a tuning knob and the difficulty space is narrower than the PRD
-  assumes. That changes the tuning phase, not the architecture.
+- **If the contour path method cannot be made bendy** (R1) — it can, via a
+  continuation bias in the spanning tree, over a bounded band rather than the
+  full 0..1. So the difficulty space is narrower than the PRD assumed, but not
+  by much, and this changed the tuning phase rather than the architecture.
 - **If 100×100 will not hold 60fps or fits inside no sane memory budget** (R3),
   that is an architecture finding, not a game-design one, and it lands on the
   renderer. Grid size is a parameter the player and the dev panel can turn down,

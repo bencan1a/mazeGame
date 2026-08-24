@@ -177,8 +177,9 @@ answer already:
   attached, and propose moving the target. Reporting a number you did not
   achieve is the job; quietly reporting a different number is not.
 - **The contour method will not tile the region** → backbite fallback (S2).
-- **`bendProbability` does not track the achieved bend rate** → that is R1;
-  record the numbers in the spike issue rather than tuning by feel.
+- **`bendProbability` does not reach the rate you asked for** → expected; it is a
+  bounded steer, not a target. Record the measured `bendRate` rather than
+  tuning by feel.
 
 ## Definition of done
 
