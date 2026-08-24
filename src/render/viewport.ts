@@ -173,3 +173,210 @@ export function devicePixelToCell(viewport: Viewport<'css'>, point: DevicePixel)
 export function cellSizeInDevicePixels(viewport: Viewport<'css'>): number {
   return viewport.scale * viewport.dpr;
 }
+
+/**
+ * Pan and zoom as pure transforms over a `'css'`-space `Viewport`, plus the
+ * clamping rules that keep both within bounds, and the blit that turns the
+ * result into pixels. Nothing here touches a board or a segment: panning and
+ * zooming only ever move the rectangle the static buffer is sampled through.
+ */
+
+/** Translates `viewport`'s origin by a CSS-pixel delta. Unbounded — pair with `clampPan`. */
+export function panViewport(viewport: Viewport<'css'>, dx: number, dy: number): Viewport<'css'> {
+  requireFinite(dx, 'dx');
+  requireFinite(dy, 'dy');
+  return { ...viewport, originX: viewport.originX + dx, originY: viewport.originY + dy };
+}
+
+/**
+ * Rescales `viewport` to `nextScale`, adjusting the origin so the board point
+ * currently under CSS pixel `(focalX, focalY)` stays under it. `nextScale` is
+ * assumed already clamped by the caller — see `clampZoomScale`.
+ */
+export function zoomViewportAt(
+  viewport: Viewport<'css'>,
+  nextScale: number,
+  focalX: number,
+  focalY: number,
+): Viewport<'css'> {
+  requirePositiveFinite(nextScale, 'nextScale');
+  requireFinite(focalX, 'focalX');
+  requireFinite(focalY, 'focalY');
+  const ratio = nextScale / viewport.scale;
+  const originX = focalX - (focalX - viewport.originX) * ratio;
+  const originY = focalY - (focalY - viewport.originY) * ratio;
+  return { ...viewport, scale: nextScale, originX, originY };
+}
+
+/**
+ * The largest CSS px/cell that keeps a blit at or under the static buffer's
+ * own resolution — zooming past this would magnify buffer pixels rather than
+ * sample detail the buffer never held.
+ */
+export function maxZoomScale(bufferPixelsPerCell: number, dpr: number): number {
+  requirePositiveFinite(bufferPixelsPerCell, 'bufferPixelsPerCell');
+  requirePositiveFinite(dpr, 'dpr');
+  return bufferPixelsPerCell / dpr;
+}
+
+/** Clamps a requested scale between `minScale` and `maxScale` (see `maxZoomScale`). */
+export function clampZoomScale(scale: number, minScale: number, maxScale: number): number {
+  requirePositiveFinite(scale, 'scale');
+  requirePositiveFinite(minScale, 'minScale');
+  requirePositiveFinite(maxScale, 'maxScale');
+  if (minScale > maxScale) {
+    throw new RangeError(`minScale (${minScale}) exceeds maxScale (${maxScale})`);
+  }
+  return Math.min(Math.max(scale, minScale), maxScale);
+}
+
+export interface PanBounds {
+  readonly boardWidth: number;
+  readonly boardHeight: number;
+  /** The visible canvas, in CSS pixels — not the buffer, and not device pixels. */
+  readonly canvasCssWidth: number;
+  readonly canvasCssHeight: number;
+}
+
+/**
+ * One axis of `clampPan`: centers content smaller than the viewport (so it
+ * can't be dragged away from the middle), otherwise keeps the content's far
+ * edge from crossing the viewport's near edge and vice versa, so some part of
+ * it is always on screen.
+ */
+function clampPanAxis(origin: number, contentSize: number, viewportSize: number): number {
+  if (contentSize <= viewportSize) return (viewportSize - contentSize) / 2;
+  return Math.min(0, Math.max(viewportSize - contentSize, origin));
+}
+
+/**
+ * Clamps `viewport`'s origin so the board can never be panned entirely off
+ * screen: centered when it fits inside the canvas, edge-bounded when it
+ * doesn't.
+ */
+export function clampPan(viewport: Viewport<'css'>, bounds: PanBounds): Viewport<'css'> {
+  requirePositiveFinite(bounds.boardWidth, 'boardWidth');
+  requirePositiveFinite(bounds.boardHeight, 'boardHeight');
+  requirePositiveFinite(bounds.canvasCssWidth, 'canvasCssWidth');
+  requirePositiveFinite(bounds.canvasCssHeight, 'canvasCssHeight');
+  const originX = clampPanAxis(
+    viewport.originX,
+    bounds.boardWidth * viewport.scale,
+    bounds.canvasCssWidth,
+  );
+  const originY = clampPanAxis(
+    viewport.originY,
+    bounds.boardHeight * viewport.scale,
+    bounds.canvasCssHeight,
+  );
+  return { ...viewport, originX, originY };
+}
+
+export interface BlitRects {
+  /** Buffer pixels. */
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  /** Device pixels, on the visible (unscaled) canvas. */
+  readonly destX: number;
+  readonly destY: number;
+  readonly destWidth: number;
+  readonly destHeight: number;
+}
+
+/**
+ * The source/dest rects for one `drawImage` blit of the static buffer,
+ * clipped to the part of the buffer the CSS-space `viewport` currently
+ * shows. `null` when the clamp on `viewport`/`bounds` has somehow been
+ * skipped and nothing overlaps — `blitStaticLayer` treats that as "draw
+ * nothing this frame" rather than passing a degenerate rect to `drawImage`.
+ */
+export function computeBlitRects(
+  viewport: Viewport<'css'>,
+  bufferViewport: Viewport<'buffer'>,
+  bufferWidthPx: number,
+  bufferHeightPx: number,
+  canvasCssWidth: number,
+  canvasCssHeight: number,
+): BlitRects | null {
+  requirePositiveFinite(bufferWidthPx, 'bufferWidthPx');
+  requirePositiveFinite(bufferHeightPx, 'bufferHeightPx');
+  requirePositiveFinite(canvasCssWidth, 'canvasCssWidth');
+  requirePositiveFinite(canvasCssHeight, 'canvasCssHeight');
+
+  const cssToBuffer = bufferViewport.scale / viewport.scale;
+  const srcLeft = (0 - viewport.originX) * cssToBuffer;
+  const srcTop = (0 - viewport.originY) * cssToBuffer;
+  const srcRight = (canvasCssWidth - viewport.originX) * cssToBuffer;
+  const srcBottom = (canvasCssHeight - viewport.originY) * cssToBuffer;
+
+  const sourceX = Math.max(0, srcLeft);
+  const sourceY = Math.max(0, srcTop);
+  const sourceWidth = Math.min(bufferWidthPx, srcRight) - sourceX;
+  const sourceHeight = Math.min(bufferHeightPx, srcBottom) - sourceY;
+  if (sourceWidth <= 0 || sourceHeight <= 0) return null;
+
+  const bufferToCss = viewport.scale / bufferViewport.scale;
+  const destX = (viewport.originX + sourceX * bufferToCss) * viewport.dpr;
+  const destY = (viewport.originY + sourceY * bufferToCss) * viewport.dpr;
+  const destWidth = sourceWidth * bufferToCss * viewport.dpr;
+  const destHeight = sourceHeight * bufferToCss * viewport.dpr;
+
+  return { sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, destWidth, destHeight };
+}
+
+/**
+ * The minimal `drawImage`/`clearRect` surface `blitStaticLayer` needs, so
+ * tests can blit against a hand-written fake instead of a real canvas.
+ * `Source` is left generic rather than fixed to a DOM image type, matching
+ * `StrokeContext2D`'s approach in `draw.ts`.
+ */
+export interface BlitContext2D<Source = unknown> {
+  clearRect(x: number, y: number, w: number, h: number): void;
+  drawImage(
+    image: Source,
+    sx: number,
+    sy: number,
+    sw: number,
+    sh: number,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ): void;
+}
+
+/**
+ * One frame of pan/zoom: clear the visible canvas and blit the static buffer
+ * through `rects` — a single `drawImage` call, nothing per-segment. `rects`
+ * is `null` when nothing overlaps (see `computeBlitRects`), in which case the
+ * clear still runs so a previous frame's content doesn't linger.
+ *
+ * `ctx` must not be pre-scaled by device pixel ratio: `rects` and
+ * `canvasWidthPx`/`canvasHeightPx` are already in raw device pixels, unlike
+ * the animation layer's context in `layers.ts`.
+ */
+export function blitStaticLayer<Source>(
+  ctx: BlitContext2D<Source>,
+  image: Source,
+  rects: BlitRects | null,
+  canvasWidthPx: number,
+  canvasHeightPx: number,
+): void {
+  requirePositiveFinite(canvasWidthPx, 'canvasWidthPx');
+  requirePositiveFinite(canvasHeightPx, 'canvasHeightPx');
+  ctx.clearRect(0, 0, canvasWidthPx, canvasHeightPx);
+  if (rects === null) return;
+  ctx.drawImage(
+    image,
+    rects.sourceX,
+    rects.sourceY,
+    rects.sourceWidth,
+    rects.sourceHeight,
+    rects.destX,
+    rects.destY,
+    rects.destWidth,
+    rects.destHeight,
+  );
+}
