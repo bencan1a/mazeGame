@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import {
   MAX_CANVAS_DIMENSION,
   MIN_PIXELS_PER_CELL,
@@ -698,6 +699,33 @@ describe('createStaticLayer', () => {
   });
 });
 
+describe('computeBufferBudget rounding', () => {
+  it('never sizes the buffer narrower than the cells it must hold', () => {
+    // dpr 2.625 gives a fractional pixelsPerCell, and an arrowhead tip lands
+    // exactly on the far cell edge, so rounding down clips it.
+    const budget = computeBufferBudget(3, 3, 78.75, MAX_CANVAS_DIMENSION);
+    expect(budget.widthPx).toBeGreaterThanOrEqual(budget.pixelsPerCell * 3);
+    expect(budget.heightPx).toBeGreaterThanOrEqual(budget.pixelsPerCell * 3);
+  });
+
+  it('holds that for every cell count and fractional resolution', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 100 }),
+        fc.double({ min: 0.5, max: 200, noNaN: true }),
+        (cells, pixelsPerCell) => {
+          const budget = computeBufferBudget(cells, cells, pixelsPerCell, MAX_CANVAS_DIMENSION);
+          // Only meaningful below the dimension cap; at the cap the budget's
+          // own pixelsPerCell is reduced to fit, which the check follows.
+          expect(budget.widthPx).toBeGreaterThanOrEqual(
+            Math.min(MAX_CANVAS_DIMENSION, budget.pixelsPerCell * cells),
+          );
+        },
+      ),
+    );
+  });
+});
+
 describe('isLayerLegibleUnzoomed', () => {
   function makeLayer(pixelsPerCell: number): StaticLayer {
     return {
@@ -839,18 +867,25 @@ describe('isLayerLegibleUnzoomed', () => {
     );
   });
 
-  it.each([NaN, Infinity, 0, -1])('rejects a dpr of %p', (bad) => {
+  it.each([NaN, Infinity, 0, -1])('falls back to dpr 1 rather than throwing on %p', (bad) => {
     const board = { width: 40, height: 40 } as unknown as Board;
     const layer = makeLayer(1000);
-    expect(() =>
+    const answer = isLayerLegibleUnzoomed(
+      layer,
+      board,
+      REFERENCE_CSS_VIEWPORT_WIDTH,
+      REFERENCE_CSS_VIEWPORT_WIDTH,
+      bad,
+    );
+    expect(answer).toBe(
       isLayerLegibleUnzoomed(
         layer,
         board,
         REFERENCE_CSS_VIEWPORT_WIDTH,
         REFERENCE_CSS_VIEWPORT_WIDTH,
-        bad,
+        1,
       ),
-    ).toThrow(RangeError);
+    );
   });
 });
 

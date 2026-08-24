@@ -78,10 +78,10 @@ export function computeBufferBudget(
 
   const maxBoardDim = Math.max(boardWidth, boardHeight, 1);
   const cappedPixelsPerCell = Math.min(requestedPixelsPerCell, maxDimension / maxBoardDim);
-  const widthPx = Math.max(1, Math.min(maxDimension, Math.round(cappedPixelsPerCell * boardWidth)));
+  const widthPx = Math.max(1, Math.min(maxDimension, Math.ceil(cappedPixelsPerCell * boardWidth)));
   const heightPx = Math.max(
     1,
-    Math.min(maxDimension, Math.round(cappedPixelsPerCell * boardHeight)),
+    Math.min(maxDimension, Math.ceil(cappedPixelsPerCell * boardHeight)),
   );
   return {
     pixelsPerCell: cappedPixelsPerCell,
@@ -395,10 +395,9 @@ export function isLayerLegibleUnzoomed(
   availableCssHeight: number,
   dpr = 1,
 ): boolean {
-  requirePositiveFinite(dpr, 'dpr');
   const width = resolveCssViewportDimension(availableCssWidth, REFERENCE_CSS_VIEWPORT_WIDTH);
   const height = resolveCssViewportDimension(availableCssHeight, REFERENCE_CSS_VIEWPORT_WIDTH);
-  const bufferCssPixelsPerCell = layer.budget.pixelsPerCell / dpr;
+  const bufferCssPixelsPerCell = layer.budget.pixelsPerCell / resolveCssViewportDimension(dpr, 1);
   const effectiveWidth = Math.min(width, bufferCssPixelsPerCell * board.width);
   const effectiveHeight = Math.min(height, bufferCssPixelsPerCell * board.height);
   return isBoardLegibleUnzoomed(board.width, board.height, effectiveWidth, effectiveHeight);

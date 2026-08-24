@@ -158,7 +158,7 @@ export function isBoardLegibleUnzoomed(
  * last vertex: for a segment of two cells or more that stops mostly short
  * of the head cell's own center, but not entirely — the stroke's rounded
  * end deliberately reaches about 0.3 of a cell past the head cell's near
- * edge (the line width's own radius), so `drawArrowhead`'s base has no
+ * edge (a full line width), so `drawArrowhead`'s base has no
  * anti-aliasing seam against it once both are drawn. A caller that strokes
  * the body without also drawing the arrowhead on the same frame will show
  * that overlap as a small stub past the true half-cell edge; it is only
