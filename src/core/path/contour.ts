@@ -28,8 +28,8 @@ export type ContourResult = ContourOk | ContourFailed;
 export function buildContourPath(
   mask: Mask,
   rng: Rng,
-  /** Forwarded to `buildSpanningTree`'s `continueBias`; see its doc comment. */
-  continueBias?: number,
+  /** Forwarded to `buildSpanningTree`'s `turnBias`; see its doc comment. */
+  turnBias?: number,
 ): ContourResult {
   const tiling = classifyTiling(mask);
   if (!tiling.ok) return tiling;
@@ -41,7 +41,7 @@ export function buildContourPath(
     halfHeight,
     rng,
     tiling.firstFullBlock,
-    continueBias,
+    turnBias,
   );
 
   const width = mask.width;

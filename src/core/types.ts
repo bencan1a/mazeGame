@@ -48,10 +48,9 @@ export interface GenParams {
    * straight on.
    *
    * Not a target rate: the contour method's own geometry bounds what is
-   * reachable, so the full 0..1 sweep lands roughly in 0.06..0.48 achieved
-   * bend rate, and the mapping between the two is monotonic but not linear.
-   * Read the achieved `bendRate`. Only the contour path reads this at all —
-   * the backbite fallback has no equivalent steer.
+   * reachable from both ends, and the mapping is monotonic but not linear, so
+   * read the achieved `bendRate` rather than this. Only the contour path
+   * reads it at all — the backbite fallback has no equivalent steer.
    */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */

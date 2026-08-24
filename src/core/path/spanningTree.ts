@@ -18,21 +18,16 @@ export interface SpanningTree {
 /**
  * Picks one of `count` candidates uniformly, or — when `straightIndex` names
  * a candidate that continues the direction the walk arrived on — weights that
- * one at `1 - continueBias` and splits the remainder evenly over the rest.
+ * one at `1 - turnBias` and splits the remainder evenly over the rest.
  * `straightIndex` of -1 (no candidate continues straight, or there is no
  * incoming direction yet) falls back to uniform.
  */
-function weightedPick(
-  count: number,
-  straightIndex: number,
-  continueBias: number,
-  rng: Rng,
-): number {
+function weightedPick(count: number, straightIndex: number, turnBias: number, rng: Rng): number {
   if (straightIndex === -1 || count === 1) return rng.int(count);
   const roll = rng.next();
-  if (roll < 1 - continueBias) return straightIndex;
-  const turnShare = continueBias / (count - 1);
-  let cursor = 1 - continueBias;
+  if (roll < 1 - turnBias) return straightIndex;
+  const turnShare = turnBias / (count - 1);
+  let cursor = 1 - turnBias;
   for (let i = 0; i < count; i++) {
     if (i === straightIndex) continue;
     cursor += turnShare;
@@ -53,7 +48,7 @@ export function buildSpanningTree(
    * `undefined` picks uniformly among available directions, matching the
    * walk's behaviour with no bias applied.
    */
-  continueBias?: number,
+  turnBias?: number,
 ): SpanningTree {
   const open = new Uint8Array(blockFull.length * 4);
   if (start === -1) return { halfWidth, halfHeight, open };
@@ -87,9 +82,7 @@ export function buildSpanningTree(
       continue;
     }
     const pick =
-      continueBias === undefined
-        ? rng.int(count)
-        : weightedPick(count, straightIndex, continueBias, rng);
+      turnBias === undefined ? rng.int(count) : weightedPick(count, straightIndex, turnBias, rng);
     const dir = candidateDir[pick] as Direction;
     const next = candidateBlock[pick] as number;
     open[current * 4 + dir] = 1;

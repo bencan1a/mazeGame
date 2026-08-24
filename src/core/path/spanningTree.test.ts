@@ -154,7 +154,7 @@ describe('buildSpanningTree', () => {
     expect(countOpenEdges(tree.open)).toBe(0);
   });
 
-  describe('with continueBias', () => {
+  describe('with turnBias', () => {
     it('still produces a tree with n-1 symmetric edges connecting every full block', () => {
       fc.assert(
         fc.property(
@@ -238,9 +238,9 @@ describe('buildSpanningTree', () => {
     });
 
     it('biases the walk toward continuing straight as bias falls toward 0', () => {
-      // Walks each resulting tree from its root and counts, at every branch
-      // that continues past a block with more than one unvisited neighbour,
-      // whether the edge taken continues the arriving direction.
+      // The fraction of non-root tree edges that carry on in the direction
+      // the walk arrived from. Forced single-candidate steps count too, so
+      // this never reaches 0 or 1 whatever the bias.
       const straightFraction = (bias: number, seed: number): number => {
         const halfWidth = 10;
         const halfHeight = 10;

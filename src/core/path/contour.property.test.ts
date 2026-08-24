@@ -118,7 +118,7 @@ describe('buildContourPath: property tests', () => {
     }
   });
 
-  it('visits every path cell exactly once under any continueBias, over full rectangles', () => {
+  it('visits every path cell exactly once under any turnBias, over full rectangles', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 25 }),

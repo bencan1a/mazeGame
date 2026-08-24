@@ -439,14 +439,25 @@ describe('generateBoard: bendProbability steers the path', () => {
   }
 
   it('moves the achieved bend rate monotonically across its range', () => {
-    // Inert for most of this project's life: the contour path never read the
-    // parameter, so every setting produced identical boards. A regression to
-    // that is invisible without comparing settings.
+    // Guards against the parameter going back to being a no-op, which no
+    // single-setting assertion can see.
     const rates = [0, 0.3, 0.6, 1].map((p) => bendRateOver(p, 12));
     for (let i = 1; i < rates.length; i++) {
       expect(rates[i] as number).toBeGreaterThan(rates[i - 1] as number);
     }
     expect((rates[3] as number) - (rates[0] as number)).toBeGreaterThan(0.2);
+  }, 60_000);
+
+  it('reaches neither end of 0..1, because the contour geometry bounds both', () => {
+    // The parameter reads as a rate, so the band it can actually reach is
+    // worth pinning: a caller asking for 0 does not get a straight path and
+    // one asking for 1 does not get a corner at every cell.
+    const floor = bendRateOver(0, 12);
+    const ceiling = bendRateOver(1, 12);
+    expect(floor).toBeGreaterThan(0.02);
+    expect(floor).toBeLessThan(0.2);
+    expect(ceiling).toBeGreaterThan(0.4);
+    expect(ceiling).toBeLessThan(0.6);
   }, 60_000);
 
   it('lands the shipped default in the band the reference art was matched at', () => {
