@@ -5,13 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Buffer Ceiling Bench</title>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-    />
-
     <style>
       /* Committed to one visual world: an instrument for a dark game, painting its
      own ground rather than following the viewer's theme. */
@@ -38,7 +31,7 @@
         padding: var(--step) var(--step) 4rem;
         background: var(--ground);
         color: var(--ink);
-        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 14px;
         line-height: 1.55;
         -webkit-text-size-adjust: 100%;
@@ -56,7 +49,11 @@
         gap: 0.35rem;
       }
       h1 {
-        font-family: Archivo, system-ui, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
         font-weight: 700;
         font-size: clamp(1.35rem, 6vw, 1.9rem);
         letter-spacing: -0.015em;
@@ -82,7 +79,11 @@
         gap: 0.5rem;
       }
       button {
-        font-family: Archivo, system-ui, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
         font-size: 1rem;
         font-weight: 700;
         padding: 1rem;
@@ -133,7 +134,11 @@
         overflow: hidden;
       }
       .panel > h2 {
-        font-family: Archivo, system-ui, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
         font-size: 0.95rem;
         font-weight: 700;
         margin: 0;
@@ -257,14 +262,6 @@
         white-space: pre-wrap;
         word-break: break-all;
       }
-      .caveat {
-        color: var(--muted);
-        font-size: 0.78rem;
-        border-left: 2px solid var(--rule);
-        padding-left: 0.75rem;
-        margin: 0;
-        max-width: 62ch;
-      }
       @media (prefers-reduced-motion: reduce) {
         * {
           animation: none !important;
@@ -327,12 +324,6 @@
         <h2>This device</h2>
         <dl class="spec" id="spec"></dl>
       </section>
-
-      <p class="caveat">
-        Running inside the artifact viewer: the same browser engine in a different frame. Trust the
-        frame rates; confirm the memory ceilings against the copy deployed to the project site
-        before they settle the architecture.
-      </p>
 
       <section class="panel">
         <h2>Raw results</h2>
@@ -1830,6 +1821,7 @@
         results.ladder = [];
         results.pair = [];
         results.blit = [];
+        delete results.error;
         results.startedAt = new Date().toISOString();
         try {
           await runLadder();
