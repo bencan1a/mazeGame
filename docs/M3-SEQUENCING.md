@@ -1,0 +1,217 @@
+# M3 — Playable: sequencing and parallelism
+
+How the eight M3 issues fit together, what order they must go in, and how many
+agents can work at once without colliding.
+
+M3 is greenfield: `src/render/`, `src/game/` and `src/pwa/` do not exist yet.
+Everything here builds on a finished `Board` and nothing else — no stream in M3
+reaches into the generator's intermediate stages.
+
+---
+
+## 1. The issues
+
+| #   | Title                                   | Lane          | Primary files                     |
+| --- | --------------------------------------- | ------------- | --------------------------------- |
+| 20  | Two-layer canvas renderer               | S5 render     | `src/render/**`                   |
+| 22  | Arrowheads and legibility floor         | S5 render     | `src/render/**`                   |
+| 23  | Pan and zoom                            | S5 render     | `src/render/**`, pointer input    |
+| 24  | Snake-out exit animation                | S5 render     | `src/render/**`                   |
+| 25  | Hit testing and free-segment tap radius | S6 app        | `src/game/**`                     |
+| 26  | Game loop: queue, bounce, lives, win    | S6 app        | `src/game/**`                     |
+| 21  | Automated browser tests                 | S7 infra      | `test/e2e/**`, `.github/**`, root |
+| 30  | Device performance pass (G3 gate)       | S5 + hardware | `docs/**`, issue comments         |
+
+---
+
+## 2. Dependency graph
+
+```mermaid
+graph LR
+  20[#20 static layer<br/>+ viewport + cap] --> 22[#22 arrowheads]
+  20 --> 23[#23 pan / zoom]
+  20 --> 25[#25 hit test]
+  22 --> 24[#24 snake-out]
+  20 --> 24
+  26[#26 game loop] -.callback.-> 25
+  21a[#21a Playwright + CI] --> 21b[#21b behaviour specs]
+  25 --> 21b
+  26 --> 21b
+  20 --> 21b
+  22 --> 30[#30 device pass]
+  23 --> 30
+  24 --> 30
+```
+
+Solid arrows are hard blocks. The dashed arrow is a soft one — see §3.3.
+
+**Critical path: #20 → #22 → #24 → device session.** Four stages. Everything
+else fits inside it.
+
+---
+
+## 3. Seams to agree before anyone writes code
+
+These are the four places where two issues touch the same thing. Each has to be
+settled up front, because discovering the disagreement at merge time costs the
+whole wave.
+
+### 3.1 The viewport transform has one owner: #20
+
+`#23` needs cell → pixel to blit. `#25` needs pixel → cell to hit-test. `#22`
+needs cells-per-CSS-px to know whether an arrowhead is legible. If each writes
+its own, they will disagree about device pixel ratio and rounding, and the
+first symptom will be taps landing one cell off at some zoom levels.
+
+**#20 ships `src/render/viewport.ts` as part of its deliverable**, exporting
+both directions plus the current scale. It is in S5's lane, so S6 imports it
+rather than reimplementing — that is a one-way dependency, not a contract change.
+
+### 3.2 Pointer events need a single arbiter — decision required
+
+`#23` (pan/zoom drag, S5) and `#25`/`#26` (tap, S6) both want listeners on the
+same canvas element. Two independent listener sets means a drag that ends near a
+segment also fires a tap, which costs a life the player did not choose to risk —
+the exact failure `#25` exists to prevent.
+
+**Recommendation: S6 owns every pointer listener**, in `src/game/input.ts`.
+It classifies a gesture as drag, pinch or tap and calls into the S5 viewport for
+the first two. `#23`'s issue is labelled `stream:render`, so this needs the PM's
+call before Wave B starts.
+
+### 3.3 #25 takes `isFree` as a callback, so #26 is not a blocker
+
+`#25` must snap only to _free_ segments, and free-ness is derived from the
+removed-set that `#26` owns. Passing a `(id: SegmentId) => boolean` predicate in
+keeps the two issues genuinely concurrent and keeps the hit test unit-testable
+against a fixture board with no game state at all.
+
+### 3.4 The canvas cap is 8192² per canvas, and allocation never throws
+
+From the closed spike (#19, measured on iPhone / iOS 18.7):
+
+- The limit is **per canvas, not a total memory budget.** Two 8192² buffers
+  (512 MB) held; one 10000² buffer (381 MB) did not.
+- **Cap any single canvas at 8192².** At 100×100 that is 27 CSS px per cell at
+  dpr 3 — well clear of the ~8–10 CSS px arrowhead floor `#22` is scoped around,
+  so memory does not constrain legibility at the largest grid.
+- An over-budget canvas **comes back blank and silent** rather than raising.
+  Only reading a drawn pixel back detects it. `#20` must probe, not trust.
+- A screen-sized animation layer is the recommended default (14 MB vs 256 MB).
+- Untested: any Android device, and a soak run holding 512 MB of painted content.
+
+> These findings live only in the comments on #19 — they are **not** in
+> `CLAUDE.md` or `docs/PRD.md`, contrary to that issue's closing note. Worth
+> landing them in `CLAUDE.md` under known traps so `#20` does not have to find
+> a closed issue.
+
+---
+
+## 4. The wave plan
+
+### Wave A — 3 agents, nothing blocks anything
+
+| Track | Issue | Notes                                                                                     |
+| ----- | ----- | ----------------------------------------------------------------------------------------- |
+| S5    | #20   | **Critical path.** Static layer, `viewport.ts`, buffer cap with pixel-readback probe.     |
+| S6    | #26   | Headless state machine against a fixture board. Zero renderer dependency — start day one. |
+| S7    | #21a  | Playwright dev-dep, CI job, fixture harness page, one smoke spec. Slowest to get green.   |
+
+`#26` is the one M3 issue with no dependency on anything in M3 at all. Its own
+acceptance criteria require it to be testable "with no canvas", which is what
+makes it safe to run first.
+
+### Wave B — 3 agents, needs #20 merged
+
+| Track | Issue | Notes                                                                |
+| ----- | ----- | -------------------------------------------------------------------- |
+| S5    | #22   | Arrowheads, rounded joins, palette. Owns the segment draw routine.   |
+| S5    | #23   | Pan/zoom. Owns the viewport and gesture code — not the draw routine. |
+| S6    | #25   | Hit test. Imports #20's inverse transform; takes `isFree` per §3.3.  |
+
+`#22` and `#23` are both S5 but touch disjoint files (see §5), so they run
+concurrently.
+
+### Wave C — 2 agents, needs Wave B
+
+| Track | Issue | Notes                                                                          |
+| ----- | ----- | ------------------------------------------------------------------------------ |
+| S5    | #24   | Snake-out. Animates the same polyline `#22` draws — sequential after #22 only. |
+| S7    | #21b  | Hit-test, game-loop and visual-regression specs. Needs #20, #25, #26.          |
+
+`#24` does not depend on `#23`. If pan/zoom slips, the animation still lands.
+
+### Wave D — human, on hardware, one session
+
+`#30`, plus the device-measured criteria inside `#22` and `#23`. See §6.
+
+**Maximum useful concurrency is 3 agents.** A fourth has nothing to claim.
+
+---
+
+## 5. File split, so concurrent branches do not collide
+
+| File                     | Created by | Later touched by                     |
+| ------------------------ | ---------- | ------------------------------------ |
+| `src/render/viewport.ts` | #20        | #23 (zoom clamp, pan bounds)         |
+| `src/render/layers.ts`   | #20        | —                                    |
+| `src/render/draw.ts`     | #20 (stub) | #22 (fills it), #24 (reads it)       |
+| `src/render/palette.ts`  | #22        | —                                    |
+| `src/render/animate.ts`  | #24        | —                                    |
+| `src/render/index.ts`    | #20        | every wave appends — **barrel only** |
+| `src/game/state.ts`      | #26        | —                                    |
+| `src/game/hitTest.ts`    | #25        | —                                    |
+| `src/game/input.ts`      | #25        | #23 (per §3.2)                       |
+
+`src/render/index.ts` is the one guaranteed merge hotspot. Keeping it a pure
+re-export barrel with no logic makes every conflict a trivial one.
+
+---
+
+## 6. What cannot close inside M3
+
+Two things, and both are better decided now than discovered at the milestone
+review.
+
+### #21 spans M3 and M4
+
+Four of its acceptance criteria — service worker, offline second load,
+manifest/scope/`start_url`, and persistence across reload — test features that
+are **M4 issues (#27, #28, #29) and do not exist yet**. The other four (hit
+test, game loop transitions, visual regression, no frame-rate assertion) are
+automatable as soon as Wave B lands.
+
+**Recommendation: split #21.** The automatable-now half closes in M3; the
+offline/PWA/persistence half becomes a new issue in M4, sequenced beside #29.
+Left as one issue, M3 closes with #21 open regardless of how much work is done.
+
+### Three issues have criteria only a phone can satisfy
+
+- `#22` — "measured minimum legible size on a real phone, recorded in the issue"
+- `#23` — "60fps on a real phone at 100×100 — measured, not assumed"
+- `#30` — generation time, frame rate, peak memory, and forcing the buffer cap
+
+CI cannot produce any of these (`docs/TESTING.md`), and a number from a headless
+Linux runner is not evidence about a phone.
+
+**Recommendation: one device session at the end of Wave C closes all three.**
+Each needs the same setup — the deployed build, a 100×100 board, a phone with
+its model and OS version recorded. Running them separately pays that cost three
+times, and `#30` explicitly requires results from different hardware not be
+combined, so batching also keeps one device's numbers together.
+
+If `#30` misses a target, the fallback is a recorded decision to lower the
+maximum grid size — not a silent default. That is the one M3 outcome that can
+force an architecture change rather than a tuning change, which is why it sits
+at the end of M3 rather than in M4.
+
+---
+
+## 7. Decisions needed before Wave B
+
+1. **Who owns pointer events** — recommendation in §3.2 is S6, which means `#23`
+   lands its gesture handling in `src/game/input.ts` rather than `src/render/`.
+2. **Split `#21`** into an M3 half and an M4 half, per §6.
+3. **Batch the device criteria** of `#22`, `#23` and `#30` into one session.
+
+Wave A needs none of these and can start immediately.
