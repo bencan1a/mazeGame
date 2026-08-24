@@ -11,16 +11,16 @@ reaches into the generator's intermediate stages.
 
 ## 1. The issues
 
-| #   | Title                                   | Lane          | Primary files                     |
-| --- | --------------------------------------- | ------------- | --------------------------------- |
-| 20  | Two-layer canvas renderer               | S5 render     | `src/render/**`                   |
-| 22  | Arrowheads and legibility floor         | S5 render     | `src/render/**`                   |
-| 23  | Pan and zoom                            | S5 render     | `src/render/**`, pointer input    |
-| 24  | Snake-out exit animation                | S5 render     | `src/render/**`                   |
-| 25  | Hit testing and free-segment tap radius | S6 app        | `src/game/**`                     |
-| 26  | Game loop: queue, bounce, lives, win    | S6 app        | `src/game/**`                     |
-| 21  | Automated browser tests                 | S7 infra      | `test/e2e/**`, `.github/**`, root |
-| 30  | Device performance pass (G3 gate)       | S5 + hardware | `docs/**`, issue comments         |
+| #      | Title                                   | Lane          | Primary files                  |
+| ------ | --------------------------------------- | ------------- | ------------------------------ |
+| 20     | Two-layer canvas renderer               | S5 render     | `src/render/**`                |
+| 22     | Arrowheads and legibility floor         | S5 render     | `src/render/**`                |
+| 23     | Pan and zoom                            | S5 render     | `src/render/**`, pointer input |
+| 24     | Snake-out exit animation                | S5 render     | `src/render/**`                |
+| 25     | Hit testing and free-segment tap radius | S6 app        | `src/game/**`                  |
+| 26     | Game loop: queue, bounce, lives, win    | S6 app        | `src/game/**`                  |
+| ~~21~~ | ~~Automated browser tests~~             | S7 infra      | **deferred to M4** — see §6.1  |
+| 30     | Device performance pass (G3 gate)       | S5 + hardware | `docs/**`, issue comments      |
 
 ---
 
@@ -34,10 +34,6 @@ graph LR
   22 --> 24[#24 snake-out]
   20 --> 24
   26[#26 game loop] -.callback.-> 25
-  21a[#21a Playwright + CI] --> 21b[#21b behaviour specs]
-  25 --> 21b
-  26 --> 21b
-  20 --> 21b
   22 --> 30[#30 device pass]
   23 --> 30
   24 --> 30
@@ -74,10 +70,11 @@ same canvas element. Two independent listener sets means a drag that ends near a
 segment also fires a tap, which costs a life the player did not choose to risk —
 the exact failure `#25` exists to prevent.
 
-**Recommendation: S6 owns every pointer listener**, in `src/game/input.ts`.
-It classifies a gesture as drag, pinch or tap and calls into the S5 viewport for
-the first two. `#23`'s issue is labelled `stream:render`, so this needs the PM's
-call before Wave B starts.
+**Decided: S6 owns every pointer listener**, in `src/game/input.ts`. It
+classifies a gesture as drag, pinch or tap and calls into the S5 viewport for the
+first two. `#23` is labelled `stream:render` and still owns the viewport maths —
+zoom clamping, pan bounds, the blit — but its gesture handling lands in S6's file
+so there is exactly one place that decides a drag is not a tap.
 
 ### 3.3 #25 takes `isFree` as a callback, so #26 is not a blocker
 
@@ -109,13 +106,12 @@ From the closed spike (#19, measured on iPhone / iOS 18.7):
 
 ## 4. The wave plan
 
-### Wave A — 3 agents, nothing blocks anything
+### Wave A — 2 agents, nothing blocks anything
 
 | Track | Issue | Notes                                                                                     |
 | ----- | ----- | ----------------------------------------------------------------------------------------- |
 | S5    | #20   | **Critical path.** Static layer, `viewport.ts`, buffer cap with pixel-readback probe.     |
 | S6    | #26   | Headless state machine against a fixture board. Zero renderer dependency — start day one. |
-| S7    | #21a  | Playwright dev-dep, CI job, fixture harness page, one smoke spec. Slowest to get green.   |
 
 `#26` is the one M3 issue with no dependency on anything in M3 at all. Its own
 acceptance criteria require it to be testable "with no canvas", which is what
@@ -132,12 +128,11 @@ makes it safe to run first.
 `#22` and `#23` are both S5 but touch disjoint files (see §5), so they run
 concurrently.
 
-### Wave C — 2 agents, needs Wave B
+### Wave C — 1 agent, needs Wave B
 
 | Track | Issue | Notes                                                                          |
 | ----- | ----- | ------------------------------------------------------------------------------ |
 | S5    | #24   | Snake-out. Animates the same polyline `#22` draws — sequential after #22 only. |
-| S7    | #21b  | Hit-test, game-loop and visual-regression specs. Needs #20, #25, #26.          |
 
 `#24` does not depend on `#23`. If pan/zoom slips, the animation still lands.
 
@@ -145,7 +140,8 @@ concurrently.
 
 `#30`, plus the device-measured criteria inside `#22` and `#23`. See §6.
 
-**Maximum useful concurrency is 3 agents.** A fourth has nothing to claim.
+**Maximum useful concurrency is 3 agents**, in Wave B. A fourth has nothing to
+claim in any wave.
 
 ---
 
@@ -168,24 +164,31 @@ re-export barrel with no logic makes every conflict a trivial one.
 
 ---
 
-## 6. What cannot close inside M3
+## 6. Scope decisions taken
 
-Two things, and both are better decided now than discovered at the milestone
-review.
+Both of these were settled before Wave A started, rather than discovered at the
+milestone review.
 
-### #21 spans M3 and M4
+### 6.1 #21 moved to M4 — browser tests
 
 Four of its acceptance criteria — service worker, offline second load,
 manifest/scope/`start_url`, and persistence across reload — test features that
-are **M4 issues (#27, #28, #29) and do not exist yet**. The other four (hit
-test, game loop transitions, visual regression, no frame-rate assertion) are
-automatable as soon as Wave B lands.
+are **M4 issues (#27, #28, #29) and do not exist yet**. Left in M3, the milestone
+would have closed with #21 open no matter how much work went into it.
 
-**Recommendation: split #21.** The automatable-now half closes in M3; the
-offline/PWA/persistence half becomes a new issue in M4, sequenced beside #29.
-Left as one issue, M3 closes with #21 open regardless of how much work is done.
+**Moved to M4 / `wave:4`, sequenced beside #29.** The two M3-behaviour criteria
+in it — hit testing and the game-loop transitions — stay on the issue rather than
+being split out: they cost nothing extra once the Playwright runner exists, and
+#25 and #26 will have landed long before it starts.
 
-### Three issues have criteria only a phone can satisfy
+The cost of deferring is that M3 lands with no browser-level regression test.
+The mitigation is that #25 and #26 are both required to be unit-testable
+headlessly — #26 explicitly "with no canvas" — so the behaviour most likely to
+regress is covered by vitest inside M3 regardless.
+
+### 6.2 The device criteria are batched into one session
+
+Three issues carry criteria only a phone can satisfy:
 
 - `#22` — "measured minimum legible size on a real phone, recorded in the issue"
 - `#23` — "60fps on a real phone at 100×100 — measured, not assumed"
@@ -194,24 +197,26 @@ Left as one issue, M3 closes with #21 open regardless of how much work is done.
 CI cannot produce any of these (`docs/TESTING.md`), and a number from a headless
 Linux runner is not evidence about a phone.
 
-**Recommendation: one device session at the end of Wave C closes all three.**
-Each needs the same setup — the deployed build, a 100×100 board, a phone with
-its model and OS version recorded. Running them separately pays that cost three
-times, and `#30` explicitly requires results from different hardware not be
-combined, so batching also keeps one device's numbers together.
+**One device session at the end of Wave C closes all three.** They need identical
+setup — the deployed build, a 100×100 board, and the device model and OS version
+recorded — so running them separately pays that cost three times. `#30` also
+requires that results from different hardware not be combined, which batching
+enforces for free.
 
-If `#30` misses a target, the fallback is a recorded decision to lower the
-maximum grid size — not a silent default. That is the one M3 outcome that can
-force an architecture change rather than a tuning change, which is why it sits
-at the end of M3 rather than in M4.
+If `#30` misses a target, the fallback is a **recorded decision** to lower the
+maximum grid size, not a silent default. That is the one M3 outcome that can
+force an architecture change rather than a tuning change, which is why it sits at
+the end of M3 rather than in M4.
 
 ---
 
-## 7. Decisions needed before Wave B
+## 7. Status
 
-1. **Who owns pointer events** — recommendation in §3.2 is S6, which means `#23`
-   lands its gesture handling in `src/game/input.ts` rather than `src/render/`.
-2. **Split `#21`** into an M3 half and an M4 half, per §6.
-3. **Batch the device criteria** of `#22`, `#23` and `#30` into one session.
+| Wave | Issues        | State                             |
+| ---- | ------------- | --------------------------------- |
+| A    | #20, #26      | in progress                       |
+| B    | #22, #23, #25 | blocked on #20                    |
+| C    | #24           | blocked on #22                    |
+| D    | #30 (+22, 23) | blocked on C — one device session |
 
-Wave A needs none of these and can start immediately.
+Deferred to M4: #21.
