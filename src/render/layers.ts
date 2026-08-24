@@ -10,8 +10,8 @@
  * degrades to a lower resolution rather than staying blank.
  */
 
-import { ARROWHEAD_OVERHANG_CELLS, drawSegment, isLegibleAtScale } from './draw.js';
-import { createBufferViewport, createViewport, type Viewport } from './viewport.js';
+import { ARROWHEAD_OVERHANG_CELLS, drawSegment, isBoardLegibleUnzoomed } from './draw.js';
+import { createBufferViewport, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
 export const MAX_CANVAS_DIMENSION = 8192;
@@ -246,11 +246,19 @@ export interface StaticLayer {
   /** Every rung the degradation ladder tried, in order, for diagnostics. */
   readonly attempts: readonly DegradationAttempt[];
   /**
-   * Whether an arrowhead reads as a direction at the board's resting zoom
-   * (`BASE_CSS_PIXELS_PER_CELL`, 1x dpr). False means a caller must require
-   * the player to zoom in before this board is playable.
+   * Whether an arrowhead reads as a direction at the board's actual unzoomed
+   * on-screen scale — see `isBoardLegibleUnzoomed`. False means a caller
+   * must require the player to zoom in before this board is playable.
    */
   readonly legibleUnzoomed: boolean;
+  /**
+   * Segment ids `redrawStaticLayer` could not draw on its most recent call,
+   * because of malformed data (an out-of-range palette index or `segDir`).
+   * Empty on a healthy board. Such a segment is still tappable via
+   * `occupancy` even though nothing is drawn for it, so a caller may want to
+   * warn rather than leave it silently invisible.
+   */
+  readonly droppedSegments: SegmentId[];
 }
 
 export interface StaticLayerOptions extends DegradationOptions {
@@ -260,6 +268,8 @@ export interface StaticLayerOptions extends DegradationOptions {
   readonly maxZoom?: number;
   /** Explicit override for what the buffer asks for, before the cap. Defaults to `recommendedPixelsPerCell(dpr, maxZoom)`. */
   readonly requestedPixelsPerCell?: number;
+  /** Actual CSS width the board will render into unzoomed, for `legibleUnzoomed`. Defaults to `REFERENCE_CSS_VIEWPORT_WIDTH`. */
+  readonly cssViewportWidth?: number;
   readonly createCanvas?: () => CanvasLike;
 }
 
@@ -323,7 +333,7 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
 
   const originPx = ARROWHEAD_OVERHANG_CELLS * budget.pixelsPerCell;
   const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
-  const legibleUnzoomed = isLegibleAtScale(createViewport({ scale: BASE_CSS_PIXELS_PER_CELL }));
+  const legibleUnzoomed = isBoardLegibleUnzoomed(board.width, options.cssViewportWidth);
   return {
     canvas,
     ctx: liveCtx,
@@ -332,6 +342,7 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     allocationOk: liveOk,
     attempts,
     legibleUnzoomed,
+    droppedSegments: [],
   };
 }
 
@@ -341,7 +352,8 @@ export function redrawStaticLayer(
   board: Board,
   removed: ReadonlySet<SegmentId>,
 ): void {
-  const { ctx, viewport, budget } = layer;
+  const { ctx, viewport, budget, droppedSegments } = layer;
+  droppedSegments.length = 0;
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
@@ -353,6 +365,7 @@ export function redrawStaticLayer(
       // the whole frame. Anything else — a dead canvas context, say —
       // still propagates.
       if (!(err instanceof RangeError)) throw err;
+      droppedSegments.push(id);
     }
   }
 }

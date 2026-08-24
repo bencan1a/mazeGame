@@ -736,6 +736,7 @@ describe('redrawStaticLayer', () => {
       allocationOk: true,
       attempts: [],
       legibleUnzoomed: true,
+      droppedSegments: [],
     };
 
     redrawStaticLayer(layer, board, new Set());
@@ -750,7 +751,7 @@ describe('redrawStaticLayer', () => {
   it('draws the rest of the board when one segment has malformed data', () => {
     const board = ACYCLIC_BOARD; // 3 segments
     const originalDir = board.segDir[0];
-    board.segDir[0] = 255; // segment 1's body still strokes; its arrowhead cannot
+    board.segDir[0] = 255; // strokeSegmentPolyline now needs segDir too, so segment 1 draws nothing
     let moveToCount = 0;
     const canvas: CanvasLike = {
       width: 80,
@@ -781,12 +782,14 @@ describe('redrawStaticLayer', () => {
       allocationOk: true,
       attempts: [],
       legibleUnzoomed: true,
+      droppedSegments: [],
     };
 
     try {
       expect(() => redrawStaticLayer(layer, board, new Set())).not.toThrow();
-      // 3 segments * 2 moveTo (body + arrowhead) each, minus segment 1's arrowhead.
-      expect(moveToCount).toBe(3 * 2 - 1);
+      // 2 healthy segments * 2 moveTo (body + arrowhead) each; segment 1 draws nothing.
+      expect(moveToCount).toBe(2 * 2);
+      expect(layer.droppedSegments).toEqual([1]);
     } finally {
       board.segDir[0] = originalDir as number;
     }
@@ -823,6 +826,7 @@ describe('redrawStaticLayer', () => {
       allocationOk: true,
       attempts: [],
       legibleUnzoomed: true,
+      droppedSegments: [],
     };
 
     expect(() => redrawStaticLayer(layer, board, new Set())).toThrow('context is lost');

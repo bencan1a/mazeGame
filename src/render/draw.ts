@@ -6,9 +6,15 @@
  */
 
 import { DX, DY, xOf, yOf } from '../core/grid.js';
-import { cellCenterX, cellCenterY, type PixelSpace, type Viewport } from './viewport.js';
+import {
+  cellCenterX,
+  cellCenterY,
+  createViewport,
+  type PixelSpace,
+  type Viewport,
+} from './viewport.js';
 import { paletteColor } from './palette.js';
-import type { Board, SegmentId } from '../core/types.js';
+import type { Board, Direction, SegmentId } from '../core/types.js';
 
 /**
  * The subset of `CanvasRenderingContext2D` stroking needs, so tests can
@@ -39,10 +45,12 @@ export interface FillContext2D {
 export const LINE_WIDTH_CELLS = 0.3;
 /**
  * Arrowhead length as a fraction of one cell, scaled by the viewport at draw
- * time. Large enough that the board's resting (1x) zoom clears
- * `MIN_LEGIBLE_ARROWHEAD_CSS_PX` — see `isLegibleAtScale`.
+ * time. Bounded at 1: the triangle spans the head cell exactly (-0.5 to +0.5
+ * of a cell about its centre) and must never reach into a neighbouring
+ * cell — hit testing is per-cell, so a tip that spills over would select a
+ * different segment than the one the player is looking at.
  */
-export const ARROWHEAD_LENGTH_CELLS = 0.95;
+export const ARROWHEAD_LENGTH_CELLS = 1;
 /** Arrowhead base width as a fraction of one cell, scaled by the viewport at draw time. */
 export const ARROWHEAD_WIDTH_CELLS = 0.7;
 
@@ -55,18 +63,33 @@ export const MIN_LEGIBLE_ARROWHEAD_CSS_PX = 9;
 
 /**
  * How far past its cell's outer edge an arrowhead's tip can reach, in
- * cells. A border segment's head sits on the board's outer cell, so the
- * static buffer needs this much pad on every side or the tip clips.
+ * cells. Zero at the current `ARROWHEAD_LENGTH_CELLS` (the triangle is
+ * bounded by the cell itself), kept as a formula rather than a literal 0 so
+ * a future change to that constant keeps the static buffer correctly padded
+ * instead of silently clipping again.
  */
-export const ARROWHEAD_OVERHANG_CELLS = Math.max(
-  0,
-  LINE_WIDTH_CELLS / 2 + ARROWHEAD_LENGTH_CELLS - 0.5,
-);
+export const ARROWHEAD_OVERHANG_CELLS = Math.max(0, ARROWHEAD_LENGTH_CELLS / 2 - 0.5);
+
+/**
+ * Reference CSS viewport width the ~8-10 CSS px legibility floor's "about 40
+ * cells across" figure assumes — roughly a phone in portrait.
+ * `isBoardLegibleUnzoomed`'s default when a caller does not know its actual
+ * on-screen width yet.
+ */
+export const REFERENCE_CSS_VIEWPORT_WIDTH = 390;
 
 function requirePositiveFinite(value: number, name: string): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive finite number, got ${value}`);
   }
+}
+
+function requireDirection(board: Board, segmentId: SegmentId): Direction {
+  const dir = board.segDir[segmentId - 1];
+  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) {
+    throw new RangeError(`segment ${segmentId} has an invalid segDir: ${String(dir)}`);
+  }
+  return dir;
 }
 
 /**
@@ -80,9 +103,27 @@ export function isLegibleAtScale(viewport: Viewport<'css'>): boolean {
 }
 
 /**
- * Strokes one segment's polyline, cell-center to cell-center, through
- * `viewport`. A single-cell segment has no line to draw, so it gets a dot —
- * a zero-length subpath with a round cap — rather than vanishing silently.
+ * Whether a board `boardWidthCells` cells across reads its arrowheads
+ * unzoomed in a CSS viewport `availableCssWidth` wide — the actual on-screen
+ * scale, not a board-independent constant. Below this the UI must require
+ * zoom rather than render mush.
+ */
+export function isBoardLegibleUnzoomed(
+  boardWidthCells: number,
+  availableCssWidth: number = REFERENCE_CSS_VIEWPORT_WIDTH,
+): boolean {
+  requirePositiveFinite(boardWidthCells, 'boardWidthCells');
+  requirePositiveFinite(availableCssWidth, 'availableCssWidth');
+  return isLegibleAtScale(createViewport({ scale: availableCssWidth / boardWidthCells }));
+}
+
+/**
+ * Strokes one segment's polyline, cell-center to cell-center, except its
+ * last vertex: for a segment of two cells or more that stops short of the
+ * head cell's own center, leaving that cell for `drawArrowhead` to fill
+ * without the stroke drawn on top of it. A single-cell segment has no line
+ * to draw, so it gets a dot — a zero-length subpath with a round cap —
+ * rather than vanishing silently.
  */
 export function strokeSegmentPolyline<S extends PixelSpace>(
   ctx: StrokeContext2D,
@@ -94,6 +135,20 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   const end = board.segStart[segmentId];
   if (start === undefined || end === undefined || end <= start) return;
 
+  const multiCell = end - start > 1;
+  let setbackX = 0;
+  let setbackY = 0;
+  if (multiCell) {
+    const dir = requireDirection(board, segmentId);
+    // Stop short of the head cell's center by half a cell, minus the round
+    // cap's own radius so the cap still overlaps the arrowhead's base
+    // instead of merely touching it.
+    const capRadius = (LINE_WIDTH_CELLS * viewport.scale) / 2;
+    const setback = 0.5 * viewport.scale - capRadius;
+    setbackX = (DX[dir] as number) * setback;
+    setbackY = (DY[dir] as number) * setback;
+  }
+
   ctx.strokeStyle = paletteColor(board.segColor[segmentId - 1] as number);
   ctx.lineWidth = LINE_WIDTH_CELLS * viewport.scale;
   ctx.lineJoin = 'round';
@@ -104,8 +159,12 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   let lastY = 0;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
-    const px = cellCenterX(viewport, xOf(cellIndex, board.width));
-    const py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    let px = cellCenterX(viewport, xOf(cellIndex, board.width));
+    let py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    if (i === end - 1) {
+      px -= setbackX;
+      py -= setbackY;
+    }
     if (i === start) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
     lastX = px;
@@ -118,7 +177,8 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
 /**
  * Fills the arrowhead at a segment's head, pointing along `segDir` — the
  * one source valid for both a multi-cell segment's terminal stroke and a
- * one-cell segment with none.
+ * one-cell segment with none. The triangle spans exactly the head cell, so
+ * it never reads as belonging to a neighbouring cell's segment.
  */
 export function drawArrowhead<S extends PixelSpace>(
   ctx: FillContext2D,
@@ -130,27 +190,19 @@ export function drawArrowhead<S extends PixelSpace>(
   const end = board.segStart[segmentId];
   if (start === undefined || end === undefined || end <= start) return;
 
-  const dir = board.segDir[segmentId - 1];
-  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) {
-    throw new RangeError(`segment ${segmentId} has an invalid segDir: ${String(dir)}`);
-  }
-
+  const dir = requireDirection(board, segmentId);
   const headCell = board.segCells[end - 1] as number;
   const cx = cellCenterX(viewport, xOf(headCell, board.width));
   const cy = cellCenterY(viewport, yOf(headCell, board.width));
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
 
-  // The body stroke's round cap covers a disk of this radius around the
-  // head center; starting the triangle's base there keeps every point of
-  // the arrowhead at or beyond that radius, clear of the stroke.
-  const capRadius = (LINE_WIDTH_CELLS * viewport.scale) / 2;
-  const length = ARROWHEAD_LENGTH_CELLS * viewport.scale;
+  const half = (ARROWHEAD_LENGTH_CELLS * viewport.scale) / 2;
   const halfWidth = (ARROWHEAD_WIDTH_CELLS * viewport.scale) / 2;
-  const baseX = cx + dx * capRadius;
-  const baseY = cy + dy * capRadius;
-  const tipX = cx + dx * (capRadius + length);
-  const tipY = cy + dy * (capRadius + length);
+  const tipX = cx + dx * half;
+  const tipY = cy + dy * half;
+  const baseX = cx - dx * half;
+  const baseY = cy - dy * half;
   // Perpendicular to (dx, dy): rotate a quarter turn.
   const perpX = -dy * halfWidth;
   const perpY = dx * halfWidth;

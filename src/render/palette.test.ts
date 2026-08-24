@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PALETTE, PALETTE_SIZE, paletteColor } from './palette.js';
 
 describe('paletteColor', () => {
-  it('has at least 4 hues and at most 6, per the readability requirement', () => {
-    expect(PALETTE_SIZE).toBeGreaterThanOrEqual(4);
-    expect(PALETTE_SIZE).toBeLessThanOrEqual(6);
+  it('has exactly 6 hues, matching the palette size the generator colours against', () => {
+    expect(PALETTE_SIZE).toBe(6);
   });
 
   it('returns a distinct colour for every index', () => {
