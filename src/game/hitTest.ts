@@ -50,7 +50,9 @@ function requireNonNegativeFinite(value: number, name: string): void {
  * the result is `null`, a miss with nothing to bounce off of.
  *
  * A non-finite `point` (a `NaN` from a malformed pointer event) is a miss,
- * not a thrown error or an out-of-bounds cell read.
+ * not a thrown error or an out-of-bounds cell read — but `radiusCssPx` is
+ * validated first regardless of `point`, so a caller-supplied bad radius
+ * still throws even on a `NaN` tap.
  */
 export function hitTest(
   board: Board,
@@ -60,10 +62,10 @@ export function hitTest(
   isRemoved: RemovedPredicate,
   options?: HitTestOptions,
 ): SegmentId | null {
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
-
   const radiusCssPx = options?.radiusCssPx ?? DEFAULT_TAP_RADIUS_CSS_PX;
   requireNonNegativeFinite(radiusCssPx, 'radiusCssPx');
+
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
 
   const center = cssPixelToCell(viewport, point);
   if (isInBounds(board, center.x, center.y)) {

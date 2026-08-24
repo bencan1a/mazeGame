@@ -289,6 +289,17 @@ describe('hitTest: malformed input', () => {
     ).toThrow(RangeError);
   });
 
+  it('rejects an invalid radiusCssPx even when the tap point is itself non-finite', () => {
+    // radiusCssPx is a caller-supplied option, not player input, so it is
+    // validated before point is even looked at -- a bad radius must not be
+    // able to hide behind a NaN point reading as an early, silent miss.
+    expect(() =>
+      hitTest(board, viewport, cssPixel(NaN, NaN), isFreePred, NEVER_REMOVED, {
+        radiusCssPx: -5,
+      }),
+    ).toThrow(RangeError);
+  });
+
   it('accepts a radiusCssPx of exactly 0', () => {
     expect(() =>
       hitTest(board, viewport, cssPixel(15, 15), isFreePred, NEVER_REMOVED, { radiusCssPx: 0 }),
