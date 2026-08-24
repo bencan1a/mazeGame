@@ -7,14 +7,21 @@ import {
   createAnimationLayer,
   createStaticLayer,
   degradeBudget,
+  isLayerLegibleUnzoomed,
   planDegradation,
   probeReadback,
   recommendedPixelsPerCell,
   redrawStaticLayer,
   removedSetsDiffer,
   type CanvasLike,
+  type StaticLayer,
 } from './layers.js';
-import { ARROWHEAD_OVERHANG_CELLS, MIN_LEGIBLE_ARROWHEAD_CSS_PX, drawArrowhead } from './draw.js';
+import {
+  ARROWHEAD_OVERHANG_CELLS,
+  MIN_LEGIBLE_ARROWHEAD_CSS_PX,
+  REFERENCE_CSS_VIEWPORT_WIDTH,
+  drawArrowhead,
+} from './draw.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import { createBufferViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
@@ -512,86 +519,6 @@ describe('createStaticLayer', () => {
     }
   });
 
-  it('exposes legibleUnzoomed as true for a small board at the default reference viewport', () => {
-    const board = ACYCLIC_BOARD; // 4 cells across; ~97.5 CSS px/cell at the 390px default
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(1_000_000),
-    });
-    expect(layer.legibleUnzoomed).toBe(true);
-  });
-
-  it('exposes legibleUnzoomed as false for a board too wide for the default reference viewport', () => {
-    const board = { width: 100, height: 100 } as unknown as Board;
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(100_000_000),
-    });
-    expect(layer.legibleUnzoomed).toBe(false);
-  });
-
-  it('flips legibleUnzoomed when the caller supplies its actual, roomier viewport size', () => {
-    const board = { width: 100, height: 100 } as unknown as Board;
-    const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(100_000_000),
-      cssViewportWidth: roomy,
-      cssViewportHeight: roomy,
-    });
-    expect(layer.legibleUnzoomed).toBe(true);
-  });
-
-  it('uses the smaller of cssViewportWidth and cssViewportHeight, so a landscape width alone cannot report legible', () => {
-    const board = { width: 60, height: 60 } as unknown as Board;
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(100_000_000),
-      cssViewportWidth: 844,
-      cssViewportHeight: 390,
-    });
-    expect(layer.legibleUnzoomed).toBe(false);
-  });
-
-  it('uses board height too, so a narrow-but-tall board is not judged legible by width alone', () => {
-    // 10 wide, 80 tall: width alone gives 39 px/cell (legible), but the
-    // constraining height ratio at the reference viewport is 4.875 (not).
-    const board = { width: 10, height: 80 } as unknown as Board;
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(100_000_000),
-    });
-    expect(layer.legibleUnzoomed).toBe(false);
-  });
-
-  it('treats a missing or zero cssViewportWidth/cssViewportHeight as unmeasured rather than throwing', () => {
-    const board = ACYCLIC_BOARD;
-    // A platform measurement taken before layout (e.g. clientWidth) can
-    // legitimately read 0; createStaticLayer must not let that crash
-    // allocation of the buffer itself.
-    expect(() =>
-      createStaticLayer(board, {
-        requestedPixelsPerCell: 20,
-        createCanvas: fakeCanvasFactory(1_000_000),
-        cssViewportWidth: 0,
-        cssViewportHeight: 0,
-      }),
-    ).not.toThrow();
-
-    const layer = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(1_000_000),
-      cssViewportWidth: 0,
-      cssViewportHeight: 0,
-    });
-    // Falls back to the reference viewport, same as omitting both entirely.
-    const reference = createStaticLayer(board, {
-      requestedPixelsPerCell: 20,
-      createCanvas: fakeCanvasFactory(1_000_000),
-    });
-    expect(layer.legibleUnzoomed).toBe(reference.legibleUnzoomed);
-  });
-
   it('degrades resolution when the full-resolution canvas silently fails to allocate', () => {
     // 100 wide, 1 tall, one segment; only tiny allocations "succeed".
     const board = makeBoard({ art: `${'a'.repeat(99)}A`, params: { gridSize: 100 } });
@@ -771,6 +698,162 @@ describe('createStaticLayer', () => {
   });
 });
 
+describe('isLayerLegibleUnzoomed', () => {
+  function makeLayer(pixelsPerCell: number): StaticLayer {
+    return {
+      canvas: { width: 0, height: 0, getContext: () => null },
+      ctx: {} as CanvasRenderingContext2D,
+      budget: { pixelsPerCell, widthPx: 1, heightPx: 1, degraded: false },
+      viewport: createBufferViewport(pixelsPerCell),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+  }
+
+  it('reports a small board legible in the reference viewport, given a roomy buffer', () => {
+    const board = { width: 4, height: 4 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(true);
+  });
+
+  it('reports a wide board illegible in the reference viewport', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+  });
+
+  it('is a live query, not a snapshot: the same layer answers differently for different viewport sizes', () => {
+    const board = { width: 100, height: 100 } as unknown as Board;
+    const layer = makeLayer(1000);
+    const roomy = 100 * (MIN_LEGIBLE_ARROWHEAD_CSS_PX + 1);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+    expect(isLayerLegibleUnzoomed(layer, board, roomy, roomy)).toBe(true);
+  });
+
+  it('uses the smaller of the viewport width and height, so a landscape width alone cannot report legible', () => {
+    const board = { width: 60, height: 60 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(isLayerLegibleUnzoomed(layer, board, 844, 390)).toBe(false);
+    expect(isLayerLegibleUnzoomed(layer, board, 844, 844)).toBe(true);
+  });
+
+  it('uses board height too, so a narrow-but-tall board is not judged legible by width alone', () => {
+    // 10 wide, 80 tall: width alone gives 39 px/cell (legible), but the
+    // constraining height ratio at the reference viewport is 4.875 (not).
+    const board = { width: 10, height: 80 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+  });
+
+  it("folds in the buffer's own achieved resolution, so a degraded buffer reports illegible even with a roomy viewport", () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // The viewport alone would be legible (390 / 40 = 9.75 px/cell), but the
+    // buffer only ever stored 2 px/cell — the degradation ladder's floor —
+    // so blitting it up to fill that viewport is mush, not a sharp arrow.
+    const degradedLayer = makeLayer(2);
+    expect(
+      isLayerLegibleUnzoomed(
+        degradedLayer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(false);
+
+    const healthyLayer = makeLayer(30);
+    expect(
+      isLayerLegibleUnzoomed(
+        healthyLayer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    ).toBe(true);
+  });
+
+  it('divides the buffer resolution by dpr, converting device pixels per cell to CSS pixels per cell', () => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    // 20 device px/cell looks roomy, but at dpr 3 that is only ~6.67 CSS
+    // px/cell — below the floor even in a large viewport.
+    const layer = makeLayer(20);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        1,
+      ),
+    ).toBe(true);
+    expect(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        3,
+      ),
+    ).toBe(false);
+  });
+
+  it('treats a missing or zero viewport width/height as unmeasured rather than throwing, falling back to the reference', () => {
+    const board = ACYCLIC_BOARD;
+    const layer = makeLayer(1000);
+    expect(() => isLayerLegibleUnzoomed(layer, board, 0, 0)).not.toThrow();
+    expect(isLayerLegibleUnzoomed(layer, board, 0, 0)).toBe(
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+      ),
+    );
+  });
+
+  it.each([NaN, Infinity, 0, -1])('rejects a dpr of %p', (bad) => {
+    const board = { width: 40, height: 40 } as unknown as Board;
+    const layer = makeLayer(1000);
+    expect(() =>
+      isLayerLegibleUnzoomed(
+        layer,
+        board,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        REFERENCE_CSS_VIEWPORT_WIDTH,
+        bad,
+      ),
+    ).toThrow(RangeError);
+  });
+});
+
 describe('redrawStaticLayer', () => {
   it('draws every segment not in the removed set, one moveTo for the body and one for its arrowhead', () => {
     const board = ACYCLIC_BOARD; // 3 segments
@@ -806,7 +889,6 @@ describe('redrawStaticLayer', () => {
       viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
-      legibleUnzoomed: true,
       droppedSegments: [],
     };
 
@@ -852,7 +934,6 @@ describe('redrawStaticLayer', () => {
       viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
-      legibleUnzoomed: true,
       droppedSegments: [],
     };
 
@@ -864,6 +945,50 @@ describe('redrawStaticLayer', () => {
     } finally {
       board.segDir[0] = originalDir as number;
     }
+  });
+
+  it('replaces droppedSegments with a fresh array each call, rather than mutating the same instance', () => {
+    const board = ACYCLIC_BOARD;
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {},
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {},
+          lineTo(): void {},
+          stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d')!,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    };
+
+    const firstReference = layer.droppedSegments;
+    redrawStaticLayer(layer, board, new Set());
+    const secondReference = layer.droppedSegments;
+    redrawStaticLayer(layer, board, new Set());
+    const thirdReference = layer.droppedSegments;
+
+    // A caller holding on to an earlier array must see it as it was then,
+    // not emptied or refilled underneath it — that is what lets a consumer
+    // that compares by identity (e.g. React state) notice the change at all.
+    expect(secondReference).not.toBe(firstReference);
+    expect(thirdReference).not.toBe(secondReference);
   });
 
   it('does not swallow a failure that is not malformed segment data', () => {
@@ -896,7 +1021,6 @@ describe('redrawStaticLayer', () => {
       viewport: createBufferViewport(20),
       allocationOk: true,
       attempts: [],
-      legibleUnzoomed: true,
       droppedSegments: [],
     };
 

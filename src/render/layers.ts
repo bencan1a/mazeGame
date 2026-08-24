@@ -54,11 +54,11 @@ function requirePositiveFinite(value: number, name: string): void {
  * A viewport dimension the platform handed us (e.g. a `clientWidth` read
  * before layout), rather than one the caller chose. Zero, missing, or
  * non-finite means "cannot judge yet", not a programming error, so this
- * absorbs it into `fallback` instead of throwing — an advisory boolean like
- * `legibleUnzoomed` must never be able to take down buffer allocation.
+ * absorbs it into `fallback` instead of throwing — legibility queries must
+ * never be able to throw over an unmeasured layout.
  */
-function resolveCssViewportDimension(value: number | undefined, fallback: number): number {
-  return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
+function resolveCssViewportDimension(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 /**
@@ -269,20 +269,19 @@ export interface StaticLayer {
   /** Every rung the degradation ladder tried, in order, for diagnostics. */
   readonly attempts: readonly DegradationAttempt[];
   /**
-   * Whether an arrowhead reads as a direction at the board's actual unzoomed
-   * on-screen scale — see `isBoardLegibleUnzoomed`. False means a caller
-   * must require the player to zoom in before this board is playable.
-   */
-  readonly legibleUnzoomed: boolean;
-  /**
-   * Segment ids `redrawStaticLayer` could not fully draw on its most recent
-   * call, because of malformed data (an out-of-range palette index or
+   * Segment ids the most recent `redrawStaticLayer` call could not fully
+   * draw, because of malformed data (an out-of-range palette index or
    * `segDir`). Empty on a healthy board. Left partly or fully undrawn — a
    * one-cell segment's dot strokes before its arrowhead can throw — the
    * segment is still tappable via `occupancy` regardless, so a caller may
    * want to warn rather than leave it silently wrong.
+   *
+   * `redrawStaticLayer` replaces this array wholesale on every call rather
+   * than mutating it in place, so a caller holding a reference from an
+   * earlier call keeps seeing that call's own result — safe to store in
+   * state that compares by identity.
    */
-  readonly droppedSegments: SegmentId[];
+  droppedSegments: readonly SegmentId[];
 }
 
 export interface StaticLayerOptions extends DegradationOptions {
@@ -292,15 +291,6 @@ export interface StaticLayerOptions extends DegradationOptions {
   readonly maxZoom?: number;
   /** Explicit override for what the buffer asks for, before the cap. Defaults to `recommendedPixelsPerCell(dpr, maxZoom)`. */
   readonly requestedPixelsPerCell?: number;
-  /**
-   * Actual CSS width the board will render into unzoomed, for
-   * `legibleUnzoomed`. Advisory: often read from the platform (e.g. a
-   * `clientWidth` measured before layout), so zero, missing, or non-finite
-   * falls back to `REFERENCE_CSS_VIEWPORT_WIDTH` rather than throwing.
-   */
-  readonly cssViewportWidth?: number;
-  /** Actual CSS height the board will render into unzoomed, for `legibleUnzoomed`. Same fallback as `cssViewportWidth`. */
-  readonly cssViewportHeight?: number;
   readonly createCanvas?: () => CanvasLike;
 }
 
@@ -366,12 +356,6 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
 
   const originPx = ARROWHEAD_OVERHANG_CELLS * budget.pixelsPerCell;
   const viewport = createBufferViewport(budget.pixelsPerCell, originPx, originPx);
-  const legibleUnzoomed = isBoardLegibleUnzoomed(
-    board.width,
-    board.height,
-    resolveCssViewportDimension(options.cssViewportWidth, REFERENCE_CSS_VIEWPORT_WIDTH),
-    resolveCssViewportDimension(options.cssViewportHeight, REFERENCE_CSS_VIEWPORT_WIDTH),
-  );
   return {
     canvas,
     ctx: liveCtx,
@@ -379,9 +363,45 @@ export function createStaticLayer(board: Board, options: StaticLayerOptions = {}
     viewport,
     allocationOk: liveOk,
     attempts,
-    legibleUnzoomed,
     droppedSegments: [],
   };
+}
+
+/**
+ * Whether `layer` reads its arrowheads legibly right now, for `board`
+ * displayed unzoomed in a live CSS viewport `availableCssWidth` by
+ * `availableCssHeight` — a query the caller makes per layout (on mount,
+ * rotate, resize), not a value cached at buffer creation. A cached flag
+ * cannot track any of that: the buffer is resolution-independent, so
+ * nothing rebuilds it on rotate or resize, and its own achieved resolution
+ * (`layer.budget.pixelsPerCell`, which the degradation ladder may have
+ * reduced) bounds what can actually render sharp regardless of how much
+ * room the viewport has. This folds both in: it caps the viewport size by
+ * what the buffer can supply without blurring, then asks
+ * `isBoardLegibleUnzoomed` — the pure scale check — whether what is left
+ * clears the floor.
+ *
+ * `availableCssWidth`/`availableCssHeight` are platform measurements (a
+ * `clientWidth` read before layout can legitimately be 0), so an unusable
+ * value falls back to `REFERENCE_CSS_VIEWPORT_WIDTH` rather than throwing —
+ * an advisory answer must never itself be the thing that throws. `dpr`
+ * converts the buffer's device-pixel resolution to the CSS-pixel terms the
+ * viewport size and the legibility floor are both expressed in.
+ */
+export function isLayerLegibleUnzoomed(
+  layer: StaticLayer,
+  board: Board,
+  availableCssWidth: number,
+  availableCssHeight: number,
+  dpr = 1,
+): boolean {
+  requirePositiveFinite(dpr, 'dpr');
+  const width = resolveCssViewportDimension(availableCssWidth, REFERENCE_CSS_VIEWPORT_WIDTH);
+  const height = resolveCssViewportDimension(availableCssHeight, REFERENCE_CSS_VIEWPORT_WIDTH);
+  const bufferCssPixelsPerCell = layer.budget.pixelsPerCell / dpr;
+  const effectiveWidth = Math.min(width, bufferCssPixelsPerCell * board.width);
+  const effectiveHeight = Math.min(height, bufferCssPixelsPerCell * board.height);
+  return isBoardLegibleUnzoomed(board.width, board.height, effectiveWidth, effectiveHeight);
 }
 
 /** Redraws every non-removed segment. The caller decides when that is needed — see `removedSetsDiffer`. */
@@ -390,13 +410,14 @@ export function redrawStaticLayer(
   board: Board,
   removed: ReadonlySet<SegmentId>,
 ): void {
-  const { ctx, viewport, budget, droppedSegments } = layer;
-  droppedSegments.length = 0;
+  const { ctx, viewport, budget } = layer;
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
+  const dropped: SegmentId[] = [];
   for (let id = 1; id <= board.segmentCount; id++) {
     if (removed.has(id)) continue;
-    if (!drawSegmentGuarded(ctx, board, id, viewport)) droppedSegments.push(id);
+    if (!drawSegmentGuarded(ctx, board, id, viewport)) dropped.push(id);
   }
+  layer.droppedSegments = dropped;
 }
 
 export interface AnimationLayer {

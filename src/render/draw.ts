@@ -155,11 +155,16 @@ export function isBoardLegibleUnzoomed(
 
 /**
  * Strokes one segment's polyline, cell-center to cell-center, except its
- * last vertex: for a segment of two cells or more that stops short of the
- * head cell's own center, leaving that cell for `drawArrowhead` to fill
- * without the stroke drawn on top of it. A single-cell segment has no line
- * to draw, so it gets a dot — a zero-length subpath with a round cap —
- * rather than vanishing silently.
+ * last vertex: for a segment of two cells or more that stops mostly short
+ * of the head cell's own center, but not entirely — the stroke's rounded
+ * end deliberately reaches about 0.3 of a cell past the head cell's near
+ * edge (the line width's own radius), so `drawArrowhead`'s base has no
+ * anti-aliasing seam against it once both are drawn. A caller that strokes
+ * the body without also drawing the arrowhead on the same frame will show
+ * that overlap as a small stub past the true half-cell edge; it is only
+ * invisible once the arrowhead's fill covers it. A single-cell segment has
+ * no line to draw, so it gets a dot — a zero-length subpath with a round
+ * cap — rather than vanishing silently.
  *
  * Throws `RangeError` for a malformed `segColor` or (on a multi-cell
  * segment) `segDir` — see `drawSegmentGuarded` for a caller, such as a
@@ -277,13 +282,16 @@ export function drawSegment<S extends PixelSpace>(
 
 /**
  * `drawSegment`, with a malformed `segColor` or `segDir` turned into a
- * no-op instead of a throw: returns whether it actually drew anything. The
- * one guard both `redrawStaticLayer`'s per-segment loop and a per-frame
- * animation caller need, so that one bad segment cannot stop either — a
- * loop over many segments would otherwise lose the rest of the frame past
- * the bad one, and a single-segment-per-frame caller would otherwise stop
- * scheduling its next frame at all. Anything else — a dead canvas context,
- * say — still propagates rather than being absorbed here.
+ * skipped throw instead of a crash: returns whether it drew *completely*,
+ * not whether it drew at all — a one-cell segment's dot still strokes
+ * before a bad `segDir` makes `drawArrowhead` throw, so `false` can mean
+ * something was drawn. The one guard both `redrawStaticLayer`'s
+ * per-segment loop and a per-frame animation caller need, so that one bad
+ * segment cannot stop either — a loop over many segments would otherwise
+ * lose the rest of the frame past the bad one, and a
+ * single-segment-per-frame caller would otherwise stop scheduling its next
+ * frame at all. Anything else — a dead canvas context, say — still
+ * propagates rather than being absorbed here.
  */
 export function drawSegmentGuarded<S extends PixelSpace>(
   ctx: StrokeContext2D & FillContext2D,
