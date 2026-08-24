@@ -4,8 +4,14 @@ import { makeBoard } from '../../test/fixtures/board.js';
 import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
 import type { Board, SegmentId } from '../core/types.js';
 import { generateBoard } from '../core/generate.js';
-import { cell, cellCenterToCssPixel, createViewport, cssPixel } from '../render/viewport.js';
-import { createGameState, isFree } from './state.js';
+import {
+  cell,
+  cellCenterToCssPixel,
+  createViewport,
+  cssPixel,
+  cssPixelToCell,
+} from '../render/viewport.js';
+import { animationComplete, createGameState, isFree, tap } from './state.js';
 import type { GameState } from './state.js';
 import { DEFAULT_TAP_RADIUS_CSS_PX, hitTest } from './hitTest.js';
 import type { FreePredicate } from './hitTest.js';
@@ -50,16 +56,84 @@ describe('hitTest: direct hit', () => {
 
     expect(result).toBe(FREE_ID);
   });
-});
 
-describe('hitTest: radius search', () => {
-  it('skips a blocked segment tapped directly and snaps to a nearby free one', () => {
+  it("returns a blocked segment tapped directly, not the radius search's free alternative", () => {
     const board = twoSegmentBoard();
     const viewport = createViewport({ scale: 10 });
     const state = stateWithRemoved(board, []);
     const isFreePred = (id: SegmentId) => isFree(state, id);
 
-    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred, { radiusCssPx: 40 });
+    // `b` (blocked) is tapped directly; `a` (free) sits 3 cells away and
+    // would otherwise be the radius search's answer at this radius.
+    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred, { radiusCssPx: 1000 });
+
+    expect(result).toBe(BLOCKED_ID);
+  });
+
+  it('returns the same occupant regardless of free/blocked status, since a direct hit never consults isFree', () => {
+    const board = twoSegmentBoard();
+    const viewport = createViewport({ scale: 10 });
+    const point = cssPixel(45, 15);
+
+    const whileBlocked = stateWithRemoved(board, []);
+    expect(hitTest(board, viewport, point, (id: SegmentId) => isFree(whileBlocked, id))).toBe(
+      BLOCKED_ID,
+    );
+
+    const onceFree = stateWithRemoved(board, [FREE_ID]);
+    expect(hitTest(board, viewport, point, (id: SegmentId) => isFree(onceFree, id))).toBe(
+      BLOCKED_ID,
+    );
+  });
+});
+
+describe('hitTest: a direct hit on a blocked segment is a bounce', () => {
+  it('drives tap() to a bounced outcome that costs exactly one life', () => {
+    const board = twoSegmentBoard();
+    const viewport = createViewport({ scale: 10 });
+    const state = stateWithRemoved(board, []);
+    const isFreePred = (id: SegmentId) => isFree(state, id);
+
+    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred);
+    expect(result).toBe(BLOCKED_ID);
+
+    const after = tap(state, result);
+
+    expect(after.lastOutcome).toEqual({
+      kind: 'bounced',
+      id: BLOCKED_ID,
+      livesRemaining: state.lives - 1,
+    });
+    expect(after.lives).toBe(state.lives - 1);
+  });
+
+  it('reaches lost status once enough direct-hit bounces exhaust every life', () => {
+    const board = twoSegmentBoard();
+    const viewport = createViewport({ scale: 10 });
+    let state = stateWithRemoved(board, []);
+    const startingLives = state.lives;
+
+    for (let i = 0; i < startingLives; i++) {
+      const isFreePred = (id: SegmentId) => isFree(state, id);
+      const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred);
+      state = animationComplete(tap(state, result));
+    }
+
+    expect(state.status).toBe('lost');
+    expect(state.lives).toBe(0);
+  });
+});
+
+describe('hitTest: radius search (empty direct hit)', () => {
+  it('skips a blocked segment and snaps to a nearby free one', () => {
+    const board = twoSegmentBoard();
+    const viewport = createViewport({ scale: 10 });
+    const state = stateWithRemoved(board, []);
+    const isFreePred = (id: SegmentId) => isFree(state, id);
+
+    // Tap lands on the empty cell between `a` and `b`. `b`'s box is only
+    // 5px away but blocked; `a`'s box, 15px away, is the only free option.
+    const result = hitTest(board, viewport, cssPixel(35, 15), isFreePred, { radiusCssPx: 40 });
 
     expect(result).toBe(FREE_ID);
   });
@@ -70,7 +144,7 @@ describe('hitTest: radius search', () => {
     const state = stateWithRemoved(board, []);
     const isFreePred = (id: SegmentId) => isFree(state, id);
 
-    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred, { radiusCssPx: 1000 });
+    const result = hitTest(board, viewport, cssPixel(35, 15), isFreePred, { radiusCssPx: 1000 });
 
     expect(result).not.toBe(BLOCKED_ID);
     expect(result).toBe(FREE_ID);
@@ -82,42 +156,31 @@ describe('hitTest: radius search', () => {
     const state = stateWithRemoved(board, []);
     const isFreePred = (id: SegmentId) => isFree(state, id);
 
-    // The nearest cell within 1.5 cells of `b` holding anything is `b`
-    // itself, which is blocked; `a` sits 3 cells away, out of reach.
-    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred, { radiusCssPx: 15 });
+    // `a`'s box is 15px from the tap; `b`'s box is 5px away but blocked, so
+    // a 10px radius reaches neither a free segment nor a bounceable one.
+    const result = hitTest(board, viewport, cssPixel(35, 15), isFreePred, { radiusCssPx: 10 });
 
     expect(result).toBeNull();
-  });
-
-  it('selects `b` directly once removing `a` makes it free', () => {
-    const board = twoSegmentBoard();
-    const viewport = createViewport({ scale: 10 });
-    const state = stateWithRemoved(board, [FREE_ID]);
-    const isFreePred = (id: SegmentId) => isFree(state, id);
-
-    const result = hitTest(board, viewport, cssPixel(45, 15), isFreePred, { radiusCssPx: 40 });
-
-    expect(result).toBe(BLOCKED_ID);
   });
 });
 
 describe('hitTest: radius is a constant CSS-pixel size', () => {
-  const B_CELL = cell(4, 1);
+  const EMPTY_CELL = cell(3, 1);
 
-  it('reaches a free segment 3 cells away when zoomed out, and misses it when zoomed in', () => {
+  it('reaches a free segment when zoomed out, and misses it when zoomed in', () => {
     const board = twoSegmentBoard();
     const state = stateWithRemoved(board, []);
     const isFreePred = (id: SegmentId) => isFree(state, id);
 
-    // `a`'s box is 12.5px from the tap at scale 5 but 25px at scale 10, on
-    // either side of the default 24px radius — the same 3-cell gap reads as
-    // reachable or not purely because the board is more zoomed in.
-    const zoomedOut = createViewport({ scale: 5 });
-    const tapZoomedOut = cellCenterToCssPixel(zoomedOut, B_CELL);
+    // `a`'s box is 1.5 cells from this empty tapped cell, so its pixel
+    // distance is 1.5x the scale: 15px at scale 10, 30px at scale 20 — on
+    // either side of the default 24px radius.
+    const zoomedOut = createViewport({ scale: 10 });
+    const tapZoomedOut = cellCenterToCssPixel(zoomedOut, EMPTY_CELL);
     expect(hitTest(board, zoomedOut, tapZoomedOut, isFreePred)).toBe(FREE_ID);
 
-    const zoomedIn = createViewport({ scale: 10 });
-    const tapZoomedIn = cellCenterToCssPixel(zoomedIn, B_CELL);
+    const zoomedIn = createViewport({ scale: 20 });
+    const tapZoomedIn = cellCenterToCssPixel(zoomedIn, EMPTY_CELL);
     expect(hitTest(board, zoomedIn, tapZoomedIn, isFreePred)).toBeNull();
   });
 });
@@ -192,12 +255,16 @@ describe('DEFAULT_TAP_RADIUS_CSS_PX', () => {
   });
 });
 
-describe('hitTest: never returns a blocked segment', () => {
+describe('hitTest: property tests over generated boards', () => {
   const boards = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) =>
     generateBoard({ ...DEFAULT_GEN_PARAMS, gridSize: 16, seed }),
   );
 
-  it('over arbitrary boards, tap pixels and removed-sets, a returned id is always free', () => {
+  function inBounds(board: Board, x: number, y: number): boolean {
+    return x >= 0 && y >= 0 && x < board.width && y < board.height;
+  }
+
+  it('a result from an empty or out-of-bounds direct hit is always free; an occupied direct hit always returns its occupant', () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...boards),
@@ -213,10 +280,21 @@ describe('hitTest: never returns a blocked segment', () => {
           );
           const isFreePred = (id: SegmentId) => isFree(state, id);
           const viewport = createViewport({ scale });
+          const point = cssPixel(x, y);
 
-          const result = hitTest(board, viewport, cssPixel(x, y), isFreePred);
+          const directCell = cssPixelToCell(viewport, point);
+          const directOccupant = inBounds(board, directCell.x, directCell.y)
+            ? (board.occupancy[directCell.y * board.width + directCell.x] as SegmentId)
+            : 0;
 
-          if (result !== null) {
+          const result = hitTest(board, viewport, point, isFreePred);
+
+          if (directOccupant !== 0) {
+            // The radius search never runs: the direct hit owns the answer,
+            // free or blocked.
+            expect(result).toBe(directOccupant);
+          } else if (result !== null) {
+            // The radius search ran and must never hand back a blocked id.
             expect(isFreePred(result)).toBe(true);
           }
         },

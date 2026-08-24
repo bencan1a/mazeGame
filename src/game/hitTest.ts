@@ -1,13 +1,14 @@
 /**
  * Pixel -> cell -> segment hit testing.
  *
- * A direct hit reads `occupancy` once. When that cell is empty, out of
- * bounds, or the segment sitting on it is blocked, the radius search takes
- * over: it scans every cell in a bounding box around the tapped cell, wide
- * enough to cover the radius, and keeps the one whose square is closest to
- * the exact tap point — in CSS pixels, not cell count — among those whose
- * segment `isFree` accepts. A cell holding a blocked segment is skipped,
- * never returned as a fallback.
+ * A direct hit reads `occupancy` once and returns whatever segment is there,
+ * free or blocked: the player aimed at it and owns the result, including a
+ * bounce. Only when that cell is empty or out of bounds does the radius
+ * search take over, and it answers a different question — the nearest free
+ * segment to tolerate a miss by — so it never returns a blocked one. It
+ * scans every cell in a bounding box around the tapped cell, wide enough to
+ * cover the radius, and keeps the one whose square is closest to the exact
+ * tap point, in CSS pixels, not cell count, among those `isFree` accepts.
  */
 
 import type { Board, SegmentId } from '../core/types.js';
@@ -32,8 +33,13 @@ function requireNonNegativeFinite(value: number, name: string): void {
 }
 
 /**
- * Resolves a CSS-pixel tap to the nearest free segment within radius, or
- * `null` for a miss. Never returns a segment `isFree` rejects.
+ * Resolves a CSS-pixel tap to a segment id, or `null` for a miss.
+ *
+ * A tap directly on a segment returns that segment's id whether or not it is
+ * free — the caller decides what a blocked direct hit means (a bounce).
+ * A tap on an empty cell instead searches `radiusCssPx` for the nearest free
+ * segment, and only ever returns a free one there; with none in radius the
+ * result is `null`, a miss with nothing to bounce off of.
  *
  * A non-finite `point` (a `NaN` from a malformed pointer event) is a miss,
  * not a thrown error or an out-of-bounds cell read.
@@ -53,7 +59,7 @@ export function hitTest(
   const center = cssPixelToCell(viewport, point);
   if (isInBounds(board, center.x, center.y)) {
     const direct = board.occupancy[center.y * board.width + center.x] as SegmentId;
-    if (direct !== 0 && isFree(direct)) return direct;
+    if (direct !== 0) return direct;
   }
 
   return nearestFreeInRadius(board, viewport, point, center.x, center.y, radiusCssPx, isFree);
