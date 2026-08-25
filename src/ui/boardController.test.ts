@@ -36,11 +36,15 @@ describe('boardPanBounds', () => {
     expect(clamped.originY).toBe(285);
   });
 
-  it('does not centre once the board is larger than the canvas', () => {
-    // 3 cells at scale 200 is 600 CSS px against a 300-wide canvas, so the
-    // origin is clamped into [canvas - content, 0] rather than centred.
-    const clamped = clampPan(createViewport({ scale: 200 }), boardPanBounds(board, 300, 600));
-    expect(clamped.originX).toBeLessThanOrEqual(0);
-    expect(clamped.originY).toBeLessThanOrEqual(0);
+  it('clamps rather than centres once the board is larger than the canvas', () => {
+    // 3 cells at scale 200 is 600 CSS px. Against a 300x400 canvas both axes
+    // overflow, so the origin is clamped into [canvas - content, 0]:
+    // [-300, 0] across and [-200, 0] down.
+    const clamped = clampPan(
+      createViewport({ scale: 200, originX: 100, originY: -1000 }),
+      boardPanBounds(board, 300, 400),
+    );
+    expect(clamped.originX).toBe(0);
+    expect(clamped.originY).toBe(-200);
   });
 });

@@ -14,8 +14,10 @@ function paramsFromLocation(): GenParams {
   if (typeof window === 'undefined') return DEFAULT_GEN_PARAMS;
   const query = new URLSearchParams(window.location.search);
   const asInt = (key: string, min: number, max: number): number | null => {
-    const raw = query.get(key);
-    if (raw === null) return null;
+    const raw = query.get(key)?.trim();
+    // `Number('')` is 0, so an empty parameter would silently pick a board
+    // rather than falling back to the default.
+    if (raw === undefined || raw === '') return null;
     const value = Number(raw);
     return Number.isInteger(value) && value >= min && value <= max ? value : null;
   };

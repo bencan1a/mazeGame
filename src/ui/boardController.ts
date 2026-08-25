@@ -184,8 +184,15 @@ export function createBoardController(
   const blit = (): void => {
     const ctx = base.getContext('2d');
     if (ctx === null) {
-      canvasOk = false;
+      if (canvasOk) {
+        canvasOk = false;
+        publish();
+      }
       return;
+    }
+    if (!canvasOk) {
+      canvasOk = true;
+      publish();
     }
     const rects = computeBlitRects(
       viewport,
@@ -284,6 +291,7 @@ export function createBoardController(
       // the base layer beside the animating one for the whole flight.
       syncStaticLayer();
       blit();
+      publish();
       startExit(state.lastOutcome.id);
       return;
     }
@@ -328,9 +336,9 @@ export function createBoardController(
         // replay the exit already on screen. The queue is drained by whatever
         // settles the animation in flight.
         //
-        // No publish either. The counter follows the static layer — a piece is
-        // counted once it has been lifted off it, which happens as its exit
-        // starts — while a terminal status waits for the board to settle.
+        // No publish either. The counter follows the static layer: a piece is
+        // counted as its exit starts, which is when it is lifted off that
+        // layer. A terminal status waits for the board to settle.
         if (!wasAnimating) driveOutcome();
       },
       onPanMove: (dx, dy) => {
