@@ -86,8 +86,9 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
       );
     }
     throw new MaskRepairError(
-      `mask repair dropped every lobe — none reached the ${minRegionCells}-cell minimum region ` +
-        'size; lower minRegionCells, or try a larger gridSize or fillFraction',
+      `mask repair dropped every lobe — none reached the ${minHalfResCells * 4}-cell minimum ` +
+        `region size (minRegionCells ${minRegionCells}, rounded up to a whole number of 2x2 ` +
+        'blocks); lower minRegionCells, or try a larger gridSize or fillFraction',
     );
   }
 

@@ -132,8 +132,8 @@ export function pathViolations(path: HamiltonianPath, mask: Mask): string[] {
   for (let r = 0; r + 1 < regionStart.length; r++) {
     const from = regionStart[r] as number;
     const to = regionStart[r + 1] as number;
-    if (to < from) {
-      out.push(`region ${r + 1} runs from ${from} to ${to}`);
+    if (to < from || to > cells.length) {
+      out.push(`region ${r + 1} runs from ${from} to ${to}, outside 0..${cells.length}`);
       continue;
     }
     for (let i = from; i < to; i++) {

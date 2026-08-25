@@ -313,6 +313,14 @@ describe('repairMask edge cases', () => {
     expect(mask).toThrow(/none reached the 1000-cell minimum region size/);
   });
 
+  it('names the effective floor, rounded up to whole blocks, not the raw request', () => {
+    // Repair filters at half resolution, so a request of 999 can only bite at
+    // the next whole 2x2 block up.
+    const mask = (): unknown => repairMask(dumbbellBlob(), { minRegionCells: 999 });
+    expect(mask).toThrow(/none reached the 1000-cell minimum region size/);
+    expect(mask).toThrow(/minRegionCells 999, rounded up/);
+  });
+
   it('drops a lobe below the minimum region size while keeping the rest', () => {
     // The same dumbbell, with the smaller lobe's 9 half-res cells (36
     // full-resolution) below a threshold the larger lobe's 15 (60) clears.

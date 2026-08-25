@@ -103,6 +103,16 @@ describe('path postconditions', () => {
     expect(violations).toContainEqual(expect.stringContaining('outside the grid'));
   });
 
+  it('catches a region slice reaching past the end of the walk', () => {
+    const mask = makeMask({ width: 2, height: 2 });
+    const violations = pathViolations(
+      { cells: Uint32Array.from([0, 1, 3, 2]), regionStart: Uint32Array.from([0, 9]) },
+      mask,
+    );
+
+    expect(violations).toContainEqual(expect.stringContaining('outside 0..4'));
+  });
+
   it('agrees with directionBetween about what a step is', () => {
     const mask = makeMask({ width: 3, height: 3 });
     expect(directionBetween(0, 1, mask.width)).not.toBe(-1);
