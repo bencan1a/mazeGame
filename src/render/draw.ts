@@ -172,14 +172,13 @@ export function isBoardLegibleUnzoomed(
 }
 
 /**
- * Extends the current subpath from `(ax, ay)` through the vertex at
- * `(cx, cy)` on its way to `(bx, by)`, as an arc of at most `maxRadius`
- * where the two legs turn and as a plain line where they do not. The
- * radius is pulled in to half of whichever leg is shorter, so the corners
- * at either end of one leg cannot claim overlapping stretches of it.
+ * The radius to round the vertex at `(cx, cy)` with, arrived at from
+ * `(ax, ay)` and leaving toward `(bx, by)`: `maxRadius`, pulled in to half
+ * of whichever leg is shorter so the corners at either end of one leg
+ * cannot claim overlapping stretches of it, and 0 where the two legs do
+ * not turn at all.
  */
-function strokeCorner(
-  ctx: StrokeContext2D,
+export function cornerRadiusAt(
   ax: number,
   ay: number,
   cx: number,
@@ -187,17 +186,30 @@ function strokeCorner(
   bx: number,
   by: number,
   maxRadius: number,
-): void {
+): number {
   const inX = cx - ax;
   const inY = cy - ay;
   const outX = bx - cx;
   const outY = by - cy;
-  if (inX * outY - inY * outX === 0) {
-    ctx.lineTo(cx, cy);
-    return;
-  }
-  const radius = Math.min(maxRadius, Math.hypot(inX, inY) / 2, Math.hypot(outX, outY) / 2);
-  ctx.arcTo(cx, cy, bx, by, radius);
+  if (inX * outY - inY * outX === 0) return 0;
+  return Math.min(maxRadius, Math.hypot(inX, inY) / 2, Math.hypot(outX, outY) / 2);
+}
+
+/**
+ * Extends the current subpath through the vertex at `(cx, cy)` on its way
+ * to `(bx, by)`, as an arc of `radius` or, at radius 0, as a plain line to
+ * the vertex itself.
+ */
+export function strokeCorner(
+  ctx: StrokeContext2D,
+  cx: number,
+  cy: number,
+  bx: number,
+  by: number,
+  radius: number,
+): void {
+  if (radius === 0) ctx.lineTo(cx, cy);
+  else ctx.arcTo(cx, cy, bx, by, radius);
 }
 
 /**
@@ -267,7 +279,14 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
     }
     if (i === start) ctx.moveTo(px, py);
     else if (i > start + 1) {
-      strokeCorner(ctx, prevX, prevY, curX, curY, px, py, maxRadius);
+      strokeCorner(
+        ctx,
+        curX,
+        curY,
+        px,
+        py,
+        cornerRadiusAt(prevX, prevY, curX, curY, px, py, maxRadius),
+      );
     }
     prevX = curX;
     prevY = curY;
