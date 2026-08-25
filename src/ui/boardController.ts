@@ -84,6 +84,21 @@ export interface BoardController {
   destroy(): void;
 }
 
+/**
+ * Everything a caller needs to write a resumable save, in one payload. It
+ * carries `status` because a won or lost board must not be resumed — it would
+ * come back already over, with no way to play it — and `segmentCount` because
+ * the first callback fires before the constructor has returned, so a caller
+ * has no controller to read it off yet.
+ */
+export interface ResumableState {
+  readonly snapshot: GameSnapshot;
+  readonly genParams: GenParams;
+  readonly playParams: PlayParams;
+  readonly segmentCount: number;
+  readonly status: GameState['status'];
+}
+
 export interface BoardControllerOptions {
   /**
    * Resumes a saved game on the generated board rather than starting fresh.
@@ -92,15 +107,18 @@ export interface BoardControllerOptions {
    */
   readonly snapshot?: GameSnapshot;
   /**
+   * Segment count the `snapshot` was taken against. A generated board that
+   * disagrees is the same seed describing different segments, so the removed
+   * set no longer names what the player cleared — the constructor throws
+   * rather than resuming a game onto a board it does not fit.
+   */
+  readonly expectedSegmentCount?: number;
+  /**
    * Called whenever the resumable state changes — a settled tap, a restart, a
    * reconfigure. The controller holds no storage of its own; this is the hook
    * a persistence layer writes through.
    */
-  readonly onSnapshot?: (
-    snapshot: GameSnapshot,
-    genParams: GenParams,
-    playParams: PlayParams,
-  ) => void;
+  readonly onSnapshot?: (state: ResumableState) => void;
 }
 
 export interface BoardCanvases {
@@ -185,6 +203,16 @@ export function createBoardController(
   let board: Board = generated.board;
   let metrics: BoardMetrics | null = null;
 
+  if (
+    options.snapshot !== undefined &&
+    options.expectedSegmentCount !== undefined &&
+    options.expectedSegmentCount !== board.segmentCount
+  ) {
+    throw new RangeError(
+      `createBoardController: saved game expects ${options.expectedSegmentCount} segments, ` +
+        `seed ${genParams.seed} now generates ${board.segmentCount}`,
+    );
+  }
   let state: GameState =
     options.snapshot === undefined
       ? createGameState(board, playParams)
@@ -230,7 +258,14 @@ export function createBoardController(
    * and a tap mid-animation is still queued rather than resolved.
    */
   const publishSnapshot = (): void => {
-    options.onSnapshot?.(snapshotGameState(state), genParams, playParams);
+    if (options.onSnapshot === undefined) return;
+    options.onSnapshot({
+      snapshot: snapshotGameState(state),
+      genParams,
+      playParams,
+      segmentCount: board.segmentCount,
+      status: state.status,
+    });
   };
 
   const removedSet = (): Set<number> => {
@@ -511,9 +546,11 @@ export function createBoardController(
       publishSnapshot();
     },
     reconfigure(nextGenParams, nextPlayParams) {
-      // Both allocations happen before anything is torn down, so a parameter
-      // set that cannot generate — or a board too large for a second buffer —
-      // throws with the board on screen still playable under its old params.
+      if (disposed) return;
+      // Everything that can throw runs before anything is torn down, so a
+      // parameter set that cannot generate — or a buffer that cannot take a
+      // 2d context — leaves the board on screen playable under its old
+      // parameters. The cost is that both buffers are briefly live.
       const nextGenerated = generateTimed(nextGenParams);
       const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
 
