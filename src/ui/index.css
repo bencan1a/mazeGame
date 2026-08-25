@@ -97,3 +97,119 @@ body,
   inset: 0;
   display: block;
 }
+
+.dev-panel-toggle {
+  position: fixed;
+  right: calc(0.75rem + env(safe-area-inset-right));
+  bottom: calc(3.75rem + env(safe-area-inset-bottom));
+  z-index: 10;
+  font: inherit;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--muted);
+  background: var(--bg);
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.dev-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-top: 1px solid var(--muted);
+  padding: 0.75rem calc(0.75rem + env(safe-area-inset-right))
+    calc(0.75rem + env(safe-area-inset-bottom)) calc(0.75rem + env(safe-area-inset-left));
+  font-size: 0.875rem;
+}
+
+.dev-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.dev-panel-head button,
+.dev-panel-metrics button {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: inherit;
+}
+
+.dev-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.dev-field {
+  display: grid;
+  grid-template-columns: 9rem 1fr 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dev-field-label {
+  color: var(--muted);
+}
+
+.dev-field-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dev-field input[type='number'] {
+  font: inherit;
+  width: 6rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--muted);
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.dev-field button {
+  font: inherit;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: inherit;
+}
+
+.dev-panel-note {
+  color: var(--muted);
+  margin: 0.5rem 0;
+}
+
+.dev-panel-error {
+  color: #f2a3a3;
+  margin: 0.5rem 0;
+}
+
+.dev-panel-metrics dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.15rem 0.75rem;
+  margin: 0.5rem 0 0;
+}
+
+.dev-panel-metrics dt {
+  color: var(--muted);
+}
+
+.dev-panel-metrics dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

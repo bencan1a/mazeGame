@@ -1,14 +1,27 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS, type GenParams } from '../core/types.js';
-import { createBoardController, type BoardController, type BoardHud } from './boardController.js';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  DEFAULT_GEN_PARAMS,
+  DEFAULT_PLAY_PARAMS,
+  type BoardMetrics,
+  type GenParams,
+  type PlayParams,
+} from '../core/types.js';
+import { clearSavedGame, loadSavedGame, saveGame, type SavedGame } from '../game/persistence.js';
+import {
+  createBoardController,
+  type BoardController,
+  type BoardHud,
+  type ResumableState,
+} from './boardController.js';
+import { DevPanel } from './DevPanel.js';
 
 /** How long a lost board stays readable before it replays the same seed. */
 const LOSS_BEAT_MS = 1600;
 
 /**
- * `?grid=` and `?seed=` override the defaults. The tuning panel is a later
- * milestone; this is the only way to reach a size other than the default,
- * which the on-device performance pass needs.
+ * `?grid=` and `?seed=` override the defaults for the very first board. Once
+ * the dev panel is open it takes over live editing of every generation
+ * parameter.
  */
 function paramsFromLocation(): GenParams {
   if (typeof window === 'undefined') return DEFAULT_GEN_PARAMS;
@@ -52,6 +65,38 @@ export function BoardMount(): ReactElement {
   const controllerRef = useRef<BoardController | null>(null);
   const [hud, setHud] = useState<BoardHud>(INITIAL_HUD);
   const [error, setError] = useState<string | null>(null);
+  const [genParams, setGenParams] = useState<GenParams>(paramsFromLocation);
+  const [playParams, setPlayParams] = useState<PlayParams>(DEFAULT_PLAY_PARAMS);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [metrics, setMetrics] = useState<BoardMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const pendingSaveRef = useRef<ResumableState | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
+
+  /**
+   * Writing straight from the callback would put a synchronous `localStorage`
+   * write on the frame that finishes an exit animation, where a dropped frame
+   * is most visible. Only the newest state is ever written; the ones a fast
+   * sequence of taps produces in between are superseded before the timer runs.
+   */
+  const persist = useCallback((state: ResumableState) => {
+    pendingSaveRef.current = state;
+    if (saveTimerRef.current !== null) return;
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      const latest = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if (latest === null) return;
+      // A finished board is not worth resuming: it would come back already
+      // over, with nothing to play and no way to tell why.
+      if (latest.status !== 'playing') {
+        clearSavedGame();
+        return;
+      }
+      saveGame(latest.snapshot, latest.genParams, latest.playParams, latest.segmentCount);
+    }, 0);
+  }, []);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -59,27 +104,60 @@ export function BoardMount(): ReactElement {
     const overlay = overlayRef.current;
     if (surface === null || base === null || overlay === null) return;
 
+    const mountController = (saved: SavedGame | null): BoardController =>
+      createBoardController(
+        { surface, base, overlay },
+        saved?.genParams ?? genParams,
+        saved?.playParams ?? playParams,
+        saved === null
+          ? { onSnapshot: persist }
+          : {
+              snapshot: saved.snapshot,
+              expectedSegmentCount: saved.segmentCount,
+              onSnapshot: persist,
+            },
+      );
+
+    // A save is only worth resuming onto the board its own seed generates, and
+    // whether it does is not knowable until that board exists. So the resume
+    // is attempted and the saved game dropped if the controller refuses it,
+    // rather than validated up front by generating the board twice.
+    const saved = loadSavedGame();
     let controller: BoardController;
     try {
-      controller = createBoardController(
-        { surface, base, overlay },
-        paramsFromLocation(),
-        DEFAULT_PLAY_PARAMS,
-      );
+      controller = mountController(saved);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      return;
+      if (saved === null) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        return;
+      }
+      clearSavedGame();
+      try {
+        controller = mountController(null);
+      } catch (fresh) {
+        setError(fresh instanceof Error ? fresh.message : String(fresh));
+        return;
+      }
     }
     controllerRef.current = controller;
     // A failed earlier mount must not leave its alert over a working board.
     setError(null);
     setHud(controller.getHud());
+    setGenParams(controller.getGenParams());
+    setPlayParams(controller.getPlayParams());
     const unsubscribe = controller.subscribe(setHud);
     return () => {
       unsubscribe();
       controller.destroy();
       controllerRef.current = null;
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
     };
+    // Runs once: the dev panel drives every later parameter change through
+    // `reconfigure` on the same controller, not through a remount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -89,6 +167,46 @@ export function BoardMount(): ReactElement {
     const timer = window.setTimeout(() => controllerRef.current?.restartBoard(), LOSS_BEAT_MS);
     return () => window.clearTimeout(timer);
   }, [hud.status]);
+
+  /** `getMetrics` runs a greedy clear, so it is read only while the panel can show it. */
+  const refreshMetrics = useCallback(() => {
+    const controller = controllerRef.current;
+    if (controller === null) return;
+    try {
+      setMetrics(controller.getMetrics());
+      setMetricsError(null);
+    } catch (cause) {
+      setMetrics(null);
+      setMetricsError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (panelOpen) refreshMetrics();
+  }, [panelOpen, refreshMetrics]);
+
+  const applyParams = useCallback(
+    (nextGen: GenParams, nextPlay: PlayParams) => {
+      const controller = controllerRef.current;
+      if (controller === null) return;
+      try {
+        controller.reconfigure(nextGen, nextPlay);
+      } catch (cause) {
+        // The controller has changed nothing on a throw, so the board on
+        // screen is still the old, playable one under its old parameters.
+        setRegenerateError(cause instanceof Error ? cause.message : String(cause));
+        return;
+      }
+      setRegenerateError(null);
+      setGenParams(controller.getGenParams());
+      setPlayParams(controller.getPlayParams());
+      setHud(controller.getHud());
+      if (panelOpen) refreshMetrics();
+    },
+    [panelOpen, refreshMetrics],
+  );
+
+  const togglePanel = useCallback(() => setPanelOpen((was) => !was), []);
 
   const cleared =
     hud.segmentCount === 0 ? 0 : Math.round((hud.removedCount / hud.segmentCount) * 100);
@@ -112,6 +230,17 @@ export function BoardMount(): ReactElement {
         <canvas ref={baseRef} className="board-canvas" />
         <canvas ref={overlayRef} className="board-canvas" />
       </div>
+
+      <DevPanel
+        open={panelOpen}
+        onToggle={togglePanel}
+        genParams={genParams}
+        playParams={playParams}
+        metrics={metrics}
+        metricsError={metricsError}
+        regenerateError={regenerateError}
+        onApply={applyParams}
+      />
 
       <footer className="hud-foot">
         {error !== null ? (
