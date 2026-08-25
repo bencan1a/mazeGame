@@ -136,6 +136,7 @@ npm install
 npm run dev          # vite dev server
 npm run verify       # format + lint + typecheck + tests + coverage — run before every PR
 npm test             # vitest
+npm run test:e2e     # playwright, against a real build — needs `npx playwright install chromium` once
 npm run harness      # headless generator sweep, no DOM
 npm run build        # production build incl. service worker
 npm run budget       # bundle size budget (CI gate)
