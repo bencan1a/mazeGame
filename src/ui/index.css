@@ -26,3 +26,56 @@ body,
   touch-action: none;
   overscroll-behavior: none;
 }
+
+.board-shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.hud,
+.hud-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.hud-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+}
+
+.hud-stat {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.hud button {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: inherit;
+}
+
+.hud-foot {
+  color: var(--muted);
+  min-height: 2.25rem;
+}
+
+.board-surface {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}

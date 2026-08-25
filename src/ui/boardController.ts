@@ -1,0 +1,345 @@
+import { generateBoard } from '../core/generate.js';
+import type { Board, GenParams, PlayParams } from '../core/types.js';
+import {
+  animationComplete,
+  createGameState,
+  createGestureArbiter,
+  hitTest,
+  isFree,
+  isRemoved,
+  restart,
+  tap,
+  type GameState,
+  type GestureArbiter,
+} from '../game/index.js';
+import {
+  blitStaticLayer,
+  clampPan,
+  clampZoomScale,
+  computeBlitRects,
+  createAnimationLayer,
+  createStaticLayer,
+  createDomScheduler,
+  createViewport,
+  isLayerLegibleUnzoomed,
+  maxZoomScale,
+  panViewport,
+  redrawStaticLayer,
+  startSnakeOutAnimation,
+  zoomViewportAt,
+  type AnimationLayer,
+  type SnakeOutAnimation,
+  type StaticLayer,
+  type PanBounds,
+  type Viewport,
+} from '../render/index.js';
+
+/** What the React chrome renders. Never includes anything the canvas draws. */
+export interface BoardHud {
+  readonly lives: number;
+  readonly status: GameState['status'];
+  readonly removedCount: number;
+  readonly segmentCount: number;
+  readonly gridSize: number;
+  /** False when arrowheads are below the legible floor at the resting scale. */
+  readonly legibleUnzoomed: boolean;
+}
+
+export interface BoardController {
+  getHud(): BoardHud;
+  subscribe(listener: (hud: BoardHud) => void): () => void;
+  restartBoard(): void;
+  destroy(): void;
+}
+
+export interface BoardCanvases {
+  /** Receives the static buffer's blit. */
+  readonly base: HTMLCanvasElement;
+  /** Receives the exiting segment, stacked over `base`. */
+  readonly overlay: HTMLCanvasElement;
+  /** Takes the pointer listeners and defines the CSS-pixel origin. */
+  readonly surface: HTMLElement;
+}
+
+/**
+ * Whether the offscreen buffer has to be repainted. `drawn` is null before
+ * anything has been painted, which an empty set is otherwise indistinguishable
+ * from — treating those alike reads as "no change" and skips the first paint.
+ */
+export function removedSetChanged(
+  drawn: ReadonlySet<number> | null,
+  current: ReadonlySet<number>,
+): boolean {
+  if (drawn === null || drawn.size !== current.size) return true;
+  for (const id of current) {
+    if (!drawn.has(id)) return true;
+  }
+  return false;
+}
+
+/**
+ * Pan bounds for a board on a canvas. `boardWidth`/`boardHeight` are in cells,
+ * not CSS pixels — `clampPan` multiplies them by the viewport's own scale, so
+ * passing pixels scales twice and the board never centres.
+ */
+export function boardPanBounds(
+  board: Board,
+  canvasCssWidth: number,
+  canvasCssHeight: number,
+): PanBounds {
+  return {
+    boardWidth: board.width,
+    boardHeight: board.height,
+    canvasCssWidth,
+    canvasCssHeight,
+  };
+}
+
+function readDpr(): number {
+  const dpr = window.devicePixelRatio;
+  return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+}
+
+/**
+ * Owns the board, both canvases and every pointer listener, entirely outside
+ * React. The only thing crossing back is `BoardHud`, which the chrome renders.
+ */
+export function createBoardController(
+  canvases: BoardCanvases,
+  genParams: GenParams,
+  playParams: PlayParams,
+): BoardController {
+  const { base, overlay, surface } = canvases;
+  const board: Board = generateBoard(genParams);
+  const scheduler = createDomScheduler();
+
+  let state: GameState = createGameState(board, playParams);
+  let dpr = readDpr();
+  let cssWidth = 1;
+  let cssHeight = 1;
+  const staticLayer: StaticLayer = createStaticLayer(board, { dpr });
+  let animationLayer: AnimationLayer | null = null;
+  let animation: SnakeOutAnimation | null = null;
+  let drawnRemoved: Set<number> | null = null;
+  let viewport: Viewport<'css'> = createViewport({ scale: 1, dpr });
+  let legibleUnzoomed = true;
+  /** False until the first layout has chosen a real fit scale, so it is not treated as a user zoom. */
+  let fitted = false;
+  let disposed = false;
+
+  const listeners = new Set<(hud: BoardHud) => void>();
+  const hud = (): BoardHud => ({
+    lives: state.lives,
+    status: state.status,
+    removedCount: state.removedCount,
+    segmentCount: board.segmentCount,
+    gridSize: genParams.gridSize,
+    legibleUnzoomed,
+  });
+  const publish = (): void => {
+    const snapshot = hud();
+    for (const listener of [...listeners]) listener(snapshot);
+  };
+
+  const removedSet = (): Set<number> => {
+    const set = new Set<number>();
+    for (let id = 1; id <= board.segmentCount; id++) {
+      if (state.removed[id] === 1) set.add(id);
+    }
+    return set;
+  };
+
+  const fitScale = (): number => Math.min(cssWidth / board.width, cssHeight / board.height) || 1;
+
+  const zoomBounds = (): { min: number; max: number } => {
+    const min = fitScale();
+    return { min, max: maxZoomScale(min, staticLayer.budget.pixelsPerCell, dpr) };
+  };
+
+  const panBounds = (): PanBounds => boardPanBounds(board, cssWidth, cssHeight);
+
+  const blit = (): void => {
+    const ctx = base.getContext('2d');
+    if (ctx === null) return;
+    const rects = computeBlitRects(
+      viewport,
+      staticLayer.viewport,
+      staticLayer.budget.widthPx,
+      staticLayer.budget.heightPx,
+      cssWidth,
+      cssHeight,
+      base.width,
+      base.height,
+    );
+    blitStaticLayer(ctx, staticLayer.canvas, rects, base.width, base.height);
+  };
+
+  /** Repaints the offscreen buffer only when the removed set has changed. */
+  const syncStaticLayer = (): void => {
+    const removed = removedSet();
+    if (!removedSetChanged(drawnRemoved, removed)) return;
+    redrawStaticLayer(staticLayer, board, removed);
+    drawnRemoved = removed;
+  };
+
+  const resize = (): void => {
+    if (disposed) return;
+    const rect = surface.getBoundingClientRect();
+    const nextWidth = Math.max(1, rect.width);
+    const nextHeight = Math.max(1, rect.height);
+    const nextDpr = readDpr();
+    cssWidth = nextWidth;
+    cssHeight = nextHeight;
+    dpr = nextDpr;
+
+    for (const canvas of [base, overlay]) {
+      canvas.style.width = `${nextWidth}px`;
+      canvas.style.height = `${nextHeight}px`;
+      canvas.width = Math.max(1, Math.round(nextWidth * nextDpr));
+      canvas.height = Math.max(1, Math.round(nextHeight * nextDpr));
+    }
+    animationLayer = createAnimationLayer(nextWidth, nextHeight, nextDpr, () => overlay);
+
+    const { min, max } = zoomBounds();
+    const nextScale = clampZoomScale(fitted ? viewport.scale : min, min, max);
+    fitted = true;
+    viewport = clampPan(
+      createViewport({
+        scale: nextScale,
+        dpr: nextDpr,
+        originX: viewport.originX,
+        originY: viewport.originY,
+      }),
+      panBounds(),
+    );
+    legibleUnzoomed = isLayerLegibleUnzoomed(staticLayer, board, nextWidth, nextHeight, nextDpr);
+    syncStaticLayer();
+    blit();
+    publish();
+  };
+
+  const startExit = (id: number): void => {
+    if (animationLayer === null) return;
+    animation?.cancel();
+    animation = startSnakeOutAnimation({
+      board,
+      segmentId: id,
+      viewport: () => viewport,
+      durationMs: playParams.animationDurationMs,
+      layer: () => animationLayer as AnimationLayer,
+      scheduler,
+      onComplete: () => {
+        animation = null;
+        state = animationComplete(state);
+        syncStaticLayer();
+        blit();
+        publish();
+        driveOutcome();
+      },
+    });
+  };
+
+  /** Starts an animation for a tap the state machine has just resolved, if it needs one. */
+  const driveOutcome = (): void => {
+    if (!state.animating || state.lastOutcome === null) return;
+    if (state.lastOutcome.kind === 'removed') {
+      startExit(state.lastOutcome.id);
+      return;
+    }
+    // A bounce has no exit to animate, so the queue advances on the next frame
+    // rather than waiting for a completion that would never arrive.
+    scheduler.requestFrame(() => {
+      if (disposed) return;
+      state = animationComplete(state);
+      blit();
+      publish();
+      driveOutcome();
+    });
+  };
+
+  const arbiter: GestureArbiter = createGestureArbiter(
+    {
+      onTap: (point) => {
+        if (state.status !== 'playing') return;
+        const rect = surface.getBoundingClientRect();
+        const local = { x: point.x - rect.left, y: point.y - rect.top } as typeof point;
+        const id = hitTest(
+          board,
+          viewport,
+          local,
+          (segmentId) => isFree(state, segmentId),
+          (segmentId) => isRemoved(state, segmentId),
+        );
+        if (id === null) return;
+        state = tap(state, id);
+        publish();
+        driveOutcome();
+      },
+      onPanMove: (dx, dy) => {
+        viewport = clampPan(panViewport(viewport, dx, dy), panBounds());
+        blit();
+      },
+      onPinchMove: (scaleFactor, focal) => {
+        const rect = surface.getBoundingClientRect();
+        const { min, max } = zoomBounds();
+        const next = clampZoomScale(viewport.scale * scaleFactor, min, max);
+        viewport = clampPan(
+          zoomViewportAt(viewport, next, focal.x - rect.left, focal.y - rect.top),
+          panBounds(),
+        );
+        blit();
+      },
+    },
+    { slopCssPx: 8 },
+  );
+
+  const onDown = (event: PointerEvent): void => {
+    try {
+      surface.setPointerCapture(event.pointerId);
+    } catch {
+      // A pointer the platform no longer knows about cannot be captured; the
+      // gesture still tracks fine without it.
+    }
+    arbiter.onPointerDown(event);
+  };
+  const onMove = (event: PointerEvent): void => arbiter.onPointerMove(event);
+  const onUp = (event: PointerEvent): void => arbiter.onPointerUp(event);
+  const onCancel = (event: PointerEvent): void => arbiter.onPointerCancel(event);
+
+  surface.addEventListener('pointerdown', onDown);
+  surface.addEventListener('pointermove', onMove);
+  surface.addEventListener('pointerup', onUp);
+  surface.addEventListener('pointercancel', onCancel);
+
+  const observer = new ResizeObserver(() => resize());
+  observer.observe(surface);
+  resize();
+
+  return {
+    getHud: hud,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    restartBoard() {
+      animation?.cancel();
+      animation = null;
+      state = restart(state);
+      syncStaticLayer();
+      blit();
+      publish();
+    },
+    destroy() {
+      disposed = true;
+      animation?.cancel();
+      animation = null;
+      observer.disconnect();
+      arbiter.reset();
+      surface.removeEventListener('pointerdown', onDown);
+      surface.removeEventListener('pointermove', onMove);
+      surface.removeEventListener('pointerup', onUp);
+      surface.removeEventListener('pointercancel', onCancel);
+      listeners.clear();
+    },
+  };
+}
