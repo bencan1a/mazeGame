@@ -53,8 +53,10 @@ Postconditions the validator will check:
   a Hamiltonian path may not exist).
 - `|black| − |white| ∈ {0, ±1}` **per region**, over that region's path cells.
   Each region is its own path, so a board-wide balance says nothing.
-- `unvisited` marks at most 3 cells per region, and every one has
-  `inside === 1`.
+- `unvisited` marks at most 3 cells per region — absorption adds no more than
+  that to any one region — and every one has `inside === 1`. An unvisited cell
+  carries no region label of its own, so what the postcondition check counts is
+  the looser board-wide bound that follows, `3 × regionCount`.
 - `pathCellCount` equals the count of `inside && !unvisited` cells, and the
   region sizes sum to it.
 

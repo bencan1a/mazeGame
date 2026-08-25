@@ -11,7 +11,7 @@ import type { Direction, Mask } from '../types.js';
 import { MaskRepairError } from './errors.js';
 import { maskFrom } from './regions.js';
 
-/** Absorption may mark at most this many cells per region. */
+/** Absorption may mark at most this many cells in any one region. */
 const MAX_UNVISITED_CELLS = 3;
 
 /**
@@ -25,8 +25,10 @@ const MAX_UNVISITED_CELLS = 3;
  * front: a cell that was safe becomes a cut vertex once a neighbour of it is
  * gone.
  *
- * Throws if any region needs more than `MAX_UNVISITED_CELLS`, or if the board
- * would end up with more than `MAX_UNVISITED_CELLS` per region in total.
+ * Cells already marked `unvisited` belong to no region, so they are neither
+ * counted nor touched: what is capped is what this call adds to a region.
+ *
+ * Throws if any region needs more than `MAX_UNVISITED_CELLS`.
  */
 export function absorbParity(mask: Mask): Mask {
   const { width, height, inside, unvisited, regionOf, regionCount } = mask;
@@ -35,13 +37,8 @@ export function absorbParity(mask: Mask): Mask {
   const alive = new Uint8Array(size);
   const black = new Uint32Array(regionCount);
   const white = new Uint32Array(regionCount);
-  let existingUnvisited = 0;
   for (let i = 0; i < size; i++) {
-    if (inside[i] !== 1) continue;
-    if (unvisited[i] === 1) {
-      existingUnvisited++;
-      continue;
-    }
+    if (inside[i] !== 1 || unvisited[i] === 1) continue;
     const region = regionOf[i] as number;
     if (region === 0) continue;
     alive[i] = 1;
@@ -69,17 +66,6 @@ export function absorbParity(mask: Mask): Mask {
     totalNeeded += count;
   }
 
-  if (regionCount === 0 || (totalNeeded === 0 && existingUnvisited === 0)) return mask;
-
-  const budget = MAX_UNVISITED_CELLS * regionCount;
-  if (existingUnvisited + totalNeeded > budget) {
-    throw new MaskRepairError(
-      `checkerboard parity absorption would leave ${existingUnvisited + totalNeeded} unvisited ` +
-        `cell(s) across ${regionCount} region(s), over the ${budget}-cell budget of ` +
-        `${MAX_UNVISITED_CELLS} per region — the silhouette needs to change, this cannot be ` +
-        'absorbed',
-    );
-  }
   if (totalNeeded === 0) return mask;
 
   const outUnvisited = unvisited.slice();

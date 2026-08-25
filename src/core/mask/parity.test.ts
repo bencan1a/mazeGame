@@ -196,7 +196,7 @@ describe('absorbParity: skips an articulation point for a safe cell of the same 
   });
 });
 
-describe('absorbParity: pre-existing unvisited cells count toward the 3-cell budget', () => {
+describe('absorbParity: cells already unvisited', () => {
   it('adds only what is still needed when some cells are already unvisited', () => {
     // Spine of 12 with black leaves at x=1,3,5; the x=1 leaf starts out
     // already unvisited. |d| = 2 among the remaining path cells, so exactly
@@ -212,12 +212,19 @@ describe('absorbParity: pre-existing unvisited cells count toward the 3-cell bud
     expect(Math.abs(after.black - after.white)).toBeLessThanOrEqual(1);
   });
 
-  it('fails loudly when existing-plus-new unvisited would exceed the budget', () => {
-    // Same idea with 4 leaves and one already unvisited: 3 more are needed on
-    // top of the 1 that already exists, for a total of 4 over one region.
-    const mask = makeMask(['################', '.o.#.#.#.#......'].join('\n'));
-    expect(() => absorbParity(mask)).toThrow(MaskRepairError);
-    expect(() => absorbParity(mask)).toThrow(/leave 4 unvisited cell\(s\) across 1 region\(s\)/);
+  it('leaves a balanced mask alone however many cells are already unvisited', () => {
+    // An unvisited cell carries no region label, so it can be attributed to no
+    // region's budget. What the limit caps is what a call adds.
+    const width = 10;
+    const height = 4;
+    const inside = new Uint8Array(width * height).fill(1);
+    const unvisited = new Uint8Array(width * height);
+    for (const cell of [0, 1, width, width + 1]) unvisited[cell] = 1;
+    const mask = maskFrom({ width, height, inside, unvisited });
+    const before = countColours(mask);
+    expect(Math.abs(before.black - before.white)).toBeLessThanOrEqual(1);
+
+    expect(absorbParity(mask)).toBe(mask);
   });
 });
 

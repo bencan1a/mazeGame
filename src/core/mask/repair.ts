@@ -50,7 +50,8 @@ const DEFAULT_MIN_REGION_CELLS = 4;
  * Hamiltonian path.
  *
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
- * 2-cell-thick interior for the open step to preserve — if `absorbParity`
+ * 2-cell-thick interior for the open step to preserve, or no lobe reaching
+ * `minRegionCells` — if `absorbParity`
  * finds an imbalance too large to absorb, or if the repaired mask's path
  * cells fail to partition into whole 2x2 blocks at lattice offset (0, 0). The
  * last of those would otherwise surface only as `classifyTiling` declining and
@@ -65,14 +66,19 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
 
   let half = downsampleToHalfRes(blob);
   half = dropSmallComponents(half, minHalfResCells);
+  const beforeOpen = countInside(half.inside);
   half = morphologicalOpen(half);
+  const afterOpen = countInside(half.inside);
   half = dropSmallComponents(half, minHalfResCells);
   half = fillHoles(half, holeAreaThreshold);
 
   if (countInside(half.inside) === 0) {
     throw new MaskRepairError(
-      'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
-        'survive the morphological open; try a larger gridSize or fillFraction',
+      beforeOpen > 0 && afterOpen === 0
+        ? 'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
+          'survive the morphological open; try a larger gridSize or fillFraction'
+        : `mask repair dropped every lobe — none reached the ${minRegionCells}-cell minimum ` +
+          'region size; lower minRegionCells, or try a larger gridSize or fillFraction',
     );
   }
 

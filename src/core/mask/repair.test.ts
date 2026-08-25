@@ -307,6 +307,12 @@ describe('repairMask edge cases', () => {
     expect(left).not.toBe(right);
   });
 
+  it('blames the size floor, not the open, when every lobe is below the minimum', () => {
+    const mask = (): unknown => repairMask(dumbbellBlob(), { minRegionCells: 1000 });
+    expect(mask).toThrow(MaskRepairError);
+    expect(mask).toThrow(/none reached the 1000-cell minimum region size/);
+  });
+
   it('drops a lobe below the minimum region size while keeping the rest', () => {
     // The same dumbbell, with the smaller lobe's 9 half-res cells (36
     // full-resolution) below a threshold the larger lobe's 15 (60) clears.
