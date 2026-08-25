@@ -7,7 +7,12 @@ import {
   type SnakeOutScheduler,
 } from './animate.js';
 import { createAnimationLayer, redrawStaticLayer, type CanvasLike } from './layers.js';
-import { ARROWHEAD_LENGTH_CELLS, LINE_WIDTH_CELLS } from './draw.js';
+import {
+  ARROWHEAD_LENGTH_CELLS,
+  CORNER_RADIUS_CELLS,
+  LINE_WIDTH_CELLS,
+  strokeSegmentPolyline,
+} from './draw.js';
 import { createBufferViewport, createViewport } from './viewport.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import type { AnimationLayer, StaticLayer } from './layers.js';
@@ -16,6 +21,7 @@ type Call =
   | { op: 'beginPath' }
   | { op: 'moveTo'; x: number; y: number }
   | { op: 'lineTo'; x: number; y: number }
+  | { op: 'arcTo'; x1: number; y1: number; x2: number; y2: number; radius: number }
   | { op: 'stroke'; dash: readonly number[]; offset: number; color: string; width: number }
   | { op: 'closePath' }
   | { op: 'fill'; color: string }
@@ -44,6 +50,9 @@ class FakeCtx {
   }
   lineTo(x: number, y: number): void {
     this.calls.push({ op: 'lineTo', x, y });
+  }
+  arcTo(x1: number, y1: number, x2: number, y2: number, radius: number): void {
+    this.calls.push({ op: 'arcTo', x1, y1, x2, y2, radius });
   }
   stroke(): void {
     this.calls.push({
@@ -148,26 +157,57 @@ function runQueuedFrames(scheduler: ReturnType<typeof fakeScheduler>, time: numb
   }
 }
 
+/** What one rounded right angle takes off the polyline through the same vertices, at scale 10. */
+const CORNER_CUT = CORNER_RADIUS_CELLS * 10 * (2 - Math.PI / 2);
+
 describe('buildExitPath', () => {
   const viewport = createViewport({ scale: 10 });
 
   it('orders vertices polyline-then-ray-then-edge, tail to head to the board edge', () => {
     // ACYCLIC_BOARD segment 1 ("a"): (0,0)->(1,0)->(2,0)->(3,0)->head(3,1), exit south on a 4x4 board.
-    // dashLength = 4 polyline edges * scale 10 = 40. The on-board run (4 polyline
-    // edges + 2 ray edges) is 6 * 10 = 60, so the board's true edge sits at
-    // 60 + 5 = 65. dashLength (40) already exceeds a full arrowhead's reach
-    // (10), so the dash's own body carries the head clear on its own. Travel
-    // is the 65 to the true edge plus the round cap's radius (1.5), so the
-    // trailing cap clears too: 66.5. The last vertex still has to carry the
-    // head, which leads the trailing edge by dashLength, so it sits
-    // totalLength + dashLength - 60 = 46.5 past the last on-board vertex
-    // (y = 35), landing at y = 81.5.
+    // The body turns once, at (3,0), and that corner is rounded, so all four
+    // lengths below come up one CORNER_CUT short of the polyline's own.
+    // Straight: 4 body edges * scale 10 = 40, an on-board run of 6 * 10 = 60,
+    // the board's true edge at 60 + 5 = 65, and travel of 65 plus the round
+    // cap's radius (1.5) = 66.5 — dashLength already exceeds a full
+    // arrowhead's reach (10), so the dash's own body carries the head clear.
+    // The last vertex carries the head, which leads the trailing edge by
+    // dashLength, so it sits totalLength + dashLength - onBoardLength past
+    // the last on-board vertex at y = 35.
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const dashLength = 40 - CORNER_CUT;
+    const totalLength = 66.5 - CORNER_CUT;
     expect(Array.from(path.xs)).toEqual([5, 15, 25, 35, 35, 35, 35, 35]);
-    expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 81.5]);
+    expect(Array.from(path.ys).slice(0, 7)).toEqual([5, 5, 5, 5, 15, 25, 35]);
+    expect(path.ys[7]).toBeCloseTo(35 + totalLength + dashLength - (60 - CORNER_CUT), 9);
     expect(Array.from(path.edgeDirs)).toEqual([1, 1, 1, 2, 2, 2, 2]); // E,E,E,S,S,S,S
-    expect(path.dashLength).toBe(40);
-    expect(path.totalLength).toBe(66.5);
+    expect(Array.from(path.cornerRadii)).toEqual([0, 0, 0, CORNER_RADIUS_CELLS * 10, 0, 0, 0, 0]);
+    expect(path.dashLength).toBeCloseTo(dashLength, 9);
+    expect(path.totalLength).toBeCloseTo(totalLength, 9);
+  });
+
+  it('leaves the head vertex square, so a resting frame matches what the static layer drew', () => {
+    // A body running east along the top row whose head exits south: the ray
+    // leaves at a right angle to the body's last edge. That vertex carries
+    // the arrowhead at rest, which the static layer draws on the head cell's
+    // own centre — rounding it would shift and tilt it the moment the exit
+    // began.
+    const board = makeBoard(['aaA', '...', '...'].join('\n'));
+    board.segDir[0] = 2; // south, across the body's own eastward run
+    const path = buildExitPath(board, 1, viewport);
+
+    expect(path.edgeDirs[path.headVertex - 1]).not.toBe(path.edgeDirs[path.headVertex]);
+    expect(path.cornerRadii[path.headVertex]).toBe(0);
+    expect(path.dashLength).toBe(20); // two straight body edges, nothing rounded away
+
+    const ctx = new FakeCtx();
+    drawSnakeOutFrame(ctx, path, 0);
+    const tip = ctx.calls.filter(
+      (c): c is Extract<Call, { op: 'moveTo' }> => c.op === 'moveTo',
+    )[1] as Extract<Call, { op: 'moveTo' }>;
+    const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
+    expect(tip.x).toBe(path.xs[path.headVertex]);
+    expect(tip.y).toBe((path.ys[path.headVertex] as number) + half);
   });
 
   it('is dashLength 0 for a one-cell segment, with a ray-only path', () => {
@@ -324,21 +364,142 @@ describe('buildExitPath', () => {
 describe('drawSnakeOutFrame', () => {
   const viewport = createViewport({ scale: 10 });
 
-  it('strokes the concatenated path as one polyline, moveTo first then lineTo in path order', () => {
+  /**
+   * The points a canvas would walk for `calls`, arcs sampled finely enough
+   * that summing the chords measures the drawn route rather than the
+   * polyline through its vertices. `arcTo` leaves the current point along
+   * the incoming leg at the tangent point, sweeps a circle of `radius`
+   * tangent to both legs, and lands on the outgoing one.
+   */
+  function walkDrawnRoute(calls: readonly Call[]): { x: number; y: number }[] {
+    const points: { x: number; y: number }[] = [];
+    let x = 0;
+    let y = 0;
+    for (const call of calls) {
+      if (call.op === 'moveTo' || call.op === 'lineTo') {
+        x = call.x;
+        y = call.y;
+        points.push({ x, y });
+        continue;
+      }
+      if (call.op !== 'arcTo') continue;
+      const inLength = Math.hypot(x - call.x1, y - call.y1);
+      const outLength = Math.hypot(call.x2 - call.x1, call.y2 - call.y1);
+      const inX = (x - call.x1) / inLength;
+      const inY = (y - call.y1) / inLength;
+      const outX = (call.x2 - call.x1) / outLength;
+      const outY = (call.y2 - call.y1) / outLength;
+      const turn = Math.acos(inX * outX + inY * outY);
+      const toTangent = call.radius / Math.tan(turn / 2);
+      const tangentX = call.x1 + inX * toTangent;
+      const tangentY = call.y1 + inY * toTangent;
+      const bisectorLength = Math.hypot(inX + outX, inY + outY);
+      const centreX =
+        call.x1 + ((inX + outX) / bisectorLength) * (call.radius / Math.sin(turn / 2));
+      const centreY =
+        call.y1 + ((inY + outY) / bisectorLength) * (call.radius / Math.sin(turn / 2));
+      const from = Math.atan2(tangentY - centreY, tangentX - centreX);
+      // (inX, inY) points back down the incoming leg, so the cross product
+      // that gives the turn's handedness is the one against travel.
+      const sweep = inY * outX - inX * outY >= 0 ? Math.PI - turn : turn - Math.PI;
+      points.push({ x: tangentX, y: tangentY });
+      const steps = 2000;
+      for (let i = 1; i <= steps; i++) {
+        const angle = from + (sweep * i) / steps;
+        x = centreX + Math.cos(angle) * call.radius;
+        y = centreY + Math.sin(angle) * call.radius;
+        points.push({ x, y });
+      }
+    }
+    return points;
+  }
+
+  it('rounds a body exactly as the static layer just drew it, so a tap hands off without a jump', () => {
+    // The bend ACYCLIC_BOARD's segment 1 makes sits immediately before its
+    // head, where the static layer's stroke stops short of the cell centre.
+    // Measuring that corner against the shortened leg rather than the cell
+    // centres would tighten it on the resting board alone, and the piece
+    // would twitch the moment it was tapped.
+    const staticCtx = new FakeCtx();
+    strokeSegmentPolyline(staticCtx, ACYCLIC_BOARD, 1, viewport);
+    const stillRadii = staticCtx.calls
+      .filter((c): c is Extract<Call, { op: 'arcTo' }> => c.op === 'arcTo')
+      .map((c) => c.radius);
+
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const exitRadii = Array.from(path.cornerRadii)
+      .slice(0, path.headVertex + 1)
+      .filter((radius) => radius !== 0);
+
+    expect(stillRadii).toHaveLength(1);
+    expect(exitRadii).toEqual(stillRadii);
+  });
+
+  it('measures dashLength against the route it actually strokes, so the arrowhead cannot drift off the body', () => {
+    // The dash is what draws the body, and the arrowhead is placed by
+    // travel past the head vertex — so if dashLength were the polyline's
+    // length rather than the rounded route's, the two would separate by one
+    // corner's worth for every bend the body makes.
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const ctx = new FakeCtx();
+    drawSnakeOutFrame(ctx, path, 0);
+    const strokeIndex = ctx.calls.findIndex((c) => c.op === 'stroke');
+    const points = walkDrawnRoute(ctx.calls.slice(0, strokeIndex));
+
+    const headX = path.xs[path.headVertex] as number;
+    const headY = path.ys[path.headVertex] as number;
+    let travelled = 0;
+    let reachedHead = false;
+    for (let i = 1; i < points.length; i++) {
+      const from = points[i - 1] as { x: number; y: number };
+      const to = points[i] as { x: number; y: number };
+      travelled += Math.hypot(to.x - from.x, to.y - from.y);
+      if (Math.hypot(to.x - headX, to.y - headY) < 1e-9) {
+        reachedHead = true;
+        break;
+      }
+    }
+
+    expect(reachedHead).toBe(true);
+    expect(travelled).toBeCloseTo(path.dashLength, 4);
+    expect(path.dashLength).toBeLessThan(40); // the polyline's own length, before the bend was rounded
+  });
+
+  it('strokes the concatenated route as one path, vertex by vertex, rounding where it bends', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
     const ctx = new FakeCtx();
     drawSnakeOutFrame(ctx, path, 0);
 
     const strokeIndex = ctx.calls.findIndex((c) => c.op === 'stroke');
-    const moveAndLine = ctx.calls
+    const drawn = ctx.calls
       .slice(0, strokeIndex)
-      .filter((c) => c.op === 'moveTo' || c.op === 'lineTo');
-    expect(moveAndLine[0]).toEqual({ op: 'moveTo', x: 5, y: 5 });
-    expect(moveAndLine.slice(1)).toEqual(
-      Array.from(path.xs)
-        .slice(1)
-        .map((x, i) => ({ op: 'lineTo', x, y: path.ys[i + 1] })),
-    );
+      .filter((c) => c.op === 'moveTo' || c.op === 'lineTo' || c.op === 'arcTo');
+    const lastVertex = path.xs.length - 1;
+    const expected: Call[] = [{ op: 'moveTo', x: 5, y: 5 }];
+    for (let i = 1; i < lastVertex; i++) {
+      const radius = path.cornerRadii[i] as number;
+      expected.push(
+        radius === 0
+          ? { op: 'lineTo', x: path.xs[i] as number, y: path.ys[i] as number }
+          : {
+              op: 'arcTo',
+              x1: path.xs[i] as number,
+              y1: path.ys[i] as number,
+              x2: path.xs[i + 1] as number,
+              y2: path.ys[i + 1] as number,
+              radius,
+            },
+      );
+    }
+    expected.push({
+      op: 'lineTo',
+      x: path.xs[lastVertex] as number,
+      y: path.ys[lastVertex] as number,
+    });
+
+    expect(drawn).toEqual(expected);
+    // The one bend this segment's body makes, and nothing else, is an arc.
+    expect(drawn.filter((c) => c.op === 'arcTo')).toHaveLength(1);
     expect(ctx.calls.filter((c) => c.op === 'stroke')).toHaveLength(1);
   });
 

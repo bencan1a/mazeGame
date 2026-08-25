@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   ARROWHEAD_LENGTH_CELLS,
   ARROWHEAD_WIDTH_CELLS,
+  CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
   MIN_LEGIBLE_ARROWHEAD_CSS_PX,
+  cornerRadiusAt,
   REFERENCE_CSS_VIEWPORT_WIDTH,
   drawArrowhead,
   drawSegment,
@@ -21,6 +23,7 @@ type Call =
   | { op: 'beginPath' }
   | { op: 'moveTo'; x: number; y: number }
   | { op: 'lineTo'; x: number; y: number }
+  | { op: 'arcTo'; x1: number; y1: number; x2: number; y2: number; radius: number }
   | { op: 'closePath' }
   | { op: 'stroke' }
   | { op: 'fill' };
@@ -42,6 +45,9 @@ function makeFakeCtx(): StrokeContext2D & FillContext2D & { calls: Call[] } {
     lineTo(x, y) {
       this.calls.push({ op: 'lineTo', x, y });
     },
+    arcTo(x1, y1, x2, y2, radius) {
+      this.calls.push({ op: 'arcTo', x1, y1, x2, y2, radius });
+    },
     closePath() {
       this.calls.push({ op: 'closePath' });
     },
@@ -61,13 +67,36 @@ describe('arrowhead sizing stays within one cell', () => {
   });
 });
 
+describe('cornerRadiusAt', () => {
+  it('is the plain half-leg bound at a right angle, which is every corner between two cell centers', () => {
+    expect(cornerRadiusAt(0, 0, 10, 0, 10, 10, 3.5)).toBe(3.5);
+    expect(cornerRadiusAt(0, 0, 10, 0, 10, 10, 8)).toBe(5);
+  });
+
+  it('is 0 where the legs run straight on', () => {
+    expect(cornerRadiusAt(0, 0, 10, 0, 20, 0, 3.5)).toBe(0);
+  });
+
+  it('pulls the radius in on a sharp turn, where the arc would otherwise leave its leg past the vertex it came from', () => {
+    // Legs meeting at about 27 degrees: an arc of the half-leg bound (3.354)
+    // would meet them 14.2 out, twice the 6.708 leg it has to fit inside.
+    const radius = cornerRadiusAt(0, 0, 10, 0, 4, 3, 3.5);
+    const turn = Math.acos(-((10 * -6 + 0 * 3) / (10 * Math.hypot(6, 3))));
+    expect(radius / Math.tan(turn / 2)).toBeLessThanOrEqual(Math.hypot(6, 3) / 2 + 1e-9);
+    expect(radius).toBeLessThan(1);
+  });
+});
+
 describe('strokeSegmentPolyline', () => {
   const scale = 10;
   const capRadius = (LINE_WIDTH_CELLS * scale) / 2;
   const setback = 0.5 * scale - capRadius;
 
   it('strokes cell-center to cell-center, except the last vertex which stops short of the head cell center', () => {
-    // a: (0,0)->(1,0)->(1,1), head at (1,1), terminal stroke south
+    // a: (0,0)->(1,0)->(1,1), head at (1,1), terminal stroke south. The
+    // corner at (1,0) has a whole cell on either side once the setback is
+    // left out of the measurement, so it takes the full radius even though
+    // the leg it is drawn along stops short.
     const board = makeBoard(['aa', '.A'].join('\n'));
     const ctx = makeFakeCtx();
     const viewport = createViewport({ scale });
@@ -77,10 +106,68 @@ describe('strokeSegmentPolyline', () => {
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
       { op: 'moveTo', x: 5, y: 5 },
-      { op: 'lineTo', x: 15, y: 5 },
+      {
+        op: 'arcTo',
+        x1: 15,
+        y1: 5,
+        x2: 15,
+        y2: 15 - setback,
+        radius: CORNER_RADIUS_CELLS * scale,
+      },
       { op: 'lineTo', x: 15, y: 15 - setback },
       { op: 'stroke' },
     ]);
+  });
+
+  it('rounds an interior corner with the full radius when both its legs are whole cells', () => {
+    // a: (0,0)->(1,0)->(1,1)->(1,2), corner at (1,0) with a whole cell on
+    // either side, then a straight run into the head.
+    const board = makeBoard(['aa', '.a', '.A'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale });
+
+    strokeSegmentPolyline(ctx, board, 1, viewport);
+
+    expect(ctx.calls).toEqual([
+      { op: 'beginPath' },
+      { op: 'moveTo', x: 5, y: 5 },
+      { op: 'arcTo', x1: 15, y1: 5, x2: 15, y2: 15, radius: CORNER_RADIUS_CELLS * scale },
+      { op: 'lineTo', x: 15, y: 15 },
+      { op: 'lineTo', x: 15, y: 25 - setback },
+      { op: 'stroke' },
+    ]);
+  });
+
+  it('rounds every corner of a staircase, each leg carrying one at either end', () => {
+    // Tail (2,2) -> (2,1) -> (1,1) -> (1,0) -> head (0,0), exiting west.
+    // Consecutive corners share a whole-cell leg and take half of it at
+    // most, so their arcs cannot run into each other.
+    const board = makeBoard(['Aa.', '.aa', '..a'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale });
+    const headX = 5 + setback;
+
+    strokeSegmentPolyline(ctx, board, 1, viewport);
+
+    expect(ctx.calls).toEqual([
+      { op: 'beginPath' },
+      { op: 'moveTo', x: 25, y: 25 },
+      { op: 'arcTo', x1: 25, y1: 15, x2: 15, y2: 15, radius: CORNER_RADIUS_CELLS * scale },
+      { op: 'arcTo', x1: 15, y1: 15, x2: 15, y2: 5, radius: CORNER_RADIUS_CELLS * scale },
+      { op: 'arcTo', x1: 15, y1: 5, x2: headX, y2: 5, radius: CORNER_RADIUS_CELLS * scale },
+      { op: 'lineTo', x: headX, y: 5 },
+      { op: 'stroke' },
+    ]);
+  });
+
+  it('keeps a straight run straight rather than arcing through collinear vertices', () => {
+    const board = makeBoard(['a', 'a', 'a', 'A'].join('\n'));
+    const ctx = makeFakeCtx();
+    const viewport = createViewport({ scale });
+
+    strokeSegmentPolyline(ctx, board, 1, viewport);
+
+    expect(ctx.calls.some((call) => call.op === 'arcTo')).toBe(false);
   });
 
   it('colours the stroke from the palette by segColor and scales line width by the viewport', () => {
@@ -131,7 +218,14 @@ describe('strokeSegmentPolyline', () => {
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
       { op: 'moveTo', x: 5, y: 5 },
-      { op: 'lineTo', x: 15, y: 5 },
+      {
+        op: 'arcTo',
+        x1: 15,
+        y1: 5,
+        x2: 15,
+        y2: 15 - setback,
+        radius: CORNER_RADIUS_CELLS * scale,
+      },
       { op: 'lineTo', x: 15, y: 15 - setback },
       { op: 'stroke' },
     ]);

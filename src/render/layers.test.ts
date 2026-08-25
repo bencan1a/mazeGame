@@ -321,6 +321,7 @@ class FakeCtx {
   beginPath(): void {}
   moveTo(): void {}
   lineTo(): void {}
+  arcTo(): void {}
   stroke(): void {}
   closePath(): void {}
   fill(): void {}
@@ -912,6 +913,7 @@ describe('redrawStaticLayer', () => {
             moveToCount++;
           },
           lineTo(): void {},
+          arcTo(): void {},
           stroke(): void {},
           closePath(): void {},
           fill(): void {},
@@ -957,6 +959,7 @@ describe('redrawStaticLayer', () => {
             moveToCount++;
           },
           lineTo(): void {},
+          arcTo(): void {},
           stroke(): void {},
           closePath(): void {},
           fill(): void {},
@@ -998,6 +1001,7 @@ describe('redrawStaticLayer', () => {
           beginPath(): void {},
           moveTo(): void {},
           lineTo(): void {},
+          arcTo(): void {},
           stroke(): void {},
           closePath(): void {},
           fill(): void {},
@@ -1042,6 +1046,7 @@ describe('redrawStaticLayer', () => {
           beginPath(): void {},
           moveTo(): void {},
           lineTo(): void {},
+          arcTo(): void {},
           stroke(): void {
             throw new Error('context is lost');
           },
