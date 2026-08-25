@@ -26,3 +26,74 @@ body,
   touch-action: none;
   overscroll-behavior: none;
 }
+
+.board-shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.hud,
+.hud-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+/* The document is viewport-fit=cover, so the chrome has to clear the notch
+   and the home indicator itself. */
+.hud {
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+  padding-left: calc(0.75rem + env(safe-area-inset-left));
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+}
+
+.hud-foot {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  padding-left: calc(0.75rem + env(safe-area-inset-left));
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+}
+
+.hud-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+}
+
+.hud-stat {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.hud button {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: inherit;
+}
+
+.hud-foot {
+  color: var(--muted);
+  /* Fixed, not a floor: a message that wraps differently would otherwise
+     resize the board surface and re-fit the whole board mid-play. */
+  height: 3.25rem;
+  align-items: center;
+  overflow: hidden;
+}
+
+.board-surface {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
