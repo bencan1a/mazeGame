@@ -314,3 +314,63 @@ describe('generateBlob has zero checkerboard parity mismatch', () => {
     );
   });
 });
+
+describe('generateBlob: lobeCount', () => {
+  function componentCount(blob: ReturnType<typeof generateBlob>): number {
+    const { width, height, inside } = blob;
+    const seen = new Uint8Array(inside.length);
+    let count = 0;
+    for (let start = 0; start < inside.length; start++) {
+      if (inside[start] !== 1 || seen[start] === 1) continue;
+      count++;
+      seen[start] = 1;
+      const stack = [start];
+      while (stack.length > 0) {
+        const cell = stack.pop() as number;
+        for (const dir of DIRECTIONS) {
+          const next = step(cell, dir, width, height);
+          if (next === NO_CELL || inside[next] !== 1 || seen[next] === 1) continue;
+          seen[next] = 1;
+          stack.push(next);
+        }
+      }
+    }
+    return count;
+  }
+
+  it('draws one connected mass at the default of 1, whatever the seed', () => {
+    fc.assert(
+      fc.property(seedArb, (seed) => {
+        expect(componentCount(generateBlob({ seed, gridSize: 60 }))).toBe(1);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('is the same blob whether 1 is passed or left out', () => {
+    const implicit = generateBlob({ seed: 7, gridSize: 60 });
+    const explicit = generateBlob({ seed: 7, gridSize: 60, lobeCount: 1 });
+    expect([...explicit.inside]).toEqual([...implicit.inside]);
+  });
+
+  it('draws the requested number of separate lobes when each has room', () => {
+    fc.assert(
+      fc.property(seedArb, fc.integer({ min: 2, max: 6 }), (seed, lobeCount) => {
+        expect(componentCount(generateBlob({ seed, gridSize: 100, lobeCount }))).toBe(lobeCount);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('clamps a lobe count outside its range rather than rejecting it', () => {
+    expect(componentCount(generateBlob({ seed: 3, gridSize: 60, lobeCount: 0 }))).toBe(1);
+    expect(componentCount(generateBlob({ seed: 3, gridSize: 60, lobeCount: -5 }))).toBe(1);
+    expect(() => generateBlob({ seed: 3, gridSize: 60, lobeCount: 1000 })).not.toThrow();
+  });
+
+  it('is deterministic in (seed, lobeCount)', () => {
+    const a = generateBlob({ seed: 42, gridSize: 80, lobeCount: 4 });
+    const b = generateBlob({ seed: 42, gridSize: 80, lobeCount: 4 });
+    expect([...a.inside]).toEqual([...b.inside]);
+  });
+});

@@ -60,6 +60,17 @@ export interface GenParams {
    * into an organic shape, so achieved area tracks this only loosely.
    */
   readonly fillFraction: number;
+  /**
+   * How many lobes the raw silhouette is drawn from. At 1 it is one compact
+   * mass; above that the lobes are placed apart and become separate regions,
+   * each with its own path.
+   *
+   * A request, not a count: `fillFraction` is split between them, so a high
+   * lobe count on a small grid gives each lobe too little to survive the
+   * morphological open and generation declines. Read `Mask.regionCount` for
+   * what a board actually got.
+   */
+  readonly lobeCount: number;
 }
 
 /** Gameplay knobs that do not affect board generation. */
@@ -77,6 +88,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   bendProbability: 0.6,
   minStraightRun: 2,
   fillFraction: 0.45,
+  lobeCount: 1,
 };
 
 export const DEFAULT_PLAY_PARAMS: PlayParams = {

@@ -65,6 +65,7 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const minHalfResCells = Math.max(1, Math.ceil(minRegionCells / 4));
 
   let half = downsampleToHalfRes(blob);
+  const rawCells = countInside(half.inside);
   half = dropSmallComponents(half, minHalfResCells);
   const beforeOpen = countInside(half.inside);
   half = morphologicalOpen(half);
@@ -73,12 +74,20 @@ export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   half = fillHoles(half, holeAreaThreshold);
 
   if (countInside(half.inside) === 0) {
+    if (rawCells === 0) {
+      throw new MaskRepairError(
+        'mask repair received a blob with no inside cells at all; try a larger fillFraction',
+      );
+    }
+    if (beforeOpen > 0 && afterOpen === 0) {
+      throw new MaskRepairError(
+        'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
+          'survive the morphological open; try a larger gridSize or fillFraction',
+      );
+    }
     throw new MaskRepairError(
-      beforeOpen > 0 && afterOpen === 0
-        ? 'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
-          'survive the morphological open; try a larger gridSize or fillFraction'
-        : `mask repair dropped every lobe — none reached the ${minRegionCells}-cell minimum ` +
-          'region size; lower minRegionCells, or try a larger gridSize or fillFraction',
+      `mask repair dropped every lobe — none reached the ${minRegionCells}-cell minimum region ` +
+        'size; lower minRegionCells, or try a larger gridSize or fillFraction',
     );
   }
 

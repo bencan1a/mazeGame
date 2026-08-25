@@ -64,6 +64,20 @@ describe('peelSegments: a path in several regions', () => {
     );
   });
 
+  it('refuses a regionStart that does not begin at 0', () => {
+    const broken = { cells: path.cells, regionStart: Uint32Array.from([1, 16, 32]) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart starts at 1, expected 0/,
+    );
+  });
+
+  it('refuses a regionStart that goes backwards', () => {
+    const broken = { cells: path.cells, regionStart: Uint32Array.from([0, 24, 16, 32]) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart goes backwards at 2, from 24 to 16/,
+    );
+  });
+
   it('refuses a path whose regionStart does not reach the end of the walk', () => {
     const truncated = { cells: path.cells, regionStart: Uint32Array.from([0, 16]) };
     expect(() => peelSegments(truncated, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(

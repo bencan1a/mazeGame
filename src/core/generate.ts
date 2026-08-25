@@ -178,6 +178,7 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
       gridSize: params.gridSize,
       seed: blobSeed,
       fillFraction: params.fillFraction,
+      lobeCount: params.lobeCount,
     });
     mask = repairMask(blob);
   } catch (err) {

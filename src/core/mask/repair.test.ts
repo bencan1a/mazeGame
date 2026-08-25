@@ -347,3 +347,36 @@ describe('repairMask edge cases', () => {
     expect(mask.inside[toIndex(7, 7, width)]).toBe(1);
   });
 });
+
+describe('repairMask over a lobed blob', () => {
+  it('keeps each lobe as its own region, and never more regions than lobes asked for', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 1_000_000 }),
+        fc.integer({ min: 20, max: 100 }),
+        fc.integer({ min: 2, max: 8 }),
+        (seed, gridSize, lobeCount) => {
+          const blob = generateBlob({ seed, gridSize, lobeCount });
+          let mask;
+          try {
+            mask = repairMask(blob);
+          } catch (err) {
+            // A lobe too thin to survive the open can leave nothing at all.
+            expect(err).toBeInstanceOf(MaskRepairError);
+            return;
+          }
+          expect(mask.regionCount).toBeGreaterThan(0);
+          expect(mask.regionCount).toBeLessThanOrEqual(lobeCount);
+          expect(maskViolations(mask)).toEqual([]);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  }, 30_000);
+
+  it('gives every lobe room at a grid size that has it', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      expect(repairMask(generateBlob({ seed, gridSize: 100, lobeCount: 4 })).regionCount).toBe(4);
+    }
+  });
+});

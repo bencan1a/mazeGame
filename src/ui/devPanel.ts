@@ -11,7 +11,8 @@ export type GenFieldKey =
   | 'meanPieceLength'
   | 'pieceLengthVariance'
   | 'bendProbability'
-  | 'minStraightRun';
+  | 'minStraightRun'
+  | 'lobeCount';
 
 export type PlayFieldKey = 'lives' | 'animationDurationMs';
 
@@ -47,6 +48,7 @@ export const GEN_FIELDS: readonly FieldSpec<GenFieldKey>[] = [
     integer: false,
   },
   { key: 'minStraightRun', label: 'Min straight run', min: 1, max: 10, step: 1, integer: true },
+  { key: 'lobeCount', label: 'Lobes', min: 1, max: 8, step: 1, integer: true },
 ];
 
 export const PLAY_FIELDS: readonly FieldSpec<PlayFieldKey>[] = [

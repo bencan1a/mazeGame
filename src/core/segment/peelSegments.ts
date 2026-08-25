@@ -126,7 +126,22 @@ export function peelSegments(
   const linked = new Uint8Array(length - 1);
   const stepDir = new Uint8Array(length - 1);
   const regionStart = path.regionStart;
-  const regionsEnd = regionStart.length > 0 ? (regionStart[regionStart.length - 1] as number) : 0;
+  if (regionStart.length === 0 || regionStart[0] !== 0) {
+    throw new Error(
+      `peelSegments: path.regionStart starts at ${regionStart[0] as number}, expected 0; ` +
+        'peelSegments requires a valid HamiltonianPath',
+    );
+  }
+  for (let r = 1; r < regionStart.length; r++) {
+    if ((regionStart[r] as number) < (regionStart[r - 1] as number)) {
+      throw new Error(
+        `peelSegments: path.regionStart goes backwards at ${r}, from ` +
+          `${regionStart[r - 1] as number} to ${regionStart[r] as number}; peelSegments ` +
+          'requires a valid HamiltonianPath',
+      );
+    }
+  }
+  const regionsEnd = regionStart[regionStart.length - 1] as number;
   if (regionsEnd !== length) {
     throw new Error(
       `peelSegments: path.regionStart covers ${regionsEnd} of ${length} path cells; ` +

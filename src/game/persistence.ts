@@ -19,7 +19,12 @@ import type { GenParams, PlayParams } from '../core/types.js';
 import type { GameSnapshot } from './state.js';
 
 const STORAGE_KEY = 'arrow-maze:save:v1';
-const RECORD_VERSION = 1;
+/**
+ * Bumped whenever `GenParams` or `PlayParams` gains or loses a field, so a
+ * record the previous shape wrote is discarded rather than read back with a
+ * field missing.
+ */
+export const RECORD_VERSION = 2;
 
 /** The slice of `Storage` this module needs, so a test double needs no DOM. */
 export interface GameStorage {
@@ -78,6 +83,7 @@ const GEN_PARAM_RANGES = {
   bendProbability: [0, 1],
   minStraightRun: [1, 1000],
   fillFraction: [0, 1],
+  lobeCount: [1, 16],
 } as const satisfies Record<keyof GenParams, readonly [number, number]>;
 
 const PLAY_PARAM_RANGES = {

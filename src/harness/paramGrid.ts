@@ -21,6 +21,7 @@ export function defaultCellParams(): CellParams {
     bendProbability,
     minStraightRun,
     fillFraction,
+    lobeCount,
   } = DEFAULT_GEN_PARAMS;
   return {
     gridSize,
@@ -30,6 +31,7 @@ export function defaultCellParams(): CellParams {
     bendProbability,
     minStraightRun,
     fillFraction,
+    lobeCount,
   };
 }
 

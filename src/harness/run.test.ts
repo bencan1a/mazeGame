@@ -18,6 +18,7 @@ const smallCell: ParamCell = {
     bendProbability: 0.35,
     minStraightRun: 2,
     fillFraction: 0.45,
+    lobeCount: 1,
   },
   seeds: [1, 2],
 };

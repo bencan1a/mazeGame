@@ -14,11 +14,12 @@ import { toIndex } from './grid.js';
 import { maskFrom } from './mask/index.js';
 import { buildBlockingGraph, occupancyFromSegments } from './orient/index.js';
 import { buildRegionPaths } from './path/index.js';
+import { generateBoardWithDiagnostics } from './generate.js';
 import { createRng } from './rng.js';
 import { peelSegments } from './segment/index.js';
 import type { Board, GenParams, HamiltonianPath, Mask } from './types.js';
 import { DEFAULT_GEN_PARAMS } from './types.js';
-import { validateBoard } from './validate/index.js';
+import { greedyClear, validateBoard } from './validate/index.js';
 
 const GRID_SIZE = 48;
 
@@ -171,4 +172,56 @@ describe('a silhouette in several disjoint lobes', () => {
     // 10 columns by 4 rows, the smallest lobe of the five.
     expect(covered).toBe(40);
   });
+});
+
+describe('generateBoard over a lobed silhouette', () => {
+  it('produces a playable multi-region board from params alone', () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      const result = generateBoardWithDiagnostics({
+        ...DEFAULT_GEN_PARAMS,
+        gridSize: 100,
+        seed,
+        lobeCount: 4,
+      });
+      expect(result.mask.regionCount).toBe(4);
+      expect(result.path.regionStart.length).toBe(5);
+      expect(result.board.segmentCount).toBeGreaterThan(20);
+      // validateBoard already ran inside generateBoard; this is the greedy
+      // clear a player would have to complete.
+      expect(greedyClear(result.board).stuck).toHaveLength(0);
+    }
+  }, 30_000);
+
+  it('keeps every segment inside one lobe and still blocks across the gaps', () => {
+    const { board, mask } = generateBoardWithDiagnostics({
+      ...DEFAULT_GEN_PARAMS,
+      gridSize: 100,
+      seed: 2,
+      lobeCount: 4,
+    });
+
+    let crossRegionEdges = 0;
+    for (let id = 1; id <= board.segmentCount; id++) {
+      const from = board.segStart[id - 1] as number;
+      const to = board.segStart[id] as number;
+      const region = mask.regionOf[board.segCells[from] as number] as number;
+      for (let k = from; k < to; k++) {
+        expect(mask.regionOf[board.segCells[k] as number]).toBe(region);
+      }
+      for (let e = board.edgeStart[id - 1] as number; e < (board.edgeStart[id] as number); e++) {
+        const target = board.edgeTarget[e] as number;
+        const targetCell = board.segCells[board.segStart[target - 1] as number] as number;
+        if (mask.regionOf[targetCell] !== region) crossRegionEdges++;
+      }
+    }
+    expect(crossRegionEdges).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('is deterministic in (seed, lobeCount)', () => {
+    const params = { ...DEFAULT_GEN_PARAMS, gridSize: 60, seed: 9, lobeCount: 3 };
+    const a = generateBoardWithDiagnostics(params).board;
+    const b = generateBoardWithDiagnostics(params).board;
+    expect(Array.from(a.segCells)).toEqual(Array.from(b.segCells));
+    expect(Array.from(a.edgeTarget)).toEqual(Array.from(b.edgeTarget));
+  }, 30_000);
 });

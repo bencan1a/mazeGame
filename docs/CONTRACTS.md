@@ -64,6 +64,14 @@ Postconditions the validator will check:
 strictly preferred over editing the silhouette: it is visually invisible and it
 makes the path feasible unconditionally.
 
+**`GenParams.lobeCount` is how a silhouette comes out in several lobes.** At 1
+— the default — the blob generator draws one compact mass and the board has one
+region, byte-identical to what it drew before regions existed. Above 1 it draws
+that many blobs on a grid of slots, each bounded to leave a clear cell between
+neighbours. It is a request, not a count: `fillFraction` is split between the
+lobes, so a high count on a small grid gives each too little to survive the
+morphological open. Read `Mask.regionCount` for what a board actually got.
+
 **Lobes too small to hold a path are dropped.** `RepairOptions.minRegionCells`
 is that floor, in full-resolution cells, and it defaults to 4 — one 2x2 block,
 the smallest lobe with no cell of degree below 2. Repair moves whole 2x2
