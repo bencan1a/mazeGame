@@ -161,7 +161,9 @@ function layoutExitPath(
   const dashLength = topology.dashLengthCells * viewport.scale;
   const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
   const uniformLength = topology.uniformLengthCells * viewport.scale;
-  const totalLength = uniformLength + viewport.scale / 2 + Math.max(0, arrowReach - dashLength);
+  const capRadius = (LINE_WIDTH_CELLS / 2) * viewport.scale;
+  const totalLength =
+    uniformLength + viewport.scale / 2 + capRadius + Math.max(0, arrowReach - dashLength);
   const finalEdgeLength = totalLength + dashLength - uniformLength;
 
   const dx = DX[dir] as number;
@@ -425,9 +427,22 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const startTime = scheduler.now();
   const elapsed = (): number => scheduler.now() - startTime;
 
+  /** Runs `use` against the current layer, completing instead of throwing if it has gone. */
+  const withLayer = (use: (layer: AnimationLayer) => void): boolean => {
+    let layer: AnimationLayer;
+    try {
+      layer = readLayer();
+    } catch {
+      complete();
+      return false;
+    }
+    use(layer);
+    return true;
+  };
+
   const topology = tryBuildExitTopology(board, segmentId);
   if (topology === null) {
-    clearAnimationLayer(readLayer());
+    withLayer(clearAnimationLayer);
     unsubscribeVisible = scheduler.onVisible(() => complete());
     frameHandle = scheduler.requestFrame(() => complete());
     return { cancel: finish };
@@ -459,9 +474,10 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return path;
   };
 
-  const layer0 = readLayer();
-  clearAnimationLayer(layer0);
-  drawSnakeOutFrame(layer0.ctx, path, 0);
+  withLayer((layer) => {
+    clearAnimationLayer(layer);
+    drawSnakeOutFrame(layer.ctx, path, 0);
+  });
 
   const step = (): void => {
     frameHandle = null;
@@ -471,9 +487,11 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
       complete();
       return;
     }
-    const layer = readLayer();
-    clearAnimationLayer(layer);
-    drawSnakeOutFrame(layer.ctx, currentPath(), progress);
+    const drawn = withLayer((layer) => {
+      clearAnimationLayer(layer);
+      drawSnakeOutFrame(layer.ctx, currentPath(), progress);
+    });
+    if (!drawn) return;
     frameHandle = scheduler.requestFrame(step);
   };
 

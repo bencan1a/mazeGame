@@ -163,10 +163,10 @@ describe('buildExitPath', () => {
     // (y = 35), landing at y = 80.
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
     expect(Array.from(path.xs)).toEqual([5, 15, 25, 35, 35, 35, 35, 35]);
-    expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 80]);
+    expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 81.5]);
     expect(Array.from(path.edgeDirs)).toEqual([1, 1, 1, 2, 2, 2, 2]); // E,E,E,S,S,S,S
     expect(path.dashLength).toBe(40);
-    expect(path.totalLength).toBe(65);
+    expect(path.totalLength).toBe(66.5);
   });
 
   it('is dashLength 0 for a one-cell segment, with a ray-only path', () => {
@@ -176,10 +176,10 @@ describe('buildExitPath', () => {
     // vertex is totalLength + dashLength - 0 = 15 past the head, at x = 20.
     const board = makeBoard({ art: 'A', dirs: { a: 'E' } });
     const path = buildExitPath(board, 1, viewport);
-    expect(Array.from(path.xs)).toEqual([5, 20]);
+    expect(Array.from(path.xs)).toEqual([5, 21.5]);
     expect(Array.from(path.ys)).toEqual([5, 5]);
     expect(path.dashLength).toBe(0);
-    expect(path.totalLength).toBe(15);
+    expect(path.totalLength).toBe(16.5);
   });
 
   it('steps the ray north, away from the head, toward the top edge', () => {
@@ -189,7 +189,10 @@ describe('buildExitPath', () => {
     const board = makeBoard({ art: ['...', '...', '.A.'].join('\n'), dirs: { a: 'N' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(35, 6);
+    // 2 ray edges (20) + the half-cell to the true edge (5) + the round cap's
+    // radius (1.5) + a full arrowhead reach (10), since a one-cell body's
+    // zero-length dash carries the head no distance of its own.
+    expect(path.totalLength).toBeCloseTo(20 + 5 + 1.5 + 10, 6);
   });
 
   it('steps the ray south, toward the bottom edge', () => {
@@ -199,7 +202,10 @@ describe('buildExitPath', () => {
     const board = makeBoard({ art: ['.A.', '...', '...'].join('\n'), dirs: { a: 'S' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(35, 6);
+    // 2 ray edges (20) + the half-cell to the true edge (5) + the round cap's
+    // radius (1.5) + a full arrowhead reach (10), since a one-cell body's
+    // zero-length dash carries the head no distance of its own.
+    expect(path.totalLength).toBeCloseTo(20 + 5 + 1.5 + 10, 6);
   });
 
   it('steps the ray east, toward the right edge', () => {
@@ -209,7 +215,10 @@ describe('buildExitPath', () => {
     const board = makeBoard({ art: ['A..', '...', '...'].join('\n'), dirs: { a: 'E' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(35, 6);
+    // 2 ray edges (20) + the half-cell to the true edge (5) + the round cap's
+    // radius (1.5) + a full arrowhead reach (10), since a one-cell body's
+    // zero-length dash carries the head no distance of its own.
+    expect(path.totalLength).toBeCloseTo(20 + 5 + 1.5 + 10, 6);
   });
 
   it('steps the ray west, toward the left edge', () => {
@@ -219,7 +228,10 @@ describe('buildExitPath', () => {
     const board = makeBoard({ art: ['..A', '...', '...'].join('\n'), dirs: { a: 'W' } });
     const path = buildExitPath(board, 1, viewport);
     expect(path.xs.length).toBe(2 + 2);
-    expect(path.totalLength).toBeCloseTo(35, 6);
+    // 2 ray edges (20) + the half-cell to the true edge (5) + the round cap's
+    // radius (1.5) + a full arrowhead reach (10), since a one-cell body's
+    // zero-length dash carries the head no distance of its own.
+    expect(path.totalLength).toBeCloseTo(20 + 5 + 1.5 + 10, 6);
   });
 
   it('exits immediately when the head already sits on the top board edge', () => {
@@ -229,7 +241,10 @@ describe('buildExitPath', () => {
     // needed beyond the true edge: totalLength is 15.
     const path = buildExitPath(makeBoard(['A', 'a'].join('\n')), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(15, 6);
+    // One body edge (10) + the half-cell to the true edge (5) + the round
+    // cap's radius (1.5). The 10-long dash already exceeds an arrowhead's
+    // reach, so it needs no extra margin ahead of it.
+    expect(path.totalLength).toBeCloseTo(10 + 5 + 1.5, 6);
   });
 
   it('exits immediately when the head already sits on the bottom board edge', () => {
@@ -239,7 +254,10 @@ describe('buildExitPath', () => {
     // needed beyond the true edge: totalLength is 15.
     const path = buildExitPath(makeBoard(['a', 'A'].join('\n')), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(15, 6);
+    // One body edge (10) + the half-cell to the true edge (5) + the round
+    // cap's radius (1.5). The 10-long dash already exceeds an arrowhead's
+    // reach, so it needs no extra margin ahead of it.
+    expect(path.totalLength).toBeCloseTo(10 + 5 + 1.5, 6);
   });
 
   it('exits immediately when the head already sits on the right board edge', () => {
@@ -249,7 +267,10 @@ describe('buildExitPath', () => {
     // needed beyond the true edge: totalLength is 15.
     const path = buildExitPath(makeBoard('aA'), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(15, 6);
+    // One body edge (10) + the half-cell to the true edge (5) + the round
+    // cap's radius (1.5). The 10-long dash already exceeds an arrowhead's
+    // reach, so it needs no extra margin ahead of it.
+    expect(path.totalLength).toBeCloseTo(10 + 5 + 1.5, 6);
   });
 
   it('exits immediately when the head already sits on the left board edge', () => {
@@ -259,7 +280,10 @@ describe('buildExitPath', () => {
     // needed beyond the true edge: totalLength is 15.
     const path = buildExitPath(makeBoard('Aa'), 1, viewport);
     expect(path.xs.length).toBe(3);
-    expect(path.totalLength).toBeCloseTo(15, 6);
+    // One body edge (10) + the half-cell to the true edge (5) + the round
+    // cap's radius (1.5). The 10-long dash already exceeds an arrowhead's
+    // reach, so it needs no extra margin ahead of it.
+    expect(path.totalLength).toBeCloseTo(10 + 5 + 1.5, 6);
   });
 
   it('rejects a segmentId the caller controls but got wrong', () => {
@@ -463,7 +487,7 @@ describe('drawSnakeOutFrame', () => {
     // vertices the stroke itself uses.
     const board = makeBoard('aaaaA');
     const path = buildExitPath(board, 1, viewport);
-    expect(path.totalLength).toBe(45);
+    expect(path.totalLength).toBe(46.5);
 
     const ctx = new FakeCtx();
     drawSnakeOutFrame(ctx, path, 0.9);
@@ -474,7 +498,10 @@ describe('drawSnakeOutFrame', () => {
     );
     const tip = moveTos[moveTos.length - 1] as Extract<Call, { op: 'moveTo' }>;
     const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
-    expect(tip.x - half).toBeCloseTo(85.5, 6); // the anchor, tip minus half the arrowhead's length
+    // totalLength 46.5, so windowStart at progress 0.9 is 41.85 and the
+    // anchor sits at windowStart + dashLength = 81.85 along the path, i.e.
+    // 41.85 into a final edge that starts at x = 45.
+    expect(tip.x - half).toBeCloseTo(86.85, 6);
     expect(tip.y).toBe(5);
   });
 
