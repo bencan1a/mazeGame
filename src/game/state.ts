@@ -108,10 +108,8 @@ export function animationComplete(state: GameState): GameState {
 /**
  * The part of a game that a regenerated board cannot reproduce by itself.
  *
- * A board is a pure function of `(seed, params)`, so what has to be carried
- * across a reload is which segments have left and how many lives are left —
- * not the board. The queue and the animation flag are deliberately absent:
- * both describe a moment mid-flight, and a restore lands on a settled game.
+ * The queue and the animation flag are deliberately absent: both describe a
+ * moment mid-flight, and a restore lands on a settled game.
  */
 export interface GameSnapshot {
   readonly removedSegments: readonly SegmentId[];
@@ -180,11 +178,6 @@ export function restoreGameState(
   };
 }
 
-/**
- * Zero lives loses whatever else is true: `resolveOne` decrements only on a
- * bounce, and `tap` ignores everything once the status has left `'playing'`,
- * so a board cannot have been cleared after the last life went.
- */
 function statusFor(lives: number, removedCount: number, segmentCount: number): GameStatus {
   if (lives <= 0) return 'lost';
   return removedCount === segmentCount ? 'won' : 'playing';

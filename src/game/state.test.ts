@@ -389,6 +389,15 @@ describe('snapshotGameState / restoreGameState', () => {
     expect(restored.status).toBe('won');
   });
 
+  it('calls a cleared board with no lives left lost, not won', () => {
+    const all = Array.from({ length: ACYCLIC_BOARD.segmentCount }, (_, i) => i + 1);
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: all,
+      lives: 0,
+    });
+    expect(restored.status).toBe('lost');
+  });
+
   it('counts a repeated id once rather than rejecting it', () => {
     const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
       removedSegments: [2, 2],

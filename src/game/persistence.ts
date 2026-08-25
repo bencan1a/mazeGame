@@ -1,9 +1,7 @@
 /**
  * Persists `(seed, params, removedSegments, lives)` to `localStorage` so a
- * reload or a force-quit resumes mid-game. A `Board` is never stored, only
- * what regenerates it — `Board` is a pure function of `(seed, params)`, so
- * storing anything more risks resuming a different board than the seed
- * describes once the generator itself changes.
+ * reload or a force-quit resumes mid-game. No `Board` is stored, only what
+ * regenerates one.
  *
  * `localStorage` throws in more places than its type admits: Safari private
  * mode, over quota, site data disabled. Every read and every write here is
@@ -111,10 +109,9 @@ function isPlayParams(value: unknown): value is PlayParams {
  * Shape-validates a record read back from storage: untrusted input that may
  * be truncated JSON, a number where an array should be, or a record a
  * previous, differently-shaped build wrote. A version or a parameter outside
- * its range is discarded rather than repaired — a board is a pure function of
- * its parameters, so a record patched into validity names a different board
- * than the one the player was on. Unrecognised extra keys are ignored; they
- * cannot change which board the named parameters generate.
+ * its range is discarded rather than repaired: a record patched into validity
+ * names a different board than the one the player was on. Unrecognised extra
+ * keys are ignored.
  */
 function isStoredRecord(value: unknown): value is StoredRecord {
   if (typeof value !== 'object' || value === null) return false;
