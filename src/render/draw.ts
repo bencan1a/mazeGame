@@ -30,6 +30,7 @@ export interface StrokeContext2D {
   beginPath(): void;
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
+  arcTo(x1: number, y1: number, x2: number, y2: number, radius: number): void;
   stroke(): void;
 }
 
@@ -45,6 +46,22 @@ export interface FillContext2D {
 
 /** Line width as a fraction of one cell, scaled by the viewport at draw time. */
 export const LINE_WIDTH_CELLS = 0.3;
+/**
+ * Radius of the arc that replaces a bend in a segment's centre line, as a
+ * fraction of one cell. The stroke's two edges follow it at
+ * `CORNER_RADIUS_CELLS +- LINE_WIDTH_CELLS / 2`, so the outer edge rounds
+ * and the inner one rounds with it rather than staying a notch. Bounded
+ * below by half a line width and above by half a cell, both enforced
+ * below: consecutive cell centres are one cell apart, and a corner takes
+ * half of each leg it touches.
+ */
+export const CORNER_RADIUS_CELLS = 0.35;
+
+if (CORNER_RADIUS_CELLS > 0.5 || CORNER_RADIUS_CELLS <= LINE_WIDTH_CELLS / 2) {
+  throw new RangeError(
+    `CORNER_RADIUS_CELLS must be in (${LINE_WIDTH_CELLS / 2}, 0.5], got ${CORNER_RADIUS_CELLS}`,
+  );
+}
 /**
  * Arrowhead length as a fraction of one cell, scaled by the viewport at draw
  * time. Bounded at 1 and enforced below: the triangle spans the head cell
@@ -155,6 +172,35 @@ export function isBoardLegibleUnzoomed(
 }
 
 /**
+ * Extends the current subpath from `(ax, ay)` through the vertex at
+ * `(cx, cy)` on its way to `(bx, by)`, as an arc of at most `maxRadius`
+ * where the two legs turn and as a plain line where they do not. The
+ * radius is pulled in to half of whichever leg is shorter, so the corners
+ * at either end of one leg cannot claim overlapping stretches of it.
+ */
+function strokeCorner(
+  ctx: StrokeContext2D,
+  ax: number,
+  ay: number,
+  cx: number,
+  cy: number,
+  bx: number,
+  by: number,
+  maxRadius: number,
+): void {
+  const inX = cx - ax;
+  const inY = cy - ay;
+  const outX = bx - cx;
+  const outY = by - cy;
+  if (inX * outY - inY * outX === 0) {
+    ctx.lineTo(cx, cy);
+    return;
+  }
+  const radius = Math.min(maxRadius, Math.hypot(inX, inY) / 2, Math.hypot(outX, outY) / 2);
+  ctx.arcTo(cx, cy, bx, by, radius);
+}
+
+/**
  * Strokes one segment's polyline, cell-center to cell-center, except its
  * last vertex: for a segment of two cells or more that stops mostly short
  * of the head cell's own center, but not entirely — the stroke's rounded
@@ -166,6 +212,11 @@ export function isBoardLegibleUnzoomed(
  * invisible once the arrowhead's fill covers it. A single-cell segment has
  * no line to draw, so it gets a dot — a zero-length subpath with a round
  * cap — rather than vanishing silently.
+ *
+ * Each interior vertex is stroked as an arc of `CORNER_RADIUS_CELLS`
+ * rather than a right angle, clamped at every corner to half of each leg
+ * it touches so two corners sharing a leg cannot overlap — the last leg is
+ * the short one, shortened by the setback above.
  *
  * Throws `RangeError` for a malformed `segColor` or (on a multi-cell
  * segment) `segDir` — see `drawSegmentGuarded` for a caller, such as a
@@ -200,9 +251,12 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
+  const maxRadius = CORNER_RADIUS_CELLS * viewport.scale;
   ctx.beginPath();
-  let lastX = 0;
-  let lastY = 0;
+  let prevX = 0;
+  let prevY = 0;
+  let curX = 0;
+  let curY = 0;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
     let px = cellCenterX(viewport, xOf(cellIndex, board.width));
@@ -212,11 +266,15 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
       py -= setbackY;
     }
     if (i === start) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-    lastX = px;
-    lastY = py;
+    else if (i > start + 1) {
+      strokeCorner(ctx, prevX, prevY, curX, curY, px, py, maxRadius);
+    }
+    prevX = curX;
+    prevY = curY;
+    curX = px;
+    curY = py;
   }
-  if (end - start === 1) ctx.lineTo(lastX, lastY);
+  ctx.lineTo(curX, curY);
   ctx.stroke();
 }
 

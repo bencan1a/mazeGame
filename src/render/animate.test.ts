@@ -45,6 +45,7 @@ class FakeCtx {
   lineTo(x: number, y: number): void {
     this.calls.push({ op: 'lineTo', x, y });
   }
+  arcTo(): void {}
   stroke(): void {
     this.calls.push({
       op: 'stroke',
