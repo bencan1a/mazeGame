@@ -147,6 +147,12 @@ export function restoreGameState(
   if (!Number.isInteger(lives) || lives < 0) {
     throw new RangeError(`restoreGameState: lives must be a non-negative integer, got ${lives}`);
   }
+  if (lives > playParams.lives) {
+    throw new RangeError(
+      `restoreGameState: ${lives} lives on a game that starts with ${playParams.lives}; ` +
+        'lives only ever decrement, so no play reaches this',
+    );
+  }
 
   const removed = new Uint8Array(board.segmentCount + 1);
   let removedCount = 0;

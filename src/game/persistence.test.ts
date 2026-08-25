@@ -252,3 +252,39 @@ describe('loadSavedGame parameter ranges', () => {
     expect(loadSavedGame(storedWith({ ...GEN_PARAMS, somethingNew: 3 }))).not.toBeNull();
   });
 });
+
+describe('loadSavedGame removed-segment bounds', () => {
+  function stored(removedSegments: unknown, segmentCount = SEGMENT_COUNT): GameStorage {
+    const storage = new FakeStorage();
+    storage.setItem(
+      'arrow-maze:save:v1',
+      JSON.stringify({
+        version: 1,
+        genParams: GEN_PARAMS,
+        playParams: PLAY_PARAMS,
+        removedSegments,
+        lives: 3,
+        segmentCount,
+      }),
+    );
+    return storage;
+  }
+
+  it('discards a list longer than the board it claims', () => {
+    const tooMany = Array.from({ length: SEGMENT_COUNT + 1 }, (_, i) => i + 1);
+    expect(loadSavedGame(stored(tooMany))).toBeNull();
+  });
+
+  it('discards an id past the end of the board it claims', () => {
+    expect(loadSavedGame(stored([SEGMENT_COUNT + 1]))).toBeNull();
+  });
+
+  it('discards an id below the 1-based floor', () => {
+    expect(loadSavedGame(stored([0]))).toBeNull();
+    expect(loadSavedGame(stored([-1]))).toBeNull();
+  });
+
+  it('keeps a list that fits the board it claims', () => {
+    expect(loadSavedGame(stored([1, 2]))).not.toBeNull();
+  });
+});

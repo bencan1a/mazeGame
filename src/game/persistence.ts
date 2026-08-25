@@ -122,19 +122,21 @@ function isStoredRecord(value: unknown): value is StoredRecord {
   if (record.version !== RECORD_VERSION) return false;
   if (!isGenParams(record.genParams)) return false;
   if (!isPlayParams(record.playParams)) return false;
-  if (!Array.isArray(record.removedSegments)) return false;
-  if (!record.removedSegments.every((id) => Number.isInteger(id) && id >= 1)) return false;
   if (!isFiniteNumber(record.lives) || !Number.isInteger(record.lives) || record.lives < 0) {
     return false;
   }
-  if (
-    !isFiniteNumber(record.segmentCount) ||
-    !Number.isInteger(record.segmentCount) ||
-    record.segmentCount < 0
-  ) {
+  const segmentCount = record.segmentCount;
+  if (!isFiniteNumber(segmentCount) || !Number.isInteger(segmentCount) || segmentCount < 0) {
     return false;
   }
-  return true;
+  if (!Array.isArray(record.removedSegments)) return false;
+  // `segmentCount` is checked first so this bounds the walk below: a record
+  // claiming more removed segments than the board holds is rejected on its
+  // length, before anything iterates a tampered array.
+  if (record.removedSegments.length > segmentCount) return false;
+  return record.removedSegments.every(
+    (id) => Number.isInteger(id) && id >= 1 && id <= segmentCount,
+  );
 }
 
 /**
@@ -168,7 +170,6 @@ export function loadSavedGame(
     return null;
   }
   if (!isStoredRecord(parsed)) return null;
-  if (parsed.removedSegments.some((id) => id > parsed.segmentCount)) return null;
 
   return {
     genParams: parsed.genParams,

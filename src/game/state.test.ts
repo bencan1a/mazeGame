@@ -405,6 +405,15 @@ describe('snapshotGameState / restoreGameState', () => {
     }
   });
 
+  it('refuses more lives than the game starts with, which no play reaches', () => {
+    expect(() =>
+      restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+        removedSegments: [],
+        lives: PLAY_PARAMS.lives + 1,
+      }),
+    ).toThrow(RangeError);
+  });
+
   it('refuses a life count that is not a whole number of lives', () => {
     for (const lives of [-1, 1.5, NaN]) {
       expect(() =>
