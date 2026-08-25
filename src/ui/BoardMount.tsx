@@ -43,6 +43,8 @@ export function BoardMount(): ReactElement {
       return;
     }
     controllerRef.current = controller;
+    // A failed earlier mount must not leave its alert over a working board.
+    setError(null);
     setHud(controller.getHud());
     const unsubscribe = controller.subscribe(setHud);
     return () => {

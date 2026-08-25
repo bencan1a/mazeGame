@@ -349,7 +349,23 @@ export function createBoardController(
 
   const observer = new ResizeObserver(() => resize());
   observer.observe(surface);
-  resize();
+
+  const detach = (): void => {
+    observer.disconnect();
+    surface.removeEventListener('pointerdown', onDown);
+    surface.removeEventListener('pointermove', onMove);
+    surface.removeEventListener('pointerup', onUp);
+    surface.removeEventListener('pointercancel', onCancel);
+  };
+
+  try {
+    resize();
+  } catch (cause) {
+    // The caller never receives a handle when construction throws, so nothing
+    // else can unhook the listeners or the observer.
+    detach();
+    throw cause;
+  }
 
   return {
     getHud: hud,
@@ -358,6 +374,12 @@ export function createBoardController(
       return () => listeners.delete(listener);
     },
     restartBoard() {
+      // A settle frame from before the restart would land on a later removal
+      // and clear `animating` while that exit was still drawing.
+      if (bounceHandle !== null) {
+        scheduler.cancelFrame(bounceHandle);
+        bounceHandle = null;
+      }
       animation?.cancel();
       animation = null;
       state = restart(state);
@@ -378,12 +400,8 @@ export function createBoardController(
       // otherwise be live at once.
       staticLayer.canvas.width = 0;
       staticLayer.canvas.height = 0;
-      observer.disconnect();
       arbiter.reset();
-      surface.removeEventListener('pointerdown', onDown);
-      surface.removeEventListener('pointermove', onMove);
-      surface.removeEventListener('pointerup', onUp);
-      surface.removeEventListener('pointercancel', onCancel);
+      detach();
       listeners.clear();
     },
   };
