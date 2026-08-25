@@ -170,7 +170,6 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
   const root = createRng(seed);
   const blobSeed = root.int(0x100000000);
   const contourSeed = root.int(0x100000000);
-  const backbiteSeed = root.int(0x100000000);
   const segmentSeed = root.int(0x100000000);
 
   let mask: Mask;
@@ -186,14 +185,7 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     throw err;
   }
 
-  // Backbite takes no such steer, so a region that falls through to it lands
-  // wherever its own mixing puts the bend rate.
-  const pathResult = buildRegionPaths(
-    mask,
-    createRng(contourSeed),
-    createRng(backbiteSeed),
-    params.bendProbability,
-  );
+  const pathResult = buildRegionPaths(mask, createRng(contourSeed), params.bendProbability);
   if (!pathResult.ok) return { ok: false, reason: `path: ${pathResult.reason}` };
   const path = pathResult.path;
 

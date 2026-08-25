@@ -73,7 +73,7 @@ but read as speckle.
 ### `Mask -> HamiltonianPath` (S2)
 
 ```ts
-buildRegionPaths(mask: Mask, contourRng: Rng, backbiteRng: Rng, turnBias?: number): RegionPathsResult
+buildRegionPaths(mask: Mask, contourRng: Rng, turnBias?: number): RegionPathsResult
 ```
 
 **One path per region, concatenated.** `HamiltonianPath.regionStart` is CSR
@@ -91,13 +91,15 @@ Postconditions:
 - Consecutive entries **within a region** are 4-neighbours
   (`directionBetween` !== -1).
 
-`buildContourPath` and `buildBackbitePath` each fill a single region and are
-what `buildRegionPaths` calls per region; handed a multi-region mask they
-report `ok: false` rather than filling one lobe and calling it done. The
-contour method returns a Hamiltonian _cycle_; cutting it anywhere yields the
-path. Backbite is the fallback, chosen per region, for lobes that will not tile
-into 2×2 blocks. A lobe neither method can fill fails the stage — a board
-missing a lobe is not the silhouette that was asked for.
+`buildContourPath` fills one region and is what `buildRegionPaths` calls per
+region; handed a multi-region mask it reports `ok: false` rather than filling
+one lobe and calling it done. It returns a Hamiltonian _cycle_; cutting it
+anywhere yields the path. It is the only builder: a region it will not tile
+into 2×2 blocks is a declined attempt, retried on a fresh internal seed, not a
+handover to a second algorithm. See
+[adr/0010](./adr/0010-contour-is-the-only-path-builder.md). Every lobe of a
+mask this pipeline produces is a union of whole 2x2 blocks, which is what
+keeps that safe now that a silhouette can be several lobes.
 
 ### `HamiltonianPath -> segments + heads` (S3)
 

@@ -12,7 +12,7 @@ src/
     rng.ts         seeded PRNG; the only randomness allowed in core/
     grid.ts        cell-index arithmetic and directions
     mask/          blob -> component -> morphological open -> holes -> parity     [S1]
-    path/          spanning-tree contour + backbite Hamiltonian path              [S2]
+    path/          spanning-tree contour Hamiltonian path                         [S2]
     segment/       cut the path into segments and pick each one's head           [S3]
     orient/        occupancy and the blocking digraph derived from a segmentation [S3]
     color/         greedy graph coloring over segment adjacency                   [S3]
@@ -80,11 +80,12 @@ region tiles into the 2×2 blocks the contour path fill needs. A side effect is
 that the parity step absorbs nothing on a procedurally generated silhouette. See
 [adr/0009](./adr/0009-half-resolution-silhouette.md).
 
-**Path.** Primary is the spanning-tree contour: a random spanning tree on a
+**Path.** The spanning-tree contour, and only it: a random spanning tree on a
 half-resolution grid, its outline traced at full resolution. The contour walk
 _is_ a Hamiltonian cycle, guaranteed, in linear time — but it requires the
-region to tile into 2×2 blocks. Backbite (Mansfield) is the fallback and the
-randomizer: take an endpoint, pick a random neighbour, reverse the tail.
+region to tile into 2×2 blocks. A region it declines fails the attempt and is
+retried on a fresh internal seed. See
+[adr/0010](./adr/0010-contour-is-the-only-path-builder.md).
 
 **Cut and orient.** Cut by `meanPieceLength` and `pieceLengthVariance`, with
 `minPieceLength` as a floor and `minStraightRun` constraining where cuts may

@@ -61,12 +61,7 @@ function cupMask(): Mask {
 
 function boardFrom(mask: Mask, seed: number): { board: Board; path: HamiltonianPath } {
   const root = createRng(seed);
-  const paths = buildRegionPaths(
-    mask,
-    createRng(root.int(0x100000000)),
-    createRng(root.int(0x100000000)),
-    PARAMS.bendProbability,
-  );
+  const paths = buildRegionPaths(mask, createRng(root.int(0x100000000)), PARAMS.bendProbability);
   if (!paths.ok) throw new Error(`buildRegionPaths declined: ${paths.reason}`);
 
   const peeled = peelSegments(

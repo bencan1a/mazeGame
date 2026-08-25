@@ -49,8 +49,7 @@ export interface GenParams {
    *
    * Not a target rate: the contour method's own geometry bounds what is
    * reachable from both ends, and the mapping is monotonic but not linear, so
-   * read the achieved `bendRate` rather than this. Only the contour path
-   * reads it at all — the backbite fallback has no equivalent steer.
+   * read the achieved `bendRate` rather than this.
    */
   readonly bendProbability: number;
   /** A cut may not leave a straight run shorter than this. */
