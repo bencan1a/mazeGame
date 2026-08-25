@@ -158,7 +158,7 @@ open-ended search for the thing nobody thought to specify, where the failure mod
 is a quiet miss rather than a visible error. That is worth the stronger model,
 and it is one agent rather than six.
 
-**Five issues are worth escalating if a Sonnet run stalls.** They are
+**Four issues are worth escalating if a Sonnet run stalls.** They are
 algorithmically dense rather than merely fiddly, and the failure is usually
 subtle-and-plausible rather than obviously broken:
 
@@ -166,7 +166,6 @@ subtle-and-plausible rather than obviously broken:
 | ------------------------- | -------------------------------------------------------------------------- |
 | #4 parity absorption      | Choosing which cells to drop while preserving 4-connectivity               |
 | #5 spanning-tree contour  | Half-resolution tree, full-resolution contour trace, 2×2 tiling constraint |
-| #6 backbite               | Tail reversal that must preserve the Hamiltonian property on every move    |
 | #83 cut-and-orient        | One stage whose correctness condition is a global ordering property        |
 | #14 end-to-end generation | Composes six stages; a wiring error looks like a generator bug             |
 
@@ -191,7 +190,8 @@ answer already:
 - **A stage's quality target proves unreachable** → say so with the measurement
   attached, and propose moving the target. Reporting a number you did not
   achieve is the job; quietly reporting a different number is not.
-- **The contour method will not tile the region** → backbite fallback (S2).
+- **The contour method will not tile the region** → nothing rescues that
+  attempt; it declines, and `generateBoard` retries on a fresh internal seed.
 - **`bendProbability` does not reach the rate you asked for** → expected; it is a
   bounded steer, not a target. Record the measured `bendRate` rather than
   tuning by feel.

@@ -62,7 +62,9 @@ Postconditions:
 - Consecutive entries are 4-neighbours (`directionBetween` !== -1).
 
 The contour method returns a Hamiltonian _cycle_; cutting it anywhere yields the
-path. Backbite is the fallback for regions that will not tile into 2×2 blocks.
+path. It is the only builder: a region it will not tile into 2×2 blocks is a
+declined attempt, retried on a fresh internal seed, not a handover to a second
+algorithm. See [adr/0010](./adr/0010-contour-is-the-only-path-builder.md).
 
 ### `HamiltonianPath -> segments + heads` (S3)
 

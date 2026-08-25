@@ -157,12 +157,12 @@ mask → path fill → cut-and-orient → validation → colors
 
 **Step 2 — Path fill.** Build a Hamiltonian path over the mask.
 
-- **Primary: spanning-tree contour.** Random spanning tree on a half-resolution grid;
-  trace the tree's outline at full resolution. The contour walk _is_ a Hamiltonian cycle,
-  guaranteed, in linear time. Requires the region to tile into 2×2 blocks.
-- **Fallback / randomizer: backbite** (Mansfield). Take an endpoint, pick a random
-  neighbor, reverse the tail. Mixes toward near-uniform random paths and handles
-  irregular regions the contour method can't tile.
+- **Spanning-tree contour, and only it.** Random spanning tree on a half-resolution
+  grid; trace the tree's outline at full resolution. The contour walk _is_ a Hamiltonian
+  cycle, guaranteed, in linear time. Requires the region to tile into 2×2 blocks.
+- A region it can't tile fails the generation attempt, which retries on a fresh internal
+  seed. A backbite fallback was built for that case and removed unused: on procedurally
+  generated blobs the contour method has never declined (issue #109 has the measurement).
 
 **Step 3 — Cut and orient.** One stage, not two. Cutting the path first and then
 searching for an acyclic head assignment does not work at the sizes the game needs:
@@ -282,7 +282,7 @@ by intuition.
 ## 6. Build Order
 
 1. Mask pipeline (blob generation + repair + parity)
-2. Path fill (spanning-tree contour, then backbite)
+2. Path fill (spanning-tree contour)
 3. Segmentation
 4. Orientation / acyclicity + validation
 5. **Headless stats harness**
@@ -300,13 +300,13 @@ harness and live play once both exist.
 
 ## 7. Known Risks
 
-| #   | Risk                                                                                                                                         | Mitigation                                                                                                                                                                                                                                                                                                                                    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | **`bendProbability` was not natively controllable.** The contour method determines path shape, and bendiness was not a free parameter of it. | Retired: biasing spanning-tree growth makes achieved bend rate track the request monotonically. It is a bounded band rather than a target rate — the ceiling is ~0.48 at any size, and the floor rises as the board shrinks (~0.06 at gridSize 100, ~0.26 at 20) because a small region's boundary forces corners. Backbite still ignores it. |
-| R2  | Orientation search may not converge at high segment counts.                                                                                  | Retired: cut-and-orient (§4.2 step 3) constructs an acyclic digraph rather than searching for one, so there is nothing left to converge.                                                                                                                                                                                                      |
-| R3  | **100×100 may simply not be fun.** Thousands of segments × even a fast animation is a multi-hour board.                                      | Metrics harness will expose this before the renderer exists. Be willing to conclude the real ceiling is ~50×50.                                                                                                                                                                                                                               |
-| R4  | Legibility floor. ~8–10px per arrowhead caps unzoomed boards at ~40 cells across on a phone.                                                 | Zoom is mandatory above that, already in scope.                                                                                                                                                                                                                                                                                               |
-| R5  | Offscreen buffer memory on iOS at high zoom.                                                                                                 | Retired on iOS: the constraint is a per-canvas cap between 8192² and 10000², not a total, and two 8192² layers coexist. Cap each layer; no re-render-on-zoom needed. Not measured on Android.                                                                                                                                                 |
+| #   | Risk                                                                                                                                         | Mitigation                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R1  | **`bendProbability` was not natively controllable.** The contour method determines path shape, and bendiness was not a free parameter of it. | Retired: biasing spanning-tree growth makes achieved bend rate track the request monotonically. It is a bounded band rather than a target rate — the ceiling is ~0.48 at any size, and the floor rises as the board shrinks (~0.06 at gridSize 100, ~0.26 at 20) because a small region's boundary forces corners. |
+| R2  | Orientation search may not converge at high segment counts.                                                                                  | Retired: cut-and-orient (§4.2 step 3) constructs an acyclic digraph rather than searching for one, so there is nothing left to converge.                                                                                                                                                                           |
+| R3  | **100×100 may simply not be fun.** Thousands of segments × even a fast animation is a multi-hour board.                                      | Metrics harness will expose this before the renderer exists. Be willing to conclude the real ceiling is ~50×50.                                                                                                                                                                                                    |
+| R4  | Legibility floor. ~8–10px per arrowhead caps unzoomed boards at ~40 cells across on a phone.                                                 | Zoom is mandatory above that, already in scope.                                                                                                                                                                                                                                                                    |
+| R5  | Offscreen buffer memory on iOS at high zoom.                                                                                                 | Retired on iOS: the constraint is a per-canvas cap between 8192² and 10000², not a total, and two 8192² layers coexist. Cap each layer; no re-render-on-zoom needed. Not measured on Android.                                                                                                                      |
 
 ---
 

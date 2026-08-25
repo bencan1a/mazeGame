@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
 import { assertDeterministic, checkStructure, greedyClear } from './validate/index.js';
 import * as validateModule from './validate/index.js';
@@ -14,6 +14,12 @@ import {
   generateBoard,
   generateBoardWithDiagnostics,
 } from './generate.js';
+
+// Every spy below stubs a module this file also calls unstubbed. A spy that
+// outlives a failing assertion turns one red test into several.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function paramsAt(overrides: Partial<GenParams>): GenParams {
   return { ...DEFAULT_GEN_PARAMS, ...overrides };
@@ -198,8 +204,6 @@ describe('generateBoard: validate option', () => {
 
     generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
     expect(spy).toHaveBeenCalledTimes(1);
-
-    spy.mockRestore();
   });
 
   it('validate: false skips validateBoard but still returns a structurally assembled board', () => {
@@ -221,15 +225,13 @@ describe('generateBoard: validate option', () => {
 
     generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }), { validate: true });
     expect(spy).toHaveBeenCalledTimes(1);
-
-    spy.mockRestore();
   });
 
   it('retries after validateBoard throws once, and the recovered attempt is genuinely sound', () => {
     // AC3 covers validation failure too, not only mask/orientation failure.
     // Without this, deleting the BoardInvariantError branch in generate.ts's
     // validation catch leaves every other test in this file green.
-    const spy = vi.spyOn(validateModule, 'validateBoard').mockImplementationOnce(() => {
+    vi.spyOn(validateModule, 'validateBoard').mockImplementationOnce(() => {
       throw new BoardInvariantError('forced failure to exercise the validation retry path');
     });
 
@@ -239,8 +241,6 @@ describe('generateBoard: validate option', () => {
       /^validation: forced failure to exercise/,
     );
     assertExternallySound(result.board);
-
-    spy.mockRestore();
   });
 });
 
@@ -261,43 +261,21 @@ describe('generateBoard: the cut-and-orient stage has no failure mode to classif
     // The stage models no refusal, so anything it throws is a fault. Catching
     // it broadly would retry it 8 times and surface it as an
     // indistinguishable GenerationFailedError instead of the real bug.
-    const spy = vi.spyOn(segmentModule, 'peelSegments').mockImplementationOnce(() => {
+    vi.spyOn(segmentModule, 'peelSegments').mockImplementationOnce(() => {
       throw new Error('path cells 3 and 9 are not 4-neighbours (forced for this test)');
     });
 
     expect(() => generateBoard(paramsAt({ gridSize: 20, seed: 5 }))).toThrowError(
       /not 4-neighbours/,
     );
-
-    spy.mockRestore();
   });
 });
 
-describe('generateBoard: path stage failure and fallback', () => {
-  it('falls through to backbite when contour declines, and a real backbite success still validates', () => {
-    // Without this, deleting the backbite fallback entirely (contour-only)
-    // leaves every other test in this file green, because contour never
-    // actually declines on real generated masks at the sizes exercised
-    // elsewhere in this file.
-    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
-      ok: false,
-      reason: 'forced decline to exercise the backbite fallback',
-    });
-
-    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
-    assertExternallySound(result.board);
-
-    contourSpy.mockRestore();
-  });
-
-  it('reports a "path:" failure, retried, when both contour and backbite decline', () => {
-    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+describe('generateBoard: path stage failure', () => {
+  it('retries a contour decline and reports a "path:" failure naming contour', () => {
+    vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
       ok: false,
       reason: 'forced contour decline for this test',
-    });
-    const backbiteSpy = vi.spyOn(pathModule, 'buildBackbitePath').mockReturnValue({
-      ok: false,
-      reason: 'forced backbite failure for this test',
     });
 
     let caught: unknown;
@@ -309,10 +287,25 @@ describe('generateBoard: path stage failure and fallback', () => {
     expect(caught).toBeInstanceOf(GenerationFailedError);
     const failure = (caught as GenerationFailedError).detail as { attemptFailures: string[] };
     expect(failure.attemptFailures).toHaveLength(DEFAULT_MAX_ATTEMPTS);
-    expect(failure.attemptFailures.every((reason) => reason.startsWith('path:'))).toBe(true);
+    expect(
+      failure.attemptFailures.every((reason) =>
+        reason.startsWith('path: contour declined (forced contour decline for this test)'),
+      ),
+    ).toBe(true);
+  });
 
-    contourSpy.mockRestore();
-    backbiteSpy.mockRestore();
+  it('recovers when a contour decline is transient, without failing the board', () => {
+    let declines = 2;
+    const real = pathModule.buildContourPath;
+    vi.spyOn(pathModule, 'buildContourPath').mockImplementation((mask, rng, bendProbability) =>
+      declines-- > 0
+        ? { ok: false, reason: 'forced decline on the first two attempts' }
+        : real(mask, rng, bendProbability),
+    );
+
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(result.diagnostics.attempts).toBe(3);
+    assertExternallySound(result.board);
   });
 });
 

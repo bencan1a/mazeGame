@@ -20,7 +20,7 @@ import type { GenParams, Board, GenerateBoard, HamiltonianPath, Seed } from './t
 import { BoardInvariantError } from './types.js';
 import { generateBlob, repairMask, MaskRepairError } from './mask/index.js';
 import type { Mask } from './types.js';
-import { buildContourPath, buildBackbitePath } from './path/index.js';
+import { buildContourPath } from './path/index.js';
 import { peelSegments } from './segment/index.js';
 import type { PeelStats } from './segment/index.js';
 import { occupancyFromSegments, buildBlockingGraph } from './orient/index.js';
@@ -165,7 +165,6 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
   const root = createRng(seed);
   const blobSeed = root.int(0x100000000);
   const contourSeed = root.int(0x100000000);
-  const backbiteSeed = root.int(0x100000000);
   const segmentSeed = root.int(0x100000000);
 
   let mask: Mask;
@@ -181,22 +180,11 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     throw err;
   }
 
-  // Backbite takes no such steer, so a board that falls through to it lands
-  // wherever its own mixing puts the bend rate.
   const contourResult = buildContourPath(mask, createRng(contourSeed), params.bendProbability);
-  const pathResult = contourResult.ok
-    ? contourResult
-    : buildBackbitePath(mask, createRng(backbiteSeed));
-  if (!pathResult.ok) {
-    const contourReason = contourResult.ok ? '' : contourResult.reason;
-    return {
-      ok: false,
-      reason:
-        `path: contour declined (${contourReason}) and backbite failed: ` +
-        `${(pathResult as { reason: string }).reason}`,
-    };
+  if (!contourResult.ok) {
+    return { ok: false, reason: `path: contour declined (${contourResult.reason})` };
   }
-  const path = pathResult.path;
+  const path = contourResult.path;
 
   const segments = peelSegments(
     path,
