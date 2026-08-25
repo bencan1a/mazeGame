@@ -106,6 +106,85 @@ export function animationComplete(state: GameState): GameState {
 }
 
 /**
+ * The part of a game that a regenerated board cannot reproduce by itself.
+ *
+ * A board is a pure function of `(seed, params)`, so what has to be carried
+ * across a reload is which segments have left and how many lives are left —
+ * not the board. The queue and the animation flag are deliberately absent:
+ * both describe a moment mid-flight, and a restore lands on a settled game.
+ */
+export interface GameSnapshot {
+  readonly removedSegments: readonly SegmentId[];
+  readonly lives: number;
+}
+
+/** Ids in ascending order, so two snapshots of the same game serialise alike. */
+export function snapshotGameState(state: GameState): GameSnapshot {
+  const removedSegments: SegmentId[] = [];
+  for (let id = 1; id <= state.board.segmentCount; id++) {
+    if (state.removed[id] === 1) removedSegments.push(id);
+  }
+  return { removedSegments, lives: state.lives };
+}
+
+/**
+ * Rebuilds the state a snapshot describes on `board`, settled: empty queue,
+ * nothing animating, no last outcome.
+ *
+ * Throws when the snapshot cannot describe a game on this board. A restore
+ * that quietly dropped an out-of-range id would resume a *different* game
+ * under the same seed — fewer segments removed, with nothing to show for it —
+ * so the caller gets the chance to fall back to a fresh board instead. A
+ * repeated id is not that case: it states the same fact twice, and counts
+ * once.
+ */
+export function restoreGameState(
+  board: Board,
+  playParams: PlayParams,
+  snapshot: GameSnapshot,
+): GameState {
+  const { lives } = snapshot;
+  if (!Number.isInteger(lives) || lives < 0) {
+    throw new RangeError(`restoreGameState: lives must be a non-negative integer, got ${lives}`);
+  }
+
+  const removed = new Uint8Array(board.segmentCount + 1);
+  let removedCount = 0;
+  for (const id of snapshot.removedSegments) {
+    if (!isValidSegmentId(board, id)) {
+      throw new RangeError(
+        `restoreGameState: segment ${id} is not on a board of ${board.segmentCount} segments`,
+      );
+    }
+    if (removed[id] === 1) continue;
+    removed[id] = 1;
+    removedCount++;
+  }
+
+  return {
+    board,
+    playParams,
+    removed,
+    removedCount,
+    lives,
+    queue: [],
+    animating: false,
+    status: statusFor(lives, removedCount, board.segmentCount),
+    lastOutcome: null,
+  };
+}
+
+/**
+ * Zero lives loses whatever else is true: `resolveOne` decrements only on a
+ * bounce, and `tap` ignores everything once the status has left `'playing'`,
+ * so a board cannot have been cleared after the last life went.
+ */
+function statusFor(lives: number, removedCount: number, segmentCount: number): GameStatus {
+  if (lives <= 0) return 'lost';
+  return removedCount === segmentCount ? 'won' : 'playing';
+}
+
+/**
  * Drops the removed-set and restores full lives on the same `board` object.
  * Works from any status, including mid-animation with a non-empty queue, so a
  * caller that never gets its `animationComplete` signal — a cancelled
