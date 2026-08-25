@@ -35,8 +35,8 @@ function maskFor(gridSize: number, seed: number): Mask {
   );
 }
 
-function pathFor(mask: Mask, seed: number): HamiltonianPath | null {
-  const result = buildContourPath(mask, createRng(seed));
+function pathFor(mask: Mask, params: GenParams, seed: number): HamiltonianPath | null {
+  const result = buildContourPath(mask, createRng(seed), params.bendProbability);
   return result.ok ? result.path : null;
 }
 
@@ -183,7 +183,7 @@ describe.each([
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
         const mask = maskFor(gridSize, seed);
-        const path = pathFor(mask, seed);
+        const path = pathFor(mask, params, seed);
         // A declining path stage is that stage's business, not this one's.
         fc.pre(path !== null);
         const peeled = peelSegments(path, params, createRng(seed), gridSize, gridSize);
@@ -201,7 +201,7 @@ describe.each([
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
         const mask = maskFor(gridSize, seed);
-        const path = pathFor(mask, seed);
+        const path = pathFor(mask, params, seed);
         fc.pre(path !== null);
         const { stats } = peelSegments(path, params, createRng(seed), gridSize, gridSize);
         expect(stats.segmentCount).toBeGreaterThan(0);
