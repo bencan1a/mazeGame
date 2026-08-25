@@ -130,8 +130,8 @@ export function createBoardController(
   let legibleUnzoomed = true;
   let bounceHandle: number | null = null;
   let blitPending = false;
-  /** False until the first layout has chosen a real fit scale, so it is not treated as a user zoom. */
-  let fitted = false;
+  /** True once the player has pinched; until then every layout re-fits the board. */
+  let userZoomed = false;
   let disposed = false;
 
   const listeners = new Set<(hud: BoardHud) => void>();
@@ -220,8 +220,7 @@ export function createBoardController(
     animationLayer = createAnimationLayer(nextWidth, nextHeight, nextDpr, () => overlay);
 
     const { min, max } = zoomBounds();
-    const nextScale = clampZoomScale(fitted ? viewport.scale : min, min, max);
-    fitted = true;
+    const nextScale = clampZoomScale(userZoomed ? viewport.scale : min, min, max);
     viewport = clampPan(
       createViewport({
         scale: nextScale,
@@ -319,6 +318,7 @@ export function createBoardController(
         const rect = surface.getBoundingClientRect();
         const { min, max } = zoomBounds();
         const next = clampZoomScale(viewport.scale * scaleFactor, min, max);
+        userZoomed = true;
         viewport = clampPan(
           zoomViewportAt(viewport, next, focal.x - rect.left, focal.y - rect.top),
           panBounds(),
@@ -347,7 +347,14 @@ export function createBoardController(
   surface.addEventListener('pointerup', onUp);
   surface.addEventListener('pointercancel', onCancel);
 
-  const observer = new ResizeObserver(() => resize());
+  const observer = new ResizeObserver(() => {
+    try {
+      resize();
+    } catch {
+      // A layout mid-teardown can fail to allocate; the next one recovers, and
+      // an exception escaping the observer would stop it being called again.
+    }
+  });
   observer.observe(surface);
 
   const detach = (): void => {

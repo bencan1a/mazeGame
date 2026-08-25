@@ -1,6 +1,30 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
+import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS, type GenParams } from '../core/types.js';
 import { createBoardController, type BoardController, type BoardHud } from './boardController.js';
+
+/** How long a lost board stays readable before it replays the same seed. */
+const LOSS_BEAT_MS = 1600;
+
+/**
+ * `?grid=` and `?seed=` override the defaults. The tuning panel is a later
+ * milestone; this is the only way to reach a size other than the default,
+ * which the on-device performance pass needs.
+ */
+function paramsFromLocation(): GenParams {
+  if (typeof window === 'undefined') return DEFAULT_GEN_PARAMS;
+  const query = new URLSearchParams(window.location.search);
+  const asInt = (key: string, min: number, max: number): number | null => {
+    const raw = query.get(key);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isInteger(value) && value >= min && value <= max ? value : null;
+  };
+  return {
+    ...DEFAULT_GEN_PARAMS,
+    gridSize: asInt('grid', 8, 100) ?? DEFAULT_GEN_PARAMS.gridSize,
+    seed: asInt('seed', 0, Number.MAX_SAFE_INTEGER) ?? DEFAULT_GEN_PARAMS.seed,
+  };
+}
 
 const INITIAL_HUD: BoardHud = {
   lives: DEFAULT_PLAY_PARAMS.lives,
@@ -35,7 +59,7 @@ export function BoardMount(): ReactElement {
     try {
       controller = createBoardController(
         { surface, base, overlay },
-        DEFAULT_GEN_PARAMS,
+        paramsFromLocation(),
         DEFAULT_PLAY_PARAMS,
       );
     } catch (cause) {
@@ -53,6 +77,14 @@ export function BoardMount(): ReactElement {
       controllerRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (hud.status !== 'lost') return;
+    // Zero lives replays the same seed rather than ending; the delay is only
+    // so the player sees why the board reset.
+    const timer = window.setTimeout(() => controllerRef.current?.restartBoard(), LOSS_BEAT_MS);
+    return () => window.clearTimeout(timer);
+  }, [hud.status]);
 
   const cleared =
     hud.segmentCount === 0 ? 0 : Math.round((hud.removedCount / hud.segmentCount) * 100);
@@ -85,12 +117,15 @@ export function BoardMount(): ReactElement {
             This device could not allocate a drawing buffer, so the board is blank. Try a smaller
             grid size.
           </span>
-        ) : hud.droppedSegments > 0 ? (
-          <span role="alert">{hud.droppedSegments} pieces could not be drawn.</span>
         ) : hud.status === 'won' ? (
           <span>Board cleared.</span>
         ) : hud.status === 'lost' ? (
-          <span>Out of lives — restart replays the same board.</span>
+          <span>Out of lives — replaying the same board.</span>
+        ) : hud.droppedSegments > 0 ? (
+          <span role="alert">
+            {hud.droppedSegments} {hud.droppedSegments === 1 ? 'piece' : 'pieces'} could not be
+            drawn.
+          </span>
         ) : !hud.legibleUnzoomed ? (
           <span>
             Zoom in to read the arrowheads at {hud.gridSize}×{hud.gridSize}.
