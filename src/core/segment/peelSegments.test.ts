@@ -259,7 +259,8 @@ describe('peelSegments: minPieceLength', () => {
 });
 
 describe('peelSegments: taking a whole run to keep every piece legal', () => {
-  // A plus, filled by a real backbite walk, asked for pieces of eight. Every
+  // A plus, filled by a walk that doubles back on itself, asked for pieces of
+  // eight. Every
   // ordinary candidate at one step would have left a remnant too short to be
   // a legal piece of its own, so the only move left is a whole run — here the
   // sixteen-cell one. Without that move the peel would have to emit an

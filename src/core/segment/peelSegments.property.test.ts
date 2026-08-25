@@ -1,6 +1,6 @@
 /**
  * The peel against real geometry: blobs from `generateBlob`, filled by the
- * production contour and backbite paths, at the sizes the game targets.
+ * production contour path, at the sizes the game targets.
  *
  * Boustrophedon walks through full rectangles are not a substitute here. A
  * rectangle orients cleanly at every size whatever the segmentation does, so
@@ -15,7 +15,7 @@ import { directionBetween } from '../grid.js';
 import { DEFAULT_GEN_PARAMS } from '../types.js';
 import type { Board, GenParams, HamiltonianPath, Mask } from '../types.js';
 import { generateBlob, repairMask } from '../mask/index.js';
-import { buildBackbitePath, buildContourPath } from '../path/index.js';
+import { buildContourPath } from '../path/index.js';
 import { buildAdjacencyGraph, colorSegments } from '../color/index.js';
 import { buildBlockingGraph, occupancyFromSegments } from '../orient/index.js';
 import {
@@ -27,8 +27,6 @@ import {
 import { peelSegments } from './peelSegments.js';
 import type { PeeledSegments } from './peelSegments.js';
 
-type PathMethod = 'contour' | 'backbite';
-
 const REFERENCE_LIKE: Partial<GenParams> = { meanPieceLength: 5, pieceLengthVariance: 3 };
 
 function maskFor(gridSize: number, seed: number): Mask {
@@ -37,11 +35,8 @@ function maskFor(gridSize: number, seed: number): Mask {
   );
 }
 
-function pathFor(mask: Mask, method: PathMethod, seed: number): HamiltonianPath | null {
-  const result =
-    method === 'contour'
-      ? buildContourPath(mask, createRng(seed))
-      : buildBackbitePath(mask, createRng(seed));
+function pathFor(mask: Mask, seed: number): HamiltonianPath | null {
+  const result = buildContourPath(mask, createRng(seed));
   return result.ok ? result.path : null;
 }
 
@@ -184,23 +179,19 @@ describe.each([
 ])('peelSegments on real $gridSize x $gridSize paths', ({ gridSize, numRuns }) => {
   const params: GenParams = { ...DEFAULT_GEN_PARAMS, ...REFERENCE_LIKE, gridSize };
 
-  it.each<PathMethod>(['contour', 'backbite'])(
-    `holds every stage postcondition over %s paths`,
-    (method) => {
-      fc.assert(
-        fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
-          const mask = maskFor(gridSize, seed);
-          const path = pathFor(mask, method, seed);
-          // A declining path stage is that stage's business, not this one's.
-          fc.pre(path !== null);
-          const peeled = peelSegments(path, params, createRng(seed), gridSize, gridSize);
-          expect(violations(peeled, path, mask, params)).toEqual([]);
-        }),
-        { numRuns, seed: 20260823 },
-      );
-    },
-    600_000,
-  );
+  it('holds every stage postcondition over contour paths', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
+        const mask = maskFor(gridSize, seed);
+        const path = pathFor(mask, seed);
+        // A declining path stage is that stage's business, not this one's.
+        fc.pre(path !== null);
+        const peeled = peelSegments(path, params, createRng(seed), gridSize, gridSize);
+        expect(violations(peeled, path, mask, params)).toEqual([]);
+      }),
+      { numRuns, seed: 20260823 },
+    );
+  }, 600_000);
 
   it(`never falls back to a stub segmentation on ${gridSize}x${gridSize} contour paths`, () => {
     // The failure this design trades into is ugliness, not "no board", so the
@@ -210,7 +201,7 @@ describe.each([
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
         const mask = maskFor(gridSize, seed);
-        const path = pathFor(mask, 'contour', seed);
+        const path = pathFor(mask, seed);
         fc.pre(path !== null);
         const { stats } = peelSegments(path, params, createRng(seed), gridSize, gridSize);
         expect(stats.segmentCount).toBeGreaterThan(0);

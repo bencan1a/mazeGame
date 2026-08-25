@@ -273,31 +273,11 @@ describe('generateBoard: the cut-and-orient stage has no failure mode to classif
   });
 });
 
-describe('generateBoard: path stage failure and fallback', () => {
-  it('falls through to backbite when contour declines, and a real backbite success still validates', () => {
-    // Without this, deleting the backbite fallback entirely (contour-only)
-    // leaves every other test in this file green, because contour never
-    // actually declines on real generated masks at the sizes exercised
-    // elsewhere in this file.
-    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
-      ok: false,
-      reason: 'forced decline to exercise the backbite fallback',
-    });
-
-    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
-    assertExternallySound(result.board);
-
-    contourSpy.mockRestore();
-  });
-
-  it('reports a "path:" failure, retried, when both contour and backbite decline', () => {
+describe('generateBoard: path stage failure', () => {
+  it('retries a contour decline and reports a "path:" failure naming contour', () => {
     const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
       ok: false,
       reason: 'forced contour decline for this test',
-    });
-    const backbiteSpy = vi.spyOn(pathModule, 'buildBackbitePath').mockReturnValue({
-      ok: false,
-      reason: 'forced backbite failure for this test',
     });
 
     let caught: unknown;
@@ -309,10 +289,31 @@ describe('generateBoard: path stage failure and fallback', () => {
     expect(caught).toBeInstanceOf(GenerationFailedError);
     const failure = (caught as GenerationFailedError).detail as { attemptFailures: string[] };
     expect(failure.attemptFailures).toHaveLength(DEFAULT_MAX_ATTEMPTS);
-    expect(failure.attemptFailures.every((reason) => reason.startsWith('path:'))).toBe(true);
+    expect(
+      failure.attemptFailures.every((reason) =>
+        reason.startsWith('path: contour declined (forced contour decline for this test)'),
+      ),
+    ).toBe(true);
 
     contourSpy.mockRestore();
-    backbiteSpy.mockRestore();
+  });
+
+  it('recovers when a contour decline is transient, without failing the board', () => {
+    let declines = 2;
+    const real = pathModule.buildContourPath;
+    const contourSpy = vi
+      .spyOn(pathModule, 'buildContourPath')
+      .mockImplementation((mask, rng, bendProbability) =>
+        declines-- > 0
+          ? { ok: false, reason: 'forced decline on the first two attempts' }
+          : real(mask, rng, bendProbability),
+      );
+
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
+    expect(result.diagnostics.attempts).toBe(3);
+    assertExternallySound(result.board);
+
+    contourSpy.mockRestore();
   });
 });
 
