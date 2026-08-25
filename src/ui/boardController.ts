@@ -129,6 +129,8 @@ export function createBoardController(
   let viewport: Viewport<'css'> = createViewport({ scale: 1, dpr });
   let legibleUnzoomed = true;
   let bounceHandle: number | null = null;
+  /** False once the visible canvas has refused a 2d context, leaving a blank board. */
+  let canvasOk = true;
   let blitPending = false;
   /** True once the player has pinched; until then every layout re-fits the board. */
   let userZoomed = false;
@@ -144,7 +146,7 @@ export function createBoardController(
     segmentCount: board.segmentCount,
     gridSize: genParams.gridSize,
     legibleUnzoomed,
-    bufferOk: staticLayer.allocationOk,
+    bufferOk: staticLayer.allocationOk && canvasOk,
     droppedSegments: staticLayer.droppedSegments.length,
   });
   const publish = (): void => {
@@ -181,7 +183,10 @@ export function createBoardController(
 
   const blit = (): void => {
     const ctx = base.getContext('2d');
-    if (ctx === null) return;
+    if (ctx === null) {
+      canvasOk = false;
+      return;
+    }
     const rects = computeBlitRects(
       viewport,
       staticLayer.viewport,
@@ -245,7 +250,12 @@ export function createBoardController(
   };
 
   const startExit = (id: number): void => {
-    if (animationLayer === null) return;
+    if (animationLayer === null) {
+      // Without an overlay there is no exit to play, but the state machine
+      // still has to be settled or it stays `animating` and the board freezes.
+      settleWithoutAnimation();
+      return;
+    }
     animation?.cancel();
     animation = startSnakeOutAnimation({
       board,
@@ -277,6 +287,11 @@ export function createBoardController(
       startExit(state.lastOutcome.id);
       return;
     }
+    settleWithoutAnimation();
+  };
+
+  /** Advances the queue on the next frame for an outcome with nothing to draw. */
+  const settleWithoutAnimation = (): void => {
     // A bounce has no exit to animate, so the queue advances on the next frame
     // rather than waiting for a completion that would never arrive. Only one
     // settle may be pending: a duplicate would land on a later removal and
@@ -313,9 +328,9 @@ export function createBoardController(
         // replay the exit already on screen. The queue is drained by whatever
         // settles the animation in flight.
         //
-        // No publish either: the outcome is not on screen until its animation
-        // has run, and a HUD reporting a win while the last piece is still
-        // leaving describes a board the player cannot see yet.
+        // No publish either. The counter follows the static layer — a piece is
+        // counted once it has been lifted off it, which happens as its exit
+        // starts — while a terminal status waits for the board to settle.
         if (!wasAnimating) driveOutcome();
       },
       onPanMove: (dx, dy) => {

@@ -79,7 +79,11 @@ body,
 
 .hud-foot {
   color: var(--muted);
-  min-height: 2.25rem;
+  /* Fixed, not a floor: a message that wraps differently would otherwise
+     resize the board surface and re-fit the whole board mid-play. */
+  height: 3.25rem;
+  align-items: center;
+  overflow: hidden;
 }
 
 .board-surface {
