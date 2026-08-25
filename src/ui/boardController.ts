@@ -25,6 +25,7 @@ import {
   maxZoomScale,
   panViewport,
   redrawStaticLayer,
+  removedSetsDiffer,
   startSnakeOutAnimation,
   zoomViewportAt,
   type AnimationLayer,
@@ -43,6 +44,14 @@ export interface BoardHud {
   readonly gridSize: number;
   /** False when arrowheads are below the legible floor at the resting scale. */
   readonly legibleUnzoomed: boolean;
+  /**
+   * False when every rung of the buffer's readback probe failed. The board
+   * then draws nothing while remaining fully tappable, so the chrome has to
+   * say so rather than present a black board as an empty one.
+   */
+  readonly bufferOk: boolean;
+  /** Segments the buffer could not draw, from malformed colour or direction. */
+  readonly droppedSegments: number;
 }
 
 export interface BoardController {
@@ -70,11 +79,7 @@ export function removedSetChanged(
   drawn: ReadonlySet<number> | null,
   current: ReadonlySet<number>,
 ): boolean {
-  if (drawn === null || drawn.size !== current.size) return true;
-  for (const id of current) {
-    if (!drawn.has(id)) return true;
-  }
-  return false;
+  return drawn === null || removedSetsDiffer(drawn, current);
 }
 
 /**
@@ -135,6 +140,8 @@ export function createBoardController(
     segmentCount: board.segmentCount,
     gridSize: genParams.gridSize,
     legibleUnzoomed,
+    bufferOk: staticLayer.allocationOk,
+    droppedSegments: staticLayer.droppedSegments.length,
   });
   const publish = (): void => {
     const snapshot = hud();
@@ -243,6 +250,11 @@ export function createBoardController(
   const driveOutcome = (): void => {
     if (!state.animating || state.lastOutcome === null) return;
     if (state.lastOutcome.kind === 'removed') {
+      // The segment is already out of the removed-set, so the buffer has to be
+      // repainted before the exit starts — otherwise a stationary copy sits on
+      // the base layer beside the animating one for the whole flight.
+      syncStaticLayer();
+      blit();
       startExit(state.lastOutcome.id);
       return;
     }
@@ -272,7 +284,9 @@ export function createBoardController(
         );
         if (id === null) return;
         state = tap(state, id);
-        publish();
+        // No publish here: the outcome is not on screen until its animation
+        // has run, and a HUD that reports a win while the last piece is still
+        // leaving is describing a board the player cannot see yet.
         driveOutcome();
       },
       onPanMove: (dx, dy) => {
@@ -333,6 +347,11 @@ export function createBoardController(
       disposed = true;
       animation?.cancel();
       animation = null;
+      // Zeroing the offscreen buffer frees it now rather than at the next GC,
+      // which matters under a mount/unmount/mount cycle where two would
+      // otherwise be live at once.
+      staticLayer.canvas.width = 0;
+      staticLayer.canvas.height = 0;
       observer.disconnect();
       arbiter.reset();
       surface.removeEventListener('pointerdown', onDown);

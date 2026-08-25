@@ -9,6 +9,8 @@ const INITIAL_HUD: BoardHud = {
   segmentCount: 0,
   gridSize: DEFAULT_GEN_PARAMS.gridSize,
   legibleUnzoomed: true,
+  bufferOk: true,
+  droppedSegments: 0,
 };
 
 /**
@@ -76,6 +78,13 @@ export function BoardMount(): ReactElement {
       <footer className="hud-foot">
         {error !== null ? (
           <span role="alert">Could not build a board: {error}</span>
+        ) : !hud.bufferOk ? (
+          <span role="alert">
+            This device could not allocate a drawing buffer, so the board is blank. Try a smaller
+            grid size.
+          </span>
+        ) : hud.droppedSegments > 0 ? (
+          <span role="alert">{hud.droppedSegments} pieces could not be drawn.</span>
         ) : hud.status === 'won' ? (
           <span>Board cleared.</span>
         ) : hud.status === 'lost' ? (
