@@ -227,8 +227,7 @@ export function strokeCorner(
  *
  * Each interior vertex is stroked as an arc of `CORNER_RADIUS_CELLS`
  * rather than a right angle, clamped at every corner to half of each leg
- * it touches so two corners sharing a leg cannot overlap — the last leg is
- * the short one, shortened by the setback above.
+ * of cell centers it touches, so two corners sharing a leg cannot overlap.
  *
  * Throws `RangeError` for a malformed `segColor` or (on a multi-cell
  * segment) `segDir` — see `drawSegmentGuarded` for a caller, such as a
@@ -271,21 +270,27 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   let curY = 0;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
-    let px = cellCenterX(viewport, xOf(cellIndex, board.width));
-    let py = cellCenterY(viewport, yOf(cellIndex, board.width));
+    const centerX = cellCenterX(viewport, xOf(cellIndex, board.width));
+    const centerY = cellCenterY(viewport, yOf(cellIndex, board.width));
+    let px = centerX;
+    let py = centerY;
     if (i === end - 1) {
       px -= setbackX;
       py -= setbackY;
     }
     if (i === start) ctx.moveTo(px, py);
     else if (i > start + 1) {
+      // The radius is measured against the cell centers, the setback left
+      // out: it is a cosmetic stop-short under the arrowhead, and letting it
+      // tighten the last corner would leave the resting board and the exit
+      // animation drawing that one bend differently.
       strokeCorner(
         ctx,
         curX,
         curY,
         px,
         py,
-        cornerRadiusAt(prevX, prevY, curX, curY, px, py, maxRadius),
+        cornerRadiusAt(prevX, prevY, curX, curY, centerX, centerY, maxRadius),
       );
     }
     prevX = curX;

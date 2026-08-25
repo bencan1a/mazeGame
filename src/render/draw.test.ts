@@ -73,19 +73,26 @@ describe('strokeSegmentPolyline', () => {
 
   it('strokes cell-center to cell-center, except the last vertex which stops short of the head cell center', () => {
     // a: (0,0)->(1,0)->(1,1), head at (1,1), terminal stroke south. The
-    // corner at (1,0) has a full cell behind it and the shortened leg
-    // ahead, so its radius is half that shortened leg.
+    // corner at (1,0) has a whole cell on either side once the setback is
+    // left out of the measurement, so it takes the full radius even though
+    // the leg it is drawn along stops short.
     const board = makeBoard(['aa', '.A'].join('\n'));
     const ctx = makeFakeCtx();
     const viewport = createViewport({ scale });
-    const radius = (scale - setback) / 2;
 
     strokeSegmentPolyline(ctx, board, 1, viewport);
 
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
       { op: 'moveTo', x: 5, y: 5 },
-      { op: 'arcTo', x1: 15, y1: 5, x2: 15, y2: 15 - setback, radius },
+      {
+        op: 'arcTo',
+        x1: 15,
+        y1: 5,
+        x2: 15,
+        y2: 15 - setback,
+        radius: CORNER_RADIUS_CELLS * scale,
+      },
       { op: 'lineTo', x: 15, y: 15 - setback },
       { op: 'stroke' },
     ]);
@@ -126,7 +133,7 @@ describe('strokeSegmentPolyline', () => {
       { op: 'moveTo', x: 25, y: 25 },
       { op: 'arcTo', x1: 25, y1: 15, x2: 15, y2: 15, radius: CORNER_RADIUS_CELLS * scale },
       { op: 'arcTo', x1: 15, y1: 15, x2: 15, y2: 5, radius: CORNER_RADIUS_CELLS * scale },
-      { op: 'arcTo', x1: 15, y1: 5, x2: headX, y2: 5, radius: (15 - headX) / 2 },
+      { op: 'arcTo', x1: 15, y1: 5, x2: headX, y2: 5, radius: CORNER_RADIUS_CELLS * scale },
       { op: 'lineTo', x: headX, y: 5 },
       { op: 'stroke' },
     ]);
@@ -190,7 +197,14 @@ describe('strokeSegmentPolyline', () => {
     expect(ctx.calls).toEqual([
       { op: 'beginPath' },
       { op: 'moveTo', x: 5, y: 5 },
-      { op: 'arcTo', x1: 15, y1: 5, x2: 15, y2: 15 - setback, radius: (scale - setback) / 2 },
+      {
+        op: 'arcTo',
+        x1: 15,
+        y1: 5,
+        x2: 15,
+        y2: 15 - setback,
+        radius: CORNER_RADIUS_CELLS * scale,
+      },
       { op: 'lineTo', x: 15, y: 15 - setback },
       { op: 'stroke' },
     ]);

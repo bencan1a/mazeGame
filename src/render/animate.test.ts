@@ -7,7 +7,12 @@ import {
   type SnakeOutScheduler,
 } from './animate.js';
 import { createAnimationLayer, redrawStaticLayer, type CanvasLike } from './layers.js';
-import { ARROWHEAD_LENGTH_CELLS, CORNER_RADIUS_CELLS, LINE_WIDTH_CELLS } from './draw.js';
+import {
+  ARROWHEAD_LENGTH_CELLS,
+  CORNER_RADIUS_CELLS,
+  LINE_WIDTH_CELLS,
+  strokeSegmentPolyline,
+} from './draw.js';
 import { createBufferViewport, createViewport } from './viewport.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import type { AnimationLayer, StaticLayer } from './layers.js';
@@ -408,6 +413,27 @@ describe('drawSnakeOutFrame', () => {
     }
     return points;
   }
+
+  it('rounds a body exactly as the static layer just drew it, so a tap hands off without a jump', () => {
+    // The bend ACYCLIC_BOARD's segment 1 makes sits immediately before its
+    // head, where the static layer's stroke stops short of the cell centre.
+    // Measuring that corner against the shortened leg rather than the cell
+    // centres would tighten it on the resting board alone, and the piece
+    // would twitch the moment it was tapped.
+    const staticCtx = new FakeCtx();
+    strokeSegmentPolyline(staticCtx, ACYCLIC_BOARD, 1, viewport);
+    const stillRadii = staticCtx.calls
+      .filter((c): c is Extract<Call, { op: 'arcTo' }> => c.op === 'arcTo')
+      .map((c) => c.radius);
+
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const exitRadii = Array.from(path.cornerRadii)
+      .slice(0, path.headVertex + 1)
+      .filter((radius) => radius !== 0);
+
+    expect(stillRadii).toHaveLength(1);
+    expect(exitRadii).toEqual(stillRadii);
+  });
 
   it('measures dashLength against the route it actually strokes, so the arrowhead cannot drift off the body', () => {
     // The dash is what draws the body, and the arrowhead is placed by
