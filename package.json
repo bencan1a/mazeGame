@@ -21,6 +21,8 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "harness": "tsx src/harness/cli.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:cov"
   },
   "dependencies": {
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

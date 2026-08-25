@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes to the repository: both jobs check out, run npm, and
+# upload an artifact.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -45,4 +50,40 @@ jobs:
         with:
           name: coverage
           path: coverage/
+          retention-days: 7
+
+  # Separate from `verify` so a browser failure is distinguishable from a unit
+  # failure at a glance, and so a flaky runner cannot mask a red generator.
+  e2e:
+    runs-on: ubuntu-latest
+    # The install step downloads no browser at the pinned version, but nothing
+    # in a lockfile bump would say if that changed, and the default is all
+    # three engines.
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Chromium only. The other engines are ~400MB of download apiece and
+      # nothing here is engine-specific: iOS Safari is covered on a phone, not
+      # by WebKit on Linux.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts builds and previews the bundle itself.
+      - name: Browser tests
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
           retention-days: 7

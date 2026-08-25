@@ -31,23 +31,36 @@ evidence for "generation is under 1s on a phone". Set the CI threshold wide
 enough that it only fires on real regressions, and read the absolute number off
 a device.
 
-## What CI can settle once there is an app to test
+## What the browser suite settles
 
-Not built yet — see the `browser-tests` issue. Headless Chromium via Playwright
-runs on a Linux runner and can automate real behaviour:
+Headless Chromium via Playwright, in the `e2e` CI job, against a real
+`npm run build` served under the same base path GitHub Pages uses. Run it
+locally with `npm run test:e2e`; it builds and previews the bundle itself.
 
-| Check                                                                                         | Why it works headless                                               |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Offline: service worker registers, second load works with the network cut                     | Playwright's `context.setOffline(true)` is a real network cut       |
-| PWA manifest, icons, scope, and `start_url` resolve under the deployed base path              | Static facts about the build                                        |
-| Persistence: `(seed, params, removed, lives)` survives a reload                               | Real storage APIs                                                   |
-| Hit testing and the tap radius: a synthetic tap at a known pixel selects the expected segment | Pure arithmetic over a fixture board — no rendering fidelity needed |
-| Game loop: bounce costs a life, zero lives restarts the same seed, clearing wins              | Headless state machine plus a canvas                                |
-| Visual regression on a fixture board                                                          | Deterministic board, deterministic render                           |
+| Check                                                                                         | Status                    |
+| --------------------------------------------------------------------------------------------- | ------------------------- |
+| Offline: service worker registers, second load works with the network cut                     | `e2e/offline.spec.ts`     |
+| PWA manifest, icons, scope, and `start_url` resolve under the deployed base path              | `e2e/pwa.spec.ts`         |
+| Hit testing and the tap radius: a synthetic tap at a known pixel selects the expected segment | `e2e/hit-test.spec.ts`    |
+| Game loop: bounce costs a life, zero lives restarts the same seed, clearing wins              | `e2e/game-loop.spec.ts`   |
+| Visual regression on a fixture board                                                          | `e2e/visual.spec.ts`      |
+| Persistence: `(seed, params, removed, lives)` survives a reload                               | `e2e/persistence.spec.ts` |
 
-That last one is worth having and worth distrusting slightly: headless Chromium
-on Linux is not Safari on an iPhone, and small antialiasing differences between
-runner images make screenshot diffs flaky if the tolerance is tight.
+Why it is a built bundle and not `npm run dev`: a service worker only registers
+in a secure context, and every scope, `start_url` and asset URL is prefixed by
+the base path only in a build. Both would pass vacuously against the dev server.
+
+The visual check is worth having and worth distrusting slightly: headless
+Chromium on Linux is not Safari on an iPhone, and small antialiasing differences
+between runner images make screenshot diffs flaky if the tolerance is tight.
+Hence `maxDiffPixelRatio: 0.02`, and only the board surface is captured — the
+chrome around it is text in a system font, which differs between a runner and a
+workstation for reasons unrelated to this repo. Refresh a baseline deliberately,
+with `npm run test:e2e -- --update-snapshots`, and look at the diff before
+committing it.
+
+Only Chromium is installed. Nothing here is engine-specific, and iOS Safari is
+covered on a phone rather than by WebKit on Linux.
 
 **A frame-rate number from a headless Linux runner is not evidence about a
 phone.** Different GPU, different compositor, different memory ceiling, no

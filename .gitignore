@@ -23,3 +23,9 @@ npm-debug.log*
 # Generated from scripts/backlog.json; GitHub Issues are the source of truth.
 # Regenerate locally with: node scripts/seed-github.mjs --render
 docs/backlog.md
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/
