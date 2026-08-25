@@ -22,7 +22,9 @@ function paramsFromLocation(): GenParams {
   return {
     ...DEFAULT_GEN_PARAMS,
     gridSize: asInt('grid', 8, 100) ?? DEFAULT_GEN_PARAMS.gridSize,
-    seed: asInt('seed', 0, Number.MAX_SAFE_INTEGER) ?? DEFAULT_GEN_PARAMS.seed,
+    // A seed is unsigned 32-bit: the rng truncates anything wider, so a larger
+    // value would silently play a different board than the one it names.
+    seed: asInt('seed', 0, 0xffffffff) ?? DEFAULT_GEN_PARAMS.seed,
   };
 }
 

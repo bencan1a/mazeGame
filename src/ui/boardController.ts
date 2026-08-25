@@ -137,7 +137,9 @@ export function createBoardController(
   const listeners = new Set<(hud: BoardHud) => void>();
   const hud = (): BoardHud => ({
     lives: state.lives,
-    status: state.status,
+    // While a piece is still leaving, the board is not yet cleared or lost
+    // whatever the state machine has already resolved.
+    status: state.animating ? 'playing' : state.status,
     removedCount: state.removedCount,
     segmentCount: board.segmentCount,
     gridSize: genParams.gridSize,
@@ -217,7 +219,13 @@ export function createBoardController(
       canvas.width = Math.max(1, Math.round(nextWidth * nextDpr));
       canvas.height = Math.max(1, Math.round(nextHeight * nextDpr));
     }
-    animationLayer = createAnimationLayer(nextWidth, nextHeight, nextDpr, () => overlay);
+    try {
+      animationLayer = createAnimationLayer(nextWidth, nextHeight, nextDpr, () => overlay);
+    } catch {
+      // Losing the overlay costs the exit animation, not the board: the rest of
+      // this layout still has to run or the base layer stays blank.
+      animationLayer = null;
+    }
 
     const { min, max } = zoomBounds();
     const nextScale = clampZoomScale(userZoomed ? viewport.scale : min, min, max);
