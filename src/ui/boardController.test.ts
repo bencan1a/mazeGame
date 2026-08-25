@@ -37,8 +37,8 @@ describe('boardPanBounds', () => {
   });
 
   it('does not centre once the board is larger than the canvas', () => {
-    // Passing CSS pixels instead of cells scaled the board twice and left it
-    // pinned at the origin rather than centred.
+    // 3 cells at scale 200 is 600 CSS px against a 300-wide canvas, so the
+    // origin is clamped into [canvas - content, 0] rather than centred.
     const clamped = clampPan(createViewport({ scale: 200 }), boardPanBounds(board, 300, 600));
     expect(clamped.originX).toBeLessThanOrEqual(0);
     expect(clamped.originY).toBeLessThanOrEqual(0);

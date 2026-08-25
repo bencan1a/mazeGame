@@ -128,6 +128,8 @@ export function createBoardController(
   let drawnRemoved: Set<number> | null = null;
   let viewport: Viewport<'css'> = createViewport({ scale: 1, dpr });
   let legibleUnzoomed = true;
+  let bounceHandle: number | null = null;
+  let blitPending = false;
   /** False until the first layout has chosen a real fit scale, so it is not treated as a user zoom. */
   let fitted = false;
   let disposed = false;
@@ -164,6 +166,16 @@ export function createBoardController(
   };
 
   const panBounds = (): PanBounds => boardPanBounds(board, cssWidth, cssHeight);
+
+  /** Pointer events outrun frames, so a pan coalesces to one repaint per frame. */
+  const scheduleBlit = (): void => {
+    if (blitPending || disposed) return;
+    blitPending = true;
+    scheduler.requestFrame(() => {
+      blitPending = false;
+      if (!disposed) blit();
+    });
+  };
 
   const blit = (): void => {
     const ctx = base.getContext('2d');
@@ -259,8 +271,12 @@ export function createBoardController(
       return;
     }
     // A bounce has no exit to animate, so the queue advances on the next frame
-    // rather than waiting for a completion that would never arrive.
-    scheduler.requestFrame(() => {
+    // rather than waiting for a completion that would never arrive. Only one
+    // settle may be pending: a duplicate would land on a later removal and
+    // clear `animating` while that exit was still drawing.
+    if (bounceHandle !== null) return;
+    bounceHandle = scheduler.requestFrame(() => {
+      bounceHandle = null;
       if (disposed) return;
       state = animationComplete(state);
       blit();
@@ -283,15 +299,21 @@ export function createBoardController(
           (segmentId) => isRemoved(state, segmentId),
         );
         if (id === null) return;
+        const wasAnimating = state.animating;
         state = tap(state, id);
-        // No publish here: the outcome is not on screen until its animation
-        // has run, and a HUD that reports a win while the last piece is still
-        // leaving is describing a board the player cannot see yet.
-        driveOutcome();
+        // A tap arriving mid-animation is only queued — `lastOutcome` still
+        // describes the previous removal, so driving it would cancel and
+        // replay the exit already on screen. The queue is drained by whatever
+        // settles the animation in flight.
+        //
+        // No publish either: the outcome is not on screen until its animation
+        // has run, and a HUD reporting a win while the last piece is still
+        // leaving describes a board the player cannot see yet.
+        if (!wasAnimating) driveOutcome();
       },
       onPanMove: (dx, dy) => {
         viewport = clampPan(panViewport(viewport, dx, dy), panBounds());
-        blit();
+        scheduleBlit();
       },
       onPinchMove: (scaleFactor, focal) => {
         const rect = surface.getBoundingClientRect();
@@ -301,7 +323,7 @@ export function createBoardController(
           zoomViewportAt(viewport, next, focal.x - rect.left, focal.y - rect.top),
           panBounds(),
         );
-        blit();
+        scheduleBlit();
       },
     },
     { slopCssPx: 8 },
@@ -345,6 +367,10 @@ export function createBoardController(
     },
     destroy() {
       disposed = true;
+      if (bounceHandle !== null) {
+        scheduler.cancelFrame(bounceHandle);
+        bounceHandle = null;
+      }
       animation?.cancel();
       animation = null;
       // Zeroing the offscreen buffer frees it now rather than at the next GC,
