@@ -15,6 +15,7 @@ import {
   ARROWHEAD_LENGTH_CELLS,
   CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
+  cornerRadiusAt,
   fillArrowheadAt,
   requireDirection,
   strokeCorner,
@@ -171,25 +172,38 @@ function layoutExitPath(
   ys: Float64Array,
   cornerRadii: Float64Array,
 ): { readonly dashLength: number; readonly totalLength: number } {
-  const { cellIndices, edgeDirs, dir, width } = topology;
+  const { cellIndices, dir, width } = topology;
   for (let i = 0; i < cellIndices.length; i++) {
     const cellIndex = cellIndices[i] as number;
     xs[i] = cellCenterX(viewport, xOf(cellIndex, width));
     ys[i] = cellCenterY(viewport, yOf(cellIndex, width));
   }
 
-  // Every leg between two cell centers is one cell, and CORNER_RADIUS_CELLS
-  // is bounded at half of that, so no corner's radius is ever clamped here.
-  const radius = CORNER_RADIUS_CELLS * viewport.scale;
+  const maxRadius = CORNER_RADIUS_CELLS * viewport.scale;
   const last = cellIndices.length - 1;
   cornerRadii[0] = 0;
+  cornerRadii[last] = 0;
   cornerRadii[cellIndices.length] = 0;
   let onBoardLength = 0;
   let dashLength = 0;
   let previousRadius = 0;
   for (let k = 1; k <= last; k++) {
-    const turns = edgeDirs[k - 1] !== edgeDirs[k];
-    const cornerRadius = turns && k !== topology.headVertex ? radius : 0;
+    // The last on-board vertex is left square along with the head: the leg
+    // leaving it is the final edge, whose length the travel below has not
+    // settled yet. It is a straight run into the exit ray anyway, unless it
+    // is the head itself.
+    const roundable = k < last && k !== topology.headVertex;
+    const cornerRadius = roundable
+      ? cornerRadiusAt(
+          xs[k - 1] as number,
+          ys[k - 1] as number,
+          xs[k] as number,
+          ys[k] as number,
+          xs[k + 1] as number,
+          ys[k + 1] as number,
+          maxRadius,
+        )
+      : 0;
     cornerRadii[k] = cornerRadius;
     onBoardLength +=
       viewport.scale - cornerShortening(previousRadius) / 2 - cornerShortening(cornerRadius) / 2;
