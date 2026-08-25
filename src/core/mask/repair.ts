@@ -6,11 +6,12 @@
 import { toIndex } from '../grid.js';
 import type { Mask } from '../types.js';
 import { type Blob, upscale2x } from './blob.js';
-import { largestComponent } from './components.js';
+import { dropSmallComponents } from './components.js';
 import { MaskRepairError } from './errors.js';
 import { fillHoles } from './holes.js';
 import { morphologicalOpen } from './morphology.js';
 import { absorbParity } from './parity.js';
+import { maskFrom } from './regions.js';
 
 export interface RepairOptions {
   /**
@@ -20,6 +21,12 @@ export interface RepairOptions {
    * runs — one half-res cell is a 2x2 full-resolution block.
    */
   readonly holeAreaThreshold?: number;
+  /**
+   * Lobes with fewer than this many full-resolution cells are dropped. Repair
+   * moves whole 2x2 blocks, so the effective floor is this rounded up to a
+   * multiple of 4.
+   */
+  readonly minRegionCells?: number;
 }
 
 /**
@@ -30,8 +37,21 @@ export interface RepairOptions {
 const DEFAULT_HOLE_AREA_THRESHOLD = 4;
 
 /**
+ * One 2x2 block, in full-resolution cells: the smallest lobe that can hold a
+ * Hamiltonian path at all, since a lone cell or a 1-wide pair has a cell with
+ * fewer than two neighbours. The morphological open already erases anything
+ * near this, so the filter is a floor rather than a tuning dial.
+ */
+const DEFAULT_MIN_REGION_CELLS = 4;
+
+/**
+ * Keeps every lobe the silhouette has, dropping only those too small to hold a
+ * path: a silhouette is not one connected mass, and each lobe gets its own
+ * Hamiltonian path.
+ *
  * Throws `MaskRepairError` if repair removes every cell — a raw blob with no
- * 2-cell-thick interior for the open step to preserve — if `absorbParity`
+ * 2-cell-thick interior for the open step to preserve, or no lobe reaching
+ * `minRegionCells` — if `absorbParity`
  * finds an imbalance too large to absorb, or if the repaired mask's path
  * cells fail to partition into whole 2x2 blocks at lattice offset (0, 0). The
  * last of those would otherwise surface only as `classifyTiling` declining and
@@ -39,28 +59,48 @@ const DEFAULT_HOLE_AREA_THRESHOLD = 4;
  */
 export function repairMask(blob: Blob, options: RepairOptions = {}): Mask {
   const holeAreaThreshold = options.holeAreaThreshold ?? DEFAULT_HOLE_AREA_THRESHOLD;
+  const minRegionCells = options.minRegionCells ?? DEFAULT_MIN_REGION_CELLS;
+  // One half-res cell becomes a 2x2 block, so a half-res component of k cells
+  // is 4k full-resolution cells.
+  const minHalfResCells = Math.max(1, Math.ceil(minRegionCells / 4));
 
   let half = downsampleToHalfRes(blob);
-  half = largestComponent(half);
+  const rawCells = countInside(half.inside);
+  half = dropSmallComponents(half, minHalfResCells);
+  const beforeOpen = countInside(half.inside);
   half = morphologicalOpen(half);
-  half = largestComponent(half);
+  const afterOpen = countInside(half.inside);
+  half = dropSmallComponents(half, minHalfResCells);
   half = fillHoles(half, holeAreaThreshold);
 
   if (countInside(half.inside) === 0) {
+    if (rawCells === 0) {
+      throw new MaskRepairError(
+        'mask repair received a blob with no inside cells at all; try a larger fillFraction',
+      );
+    }
+    if (beforeOpen > 0 && afterOpen === 0) {
+      throw new MaskRepairError(
+        'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
+          'survive the morphological open; try a larger gridSize or fillFraction',
+      );
+    }
     throw new MaskRepairError(
-      'mask repair removed the entire region — the raw blob had no interior thick enough to ' +
-        'survive the morphological open; try a larger gridSize or fillFraction',
+      `mask repair dropped every lobe — none reached the ${minHalfResCells * 4}-cell minimum ` +
+        `region size (minRegionCells ${minRegionCells}, rounded up to a whole number of 2x2 ` +
+        'blocks); lower minRegionCells, or try a larger gridSize or fillFraction',
     );
   }
 
   const full = upscale2x(half, blob.width, blob.height);
-  const mask = absorbParity({
-    width: full.width,
-    height: full.height,
-    inside: full.inside,
-    unvisited: new Uint8Array(full.inside.length),
-    pathCellCount: countInside(full.inside),
-  });
+  const mask = absorbParity(
+    maskFrom({
+      width: full.width,
+      height: full.height,
+      inside: full.inside,
+      unvisited: new Uint8Array(full.inside.length),
+    }),
+  );
   assertBlockAligned(mask);
   return mask;
 }

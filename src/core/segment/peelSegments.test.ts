@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { createRng } from '../rng.js';
 import { directionBetween } from '../grid.js';
 import { DEFAULT_GEN_PARAMS } from '../types.js';
-import type { GenParams, HamiltonianPath } from '../types.js';
-import { makeMask, makePath, makePathFromCells } from '../../../test/fixtures/index.js';
+import type { GenParams, HamiltonianPath, Mask } from '../types.js';
+import {
+  joinRegionPaths,
+  makeMask,
+  makePath,
+  makePathFromCells,
+} from '../../../test/fixtures/index.js';
+import { regionSubMask } from '../mask/index.js';
 import { peelSegments } from './peelSegments.js';
 import type { PeeledSegments } from './peelSegments.js';
 
@@ -28,10 +34,84 @@ function inPathOrder(result: PeeledSegments): number[] {
   return out;
 }
 
+describe('peelSegments: a path in several regions', () => {
+  // Two 4x4 lobes with an empty column between them, each walked by its own
+  // boustrophedon.
+  const mask = makeMask(['####.####', '####.####', '####.####', '####.####'].join('\n'));
+  const path = joinRegionPaths([
+    makePathFromCells(regionSubMask(mask, 1), regionCells(mask, 1)),
+    makePathFromCells(regionSubMask(mask, 2), regionCells(mask, 2)),
+  ]);
+
+  it('never cuts a segment across the gap between two lobes', () => {
+    const result = peelSegments(path, DEFAULT_GEN_PARAMS, createRng(3), 9, 4);
+    const count = result.segStart.length - 1;
+    expect(count).toBeGreaterThan(1);
+    for (let k = 0; k < count; k++) {
+      const from = result.segStart[k] as number;
+      const to = result.segStart[k + 1] as number;
+      const region = mask.regionOf[result.segCells[from] as number] as number;
+      for (let i = from; i < to; i++) {
+        expect(mask.regionOf[result.segCells[i] as number]).toBe(region);
+      }
+    }
+  });
+
+  it('covers both lobes exactly once between them', () => {
+    const result = peelSegments(path, DEFAULT_GEN_PARAMS, createRng(3), 9, 4);
+    expect([...result.segCells].sort((a, b) => a - b)).toEqual(
+      [...path.cells].sort((a, b) => a - b),
+    );
+  });
+
+  it('refuses an empty regionStart without reporting an undefined bound', () => {
+    const broken = { cells: path.cells, regionStart: new Uint32Array(0) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart is empty over a 32-cell path/,
+    );
+  });
+
+  it('refuses a regionStart that does not begin at 0', () => {
+    const broken = { cells: path.cells, regionStart: Uint32Array.from([1, 16, 32]) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart starts at 1, expected 0/,
+    );
+  });
+
+  it('refuses a regionStart that goes backwards', () => {
+    const broken = { cells: path.cells, regionStart: Uint32Array.from([0, 24, 16, 32]) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart goes backwards at 2, from 24 to 16/,
+    );
+  });
+
+  it('refuses a path whose regionStart does not reach the end of the walk', () => {
+    const truncated = { cells: path.cells, regionStart: Uint32Array.from([0, 16]) };
+    expect(() => peelSegments(truncated, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart covers 16 of 32 path cells/,
+    );
+  });
+});
+
+/** A boustrophedon order over one region's cells, row by row. */
+function regionCells(mask: Mask, region: number): number[] {
+  const cells: number[] = [];
+  for (let y = 0; y < mask.height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < mask.width; x++) {
+      const cell = y * mask.width + x;
+      if (mask.regionOf[cell] === region) row.push(cell);
+    }
+    if (y % 2 === 1) row.reverse();
+    cells.push(...row);
+  }
+  return cells;
+}
+
 describe('peelSegments: degenerate inputs', () => {
   it('answers an empty segmentation for an empty path', () => {
     const result = peelSegments(
-      { cells: new Uint32Array(0) },
+      { cells: new Uint32Array(0), regionStart: Uint32Array.from([0]) },
       DEFAULT_GEN_PARAMS,
       createRng(1),
       4,
@@ -53,7 +133,10 @@ describe('peelSegments: degenerate inputs', () => {
   });
 
   it('refuses a path whose consecutive cells are not 4-neighbours', () => {
-    const path: HamiltonianPath = { cells: Uint32Array.from([0, 3]) };
+    const path: HamiltonianPath = {
+      cells: Uint32Array.from([0, 3]),
+      regionStart: Uint32Array.from([0, 2]),
+    };
     expect(() => peelSegments(path, DEFAULT_GEN_PARAMS, createRng(1), 4, 4)).toThrow(
       /not 4-neighbours/,
     );

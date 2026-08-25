@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
 import { assertDeterministic, checkStructure, greedyClear } from './validate/index.js';
 import * as validateModule from './validate/index.js';
-import * as pathModule from './path/index.js';
+import * as contourModule from './path/contour.js';
 import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
@@ -272,8 +272,8 @@ describe('generateBoard: the cut-and-orient stage has no failure mode to classif
 });
 
 describe('generateBoard: path stage failure', () => {
-  it('retries a contour decline and reports a "path:" failure naming contour', () => {
-    vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+  it('retries a contour decline and reports a "path:" failure naming the region', () => {
+    vi.spyOn(contourModule, 'buildContourPath').mockReturnValue({
       ok: false,
       reason: 'forced contour decline for this test',
     });
@@ -289,15 +289,17 @@ describe('generateBoard: path stage failure', () => {
     expect(failure.attemptFailures).toHaveLength(DEFAULT_MAX_ATTEMPTS);
     expect(
       failure.attemptFailures.every((reason) =>
-        reason.startsWith('path: contour declined (forced contour decline for this test)'),
+        /^path: region 1 of 1 \(\d+ cells\): contour declined \(forced contour decline for this test\)$/.test(
+          reason,
+        ),
       ),
     ).toBe(true);
   });
 
   it('recovers when a contour decline is transient, without failing the board', () => {
     let declines = 2;
-    const real = pathModule.buildContourPath;
-    vi.spyOn(pathModule, 'buildContourPath').mockImplementation((mask, rng, bendProbability) =>
+    const real = contourModule.buildContourPath;
+    vi.spyOn(contourModule, 'buildContourPath').mockImplementation((mask, rng, bendProbability) =>
       declines-- > 0
         ? { ok: false, reason: 'forced decline on the first two attempts' }
         : real(mask, rng, bendProbability),

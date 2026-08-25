@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import type { Board, GenParams, HamiltonianPath, Mask } from './types.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
+import { maskFrom } from './mask/index.js';
 import {
   ACYCLIC_BOARD_ART,
   ACYCLIC_BOARD_WALKS,
@@ -27,7 +28,7 @@ const { board: acyclicBoard, mask: acyclicMask } = makeBoardAndMask({
  * do not — so bendRate gets an explicit path, and an empty one everywhere it
  * is not the metric under test.
  */
-const NO_PATH: HamiltonianPath = { cells: new Uint32Array(0) };
+const NO_PATH: HamiltonianPath = { cells: new Uint32Array(0), regionStart: Uint32Array.from([0]) };
 
 function context(mask: Mask, generationMs = 0, path: HamiltonianPath = NO_PATH): MetricsContext {
   return { mask, path, generationMs };
@@ -52,7 +53,10 @@ describe('computeMetrics on ACYCLIC_BOARD', () => {
   it('reports bend rate as corners over the interior cells of the walk', () => {
     // 0 -> 1 -> 2 -> 3 -> 7 -> 6 on a 4-wide grid: East, East, East, South,
     // West. Corners at cells 3 and 7, of 4 interior cells (1, 2, 3, 7).
-    const walk: HamiltonianPath = { cells: Uint32Array.from([0, 1, 2, 3, 7, 6]) };
+    const walk: HamiltonianPath = {
+      cells: Uint32Array.from([0, 1, 2, 3, 7, 6]),
+      regionStart: Uint32Array.from([0, 6]),
+    };
     const withWalk = computeMetrics(acyclicBoard, context(acyclicMask, 0, walk));
     expect(withWalk.bendRate).toBeCloseTo(0.5);
   });
@@ -108,13 +112,12 @@ describe('computeMetrics on a board with no segments and a mask with no inside c
       edgeTarget: new Uint32Array(0),
       segColor: new Uint8Array(0),
     };
-    const mask: Mask = {
+    const mask: Mask = maskFrom({
       width: 1,
       height: 1,
       inside: new Uint8Array(1),
       unvisited: new Uint8Array(1),
-      pathCellCount: 0,
-    };
+    });
 
     const metrics = computeMetrics(board, context(mask, 0));
     expect(metrics.segmentCount).toBe(0);
@@ -159,13 +162,12 @@ describe('computeMetrics free-set statistics, cross-checked against greedyClear 
             for (let e = 0; e < edgeCount; e++) perSegment[k - 1]?.push(candidates[e] as number);
           }
           const board = boardFromEdges(perSegment);
-          const mask: Mask = {
+          const mask: Mask = maskFrom({
             width: board.width,
             height: board.height,
             inside: new Uint8Array(board.width * board.height).fill(1),
             unvisited: new Uint8Array(board.width * board.height),
-            pathCellCount: board.width * board.height,
-          };
+          });
 
           const clear = greedyClear(board);
           let expectedDepth = 0;
@@ -193,13 +195,12 @@ describe('computeMetrics free-set statistics, cross-checked against greedyClear 
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 10 }), (n) => {
         const board = boardFromEdges(Array.from({ length: n }, () => []));
-        const mask: Mask = {
+        const mask: Mask = maskFrom({
           width: board.width,
           height: board.height,
           inside: new Uint8Array(board.width * board.height).fill(1),
           unvisited: new Uint8Array(board.width * board.height),
-          pathCellCount: board.width * board.height,
-        };
+        });
         const metrics = computeMetrics(board, context(mask, 0));
         expect(metrics.minFreeSetSize).toBe(n);
       }),

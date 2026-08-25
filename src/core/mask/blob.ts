@@ -8,6 +8,8 @@ export interface BlobParams {
   readonly seed: Seed;
   /** Target fraction of the grid the raw blob occupies. Clamped, not rejected. */
   readonly fillFraction?: number;
+  /** How many lobes to draw the silhouette from. Defaults to 1. Clamped, not rejected. */
+  readonly lobeCount?: number;
 }
 
 /** A raw binary silhouette, before mask repair. */
@@ -34,6 +36,16 @@ const MAX_AMPLITUDE_FRACTION = 0.4;
 // radius through zero and fold the boundary back on itself, fragmenting the
 // blob instead of carving an inlet into it.
 const MIN_RADIUS_FRACTION = 0.2;
+
+const MIN_LOBE_COUNT = 1;
+const MAX_LOBE_COUNT = 16;
+
+/**
+ * Half-resolution cells kept clear around each lobe, so that two lobes in
+ * neighbouring slots have a whole empty cell between them and stay separate
+ * regions. One half-res cell is a 2x2 full-resolution block.
+ */
+const MIN_LOBE_GAP = 1;
 
 interface Harmonic {
   readonly frequency: number;
@@ -63,15 +75,60 @@ export function generateBlob(params: BlobParams): Blob {
     MAX_FILL_FRACTION,
   );
 
+  const lobeCount = Math.round(
+    clamp(params.lobeCount ?? MIN_LOBE_COUNT, MIN_LOBE_COUNT, MAX_LOBE_COUNT),
+  );
+
   const rng = createRng(params.seed);
   const halfSize = halfResSize(gridSize);
-  const half = generateRadialBlob(halfSize, halfSize, rng, fillFraction);
+  const half =
+    lobeCount === 1
+      ? generateRadialBlob(halfSize, halfSize, rng, fillFraction)
+      : generateLobedBlob(halfSize, halfSize, rng, fillFraction, lobeCount);
   return upscale2x(half, gridSize, gridSize);
 }
 
-function generateRadialBlob(width: number, height: number, rng: Rng, fillFraction: number): Blob {
-  // Drawn before fillFraction is read, so lobe count, position and depth
-  // depend on the seed alone.
+/**
+ * Draws `lobeCount` blobs on a grid of slots, one per slot, each bounded so
+ * that its widest bulge still stays inside its own slot. That is what leaves a
+ * gap between them, and the gap is what makes them separate regions.
+ *
+ * A request rather than a count: each lobe gets `fillFraction` split
+ * `lobeCount` ways, and the morphological open erases a lobe that comes out
+ * too thin, so a board can end up with fewer regions than were asked for.
+ * `Mask.regionCount` is what it actually got.
+ */
+function generateLobedBlob(
+  width: number,
+  height: number,
+  rng: Rng,
+  fillFraction: number,
+  lobeCount: number,
+): Blob {
+  const columns = Math.ceil(Math.sqrt(lobeCount));
+  const rows = Math.ceil(lobeCount / columns);
+  const slotWidth = width / columns;
+  const slotHeight = height / rows;
+  const slotRadius = Math.min(slotWidth, slotHeight) / 2;
+  const wantedRadius = Math.sqrt((fillFraction * width * height) / (Math.PI * lobeCount));
+
+  const inside = new Uint8Array(width * height);
+  for (let lobe = 0; lobe < lobeCount; lobe++) {
+    const harmonics = drawHarmonics(rng);
+    // `radiusAt` never exceeds the base times this, so bounding the product
+    // bounds the lobe. Read off the harmonics actually drawn rather than from
+    // their worst case, which every lobe would pay for and none would reach.
+    let bulge = 1;
+    for (const harmonic of harmonics) bulge += harmonic.amplitudeFraction;
+    const maxRadius = Math.max(0, slotRadius - MIN_LOBE_GAP) / bulge;
+    const cx = ((lobe % columns) + 0.5) * slotWidth;
+    const cy = (Math.floor(lobe / columns) + 0.5) * slotHeight;
+    drawLobe(inside, width, height, cx, cy, Math.min(wantedRadius, maxRadius), harmonics);
+  }
+  return { width, height, inside };
+}
+
+function drawHarmonics(rng: Rng): Harmonic[] {
   const harmonicCount = MIN_HARMONICS + rng.int(MAX_HARMONICS - MIN_HARMONICS + 1);
   const harmonics: Harmonic[] = [];
   for (let k = 0; k < harmonicCount; k++) {
@@ -86,17 +143,19 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
       phase: rng.range(0, Math.PI * 2),
     });
   }
+  return harmonics;
+}
 
-  // A disc of this radius has the requested area; the harmonics then perturb
-  // it into a lobed shape of roughly, not exactly, that area.
-  const baseRadius = Math.sqrt((fillFraction * width * height) / Math.PI);
-
-  // Scaled to the blob so an off-centre silhouette still stays in view.
-  const jitter = baseRadius * 0.1;
-  const cx = width / 2 + rng.range(-jitter, jitter);
-  const cy = height / 2 + rng.range(-jitter, jitter);
-
-  const inside = new Uint8Array(width * height);
+/** Fills the perturbed disc at `(cx, cy)`, and its centre cell whatever the radius. */
+function drawLobe(
+  inside: Uint8Array,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  baseRadius: number,
+  harmonics: readonly Harmonic[],
+): void {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const dx = x + 0.5 - cx;
@@ -113,7 +172,24 @@ function generateRadialBlob(width: number, height: number, rng: Rng, fillFractio
   const centreX = clampIndex(Math.round(cx - 0.5), width);
   const centreY = clampIndex(Math.round(cy - 0.5), height);
   inside[toIndex(centreX, centreY, width)] = 1;
+}
 
+function generateRadialBlob(width: number, height: number, rng: Rng, fillFraction: number): Blob {
+  // Drawn before fillFraction is read, so lobe count, position and depth
+  // depend on the seed alone.
+  const harmonics = drawHarmonics(rng);
+
+  // A disc of this radius has the requested area; the harmonics then perturb
+  // it into a lobed shape of roughly, not exactly, that area.
+  const baseRadius = Math.sqrt((fillFraction * width * height) / Math.PI);
+
+  // Scaled to the blob so an off-centre silhouette still stays in view.
+  const jitter = baseRadius * 0.1;
+  const cx = width / 2 + rng.range(-jitter, jitter);
+  const cy = height / 2 + rng.range(-jitter, jitter);
+
+  const inside = new Uint8Array(width * height);
+  drawLobe(inside, width, height, cx, cy, baseRadius, harmonics);
   return { width, height, inside };
 }
 

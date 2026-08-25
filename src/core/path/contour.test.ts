@@ -3,6 +3,7 @@ import { makeMask } from '../../../test/fixtures/mask.js';
 import { pathViolations } from '../../../test/fixtures/postconditions.js';
 import { createRng } from '../rng.js';
 import type { Mask } from '../types.js';
+import { maskFrom } from '../mask/index.js';
 import { buildContourPath } from './contour.js';
 
 describe('buildContourPath: mask.pathCellCount disagreeing with inside/unvisited (regression)', () => {
@@ -11,14 +12,25 @@ describe('buildContourPath: mask.pathCellCount disagreeing with inside/unvisited
   // Uint32Array value — an ok: true no caller could tell from a real path.
   it('reports ok: false instead of a garbage path for an all-empty mask claiming 4 path cells', () => {
     const mask: Mask = {
-      width: 2,
-      height: 2,
-      inside: new Uint8Array(4),
-      unvisited: new Uint8Array(4),
+      ...maskFrom({ width: 2, height: 2, inside: new Uint8Array(4), unvisited: new Uint8Array(4) }),
       pathCellCount: 4,
     };
     const result = buildContourPath(mask, createRng(1));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('buildContourPath: one region at a time', () => {
+  it('declines a multi-region mask rather than filling one lobe and stopping', () => {
+    // Both lobes tile into 2x2 blocks, so nothing but the region count is
+    // wrong here: the spanning tree only ever reaches one of them, and the
+    // walk would revisit its cells to reach pathCellCount.
+    const mask = makeMask(['##.##', '##.##'].join('\n'));
+    expect(mask.regionCount).toBe(2);
+
+    const result = buildContourPath(mask, createRng(1));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/2 regions/);
   });
 });
 

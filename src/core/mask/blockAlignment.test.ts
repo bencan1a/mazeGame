@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import type { Mask } from '../types.js';
 import { generateBlob } from './blob.js';
+import { maskFrom } from './regions.js';
 import { MaskRepairError } from './errors.js';
 import { classifyTiling } from '../path/tiling.js';
 import { assertBlockAligned, repairMask } from './repair.js';
@@ -144,7 +145,7 @@ describe('assertBlockAligned: rejects a mixed block', () => {
   it('rejects a path cell an odd width leaves outside every block, naming its coordinate', () => {
     const inside = new Uint8Array(3 * 2).fill(1);
     const unvisited = new Uint8Array(3 * 2);
-    const mask: Mask = { width: 3, height: 2, inside, unvisited, pathCellCount: 6 };
+    const mask: Mask = maskFrom({ width: 3, height: 2, inside, unvisited });
     expect(() => assertBlockAligned(mask)).toThrow(/path cell at \(2, 0\)/);
   });
 });

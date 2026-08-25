@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { generateBoard } from '../core/generate.js';
 import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
 import type { GenParams, PlayParams } from '../core/types.js';
-import { clearSavedGame, loadSavedGame, saveGame, type GameStorage } from './persistence.js';
+import {
+  RECORD_VERSION,
+  clearSavedGame,
+  loadSavedGame,
+  saveGame,
+  type GameStorage,
+} from './persistence.js';
 
 const GEN_PARAMS: GenParams = { ...DEFAULT_GEN_PARAMS, gridSize: 20, seed: 5 };
 const PLAY_PARAMS: PlayParams = { ...DEFAULT_PLAY_PARAMS, lives: 3 };
@@ -81,7 +87,7 @@ describe('loadSavedGame validation', () => {
     storage.setItem(
       'arrow-maze:save:v1',
       JSON.stringify({
-        version: 2,
+        version: RECORD_VERSION + 1,
         genParams: GEN_PARAMS,
         playParams: PLAY_PARAMS,
         removedSegments: [],
@@ -98,7 +104,7 @@ describe('loadSavedGame validation', () => {
     storage.setItem(
       'arrow-maze:save:v1',
       JSON.stringify({
-        version: 1,
+        version: RECORD_VERSION,
         genParams: GEN_PARAMS,
         playParams: PLAY_PARAMS,
         removedSegments: [SEGMENT_COUNT + 1],
@@ -120,14 +126,17 @@ describe('loadSavedGame validation', () => {
 
   it('discards a record missing required fields', () => {
     const storage = new FakeStorage();
-    storage.setItem('arrow-maze:save:v1', JSON.stringify({ version: 1 }));
+    storage.setItem('arrow-maze:save:v1', JSON.stringify({ version: RECORD_VERSION }));
 
     expect(loadSavedGame(storage)).toBeNull();
   });
 
   it('discards a record whose params carry the wrong shape entirely', () => {
     const storage = new FakeStorage();
-    storage.setItem('arrow-maze:save:v1', JSON.stringify({ version: 1, genParams: 'oops' }));
+    storage.setItem(
+      'arrow-maze:save:v1',
+      JSON.stringify({ version: RECORD_VERSION, genParams: 'oops' }),
+    );
 
     expect(loadSavedGame(storage)).toBeNull();
   });
@@ -137,7 +146,7 @@ describe('loadSavedGame validation', () => {
     storage.setItem(
       'arrow-maze:save:v1',
       JSON.stringify({
-        version: 1,
+        version: RECORD_VERSION,
         genParams: GEN_PARAMS,
         playParams: PLAY_PARAMS,
         removedSegments: [SEGMENT_COUNT + 100],
@@ -212,7 +221,7 @@ describe('loadSavedGame parameter ranges', () => {
     storage.setItem(
       'arrow-maze:save:v1',
       JSON.stringify({
-        version: 1,
+        version: RECORD_VERSION,
         genParams,
         playParams: PLAY_PARAMS,
         removedSegments: [],
@@ -259,7 +268,7 @@ describe('loadSavedGame removed-segment bounds', () => {
     storage.setItem(
       'arrow-maze:save:v1',
       JSON.stringify({
-        version: 1,
+        version: RECORD_VERSION,
         genParams: GEN_PARAMS,
         playParams: PLAY_PARAMS,
         removedSegments,

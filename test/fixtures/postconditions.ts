@@ -10,52 +10,89 @@ import type { Board, Direction, HamiltonianPath, Mask } from '../../src/core/typ
 /** Postconditions of a `Mask`. */
 export function maskViolations(mask: Mask): string[] {
   const out: string[] = [];
-  const { width, height, inside, unvisited } = mask;
+  const { width, height, inside, unvisited, regionOf, regionCount } = mask;
   const size = width * height;
 
   if (inside.length !== size) out.push(`inside has ${inside.length} cells, expected ${size}`);
   if (unvisited.length !== size) {
     out.push(`unvisited has ${unvisited.length} cells, expected ${size}`);
   }
+  if (regionOf.length !== size) {
+    out.push(`regionOf has ${regionOf.length} cells, expected ${size}`);
+  }
+  if (out.length > 0) return out;
 
   let insideCount = 0;
-  let unvisitedCount = 0;
   let pathCells = 0;
-  let black = 0;
-  let white = 0;
-  let seed = NO_CELL;
+  const black = new Uint32Array(regionCount);
+  const white = new Uint32Array(regionCount);
+  const regionCells = new Uint32Array(regionCount);
+  let unvisitedCount = 0;
   for (let i = 0; i < size; i++) {
+    const region = regionOf[i] as number;
+    if (region > regionCount) {
+      out.push(`cell ${i} is labelled region ${region}, outside 1..${regionCount}`);
+      continue;
+    }
     if (inside[i] !== 1) {
       if (unvisited[i] === 1) out.push(`cell ${i} is unvisited but not inside`);
+      if (region !== 0) out.push(`cell ${i} is labelled region ${region} but is outside`);
       continue;
     }
     insideCount++;
-    if (seed === NO_CELL) seed = i;
     if (unvisited[i] === 1) {
+      if (region !== 0) out.push(`cell ${i} is labelled region ${region} but is unvisited`);
       unvisitedCount++;
-    } else {
-      pathCells++;
-      if (parityOf(i, width) === 0) black++;
-      else white++;
+      continue;
     }
+    if (region === 0) {
+      out.push(`cell ${i} is a path cell but is labelled region 0`);
+      continue;
+    }
+    pathCells++;
+    regionCells[region - 1] = (regionCells[region - 1] as number) + 1;
+    if (parityOf(i, width) === 0) black[region - 1] = (black[region - 1] as number) + 1;
+    else white[region - 1] = (white[region - 1] as number) + 1;
   }
 
   if (mask.pathCellCount !== pathCells) {
     out.push(`pathCellCount is ${mask.pathCellCount}, counted ${pathCells}`);
   }
-  if (Math.abs(black - white) > 1) {
-    out.push(`checkerboard parity is off by ${Math.abs(black - white)} (${black} vs ${white})`);
+
+  // Each region is its own path, so parity and the unvisited budget are per
+  // region rather than over the board.
+  for (let r = 0; r < regionCount; r++) {
+    const parityGap = Math.abs((black[r] as number) - (white[r] as number));
+    if (parityGap > 1) {
+      out.push(
+        `region ${r + 1} checkerboard parity is off by ${parityGap} ` +
+          `(${black[r] as number} vs ${white[r] as number})`,
+      );
+    }
+    if ((regionCells[r] as number) === 0) out.push(`region ${r + 1} has no cells`);
   }
-  if (unvisitedCount > 3) out.push(`${unvisitedCount} unvisited cells, at most 3 expected`);
+  if (unvisitedCount > 3 * regionCount) {
+    out.push(
+      `${unvisitedCount} unvisited cells across ${regionCount} region(s), at most 3 per region ` +
+        'expected',
+    );
+  }
+
   if (insideCount === 0) {
     out.push('mask has no inside cells');
     return out;
   }
 
-  // One 4-connected component.
-  const reached = floodFill(seed, (i) => inside[i] === 1, width, height);
-  if (reached !== insideCount) {
-    out.push(`inside has more than one component: reached ${reached} of ${insideCount} cells`);
+  // Every region is separately 4-connected.
+  for (let r = 1; r <= regionCount; r++) {
+    let seed = NO_CELL;
+    for (let i = 0; i < size && seed === NO_CELL; i++) if (regionOf[i] === r) seed = i;
+    if (seed === NO_CELL) continue;
+    const reached = floodFill(seed, (i) => regionOf[i] === r, width, height);
+    const expected = regionCells[r - 1] as number;
+    if (reached !== expected) {
+      out.push(`region ${r} is not connected: reached ${reached} of ${expected} cells`);
+    }
   }
 
   // A 1-cell spur is a dead end that can make a Hamiltonian path impossible.
@@ -75,27 +112,51 @@ export function maskViolations(mask: Mask): string[] {
 /** Postconditions of a `HamiltonianPath` over a `Mask`. */
 export function pathViolations(path: HamiltonianPath, mask: Mask): string[] {
   const out: string[] = [];
-  const { cells } = path;
+  const { cells, regionStart } = path;
 
   if (cells.length !== mask.pathCellCount) {
     out.push(`path has ${cells.length} cells, mask.pathCellCount is ${mask.pathCellCount}`);
   }
+  if (regionStart.length !== mask.regionCount + 1) {
+    out.push(`path covers ${regionStart.length - 1} region(s), mask has ${mask.regionCount}`);
+    return out;
+  }
+  if (regionStart[0] !== 0) out.push(`regionStart[0] is ${regionStart[0] as number}, expected 0`);
+  if ((regionStart[mask.regionCount] as number) !== cells.length) {
+    out.push(
+      `regionStart ends at ${regionStart[mask.regionCount] as number}, path has ${cells.length} cells`,
+    );
+  }
 
   const seen = new Set<number>();
-  for (let i = 0; i < cells.length; i++) {
-    const cell = cells[i] as number;
-    if (cell < 0 || cell >= mask.width * mask.height) {
-      out.push(`path[${i}] = ${cell} is outside the grid`);
+  for (let r = 0; r + 1 < regionStart.length; r++) {
+    const from = regionStart[r] as number;
+    const to = regionStart[r + 1] as number;
+    if (to < from || to > cells.length) {
+      out.push(`region ${r + 1} runs from ${from} to ${to}, outside 0..${cells.length}`);
       continue;
     }
-    if (seen.has(cell)) out.push(`path visits cell ${cell} more than once (at index ${i})`);
-    seen.add(cell);
-    if (mask.inside[cell] !== 1) out.push(`path[${i}] = ${cell} is outside the mask`);
-    if (mask.unvisited[cell] === 1) out.push(`path[${i}] = ${cell} is an unvisited cell`);
-    if (i > 0) {
-      const prev = cells[i - 1] as number;
-      if (directionBetween(prev, cell, mask.width) === -1) {
-        out.push(`path[${i - 1}] = ${prev} and path[${i}] = ${cell} are not 4-neighbours`);
+    for (let i = from; i < to; i++) {
+      const cell = cells[i] as number;
+      if (cell < 0 || cell >= mask.width * mask.height) {
+        out.push(`path[${i}] = ${cell} is outside the grid`);
+        continue;
+      }
+      if (seen.has(cell)) out.push(`path visits cell ${cell} more than once (at index ${i})`);
+      seen.add(cell);
+      if (mask.inside[cell] !== 1) out.push(`path[${i}] = ${cell} is outside the mask`);
+      if (mask.unvisited[cell] === 1) out.push(`path[${i}] = ${cell} is an unvisited cell`);
+      if (mask.regionOf[cell] !== r + 1) {
+        out.push(
+          `path[${i}] = ${cell} walks region ${r + 1} but the mask labels it region ` +
+            `${mask.regionOf[cell] as number}`,
+        );
+      }
+      if (i > from) {
+        const prev = cells[i - 1] as number;
+        if (directionBetween(prev, cell, mask.width) === -1) {
+          out.push(`path[${i - 1}] = ${prev} and path[${i}] = ${cell} are not 4-neighbours`);
+        }
       }
     }
   }

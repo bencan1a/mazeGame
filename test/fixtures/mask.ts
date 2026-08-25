@@ -3,6 +3,7 @@
  * the mask the spec describes, ill-formed ones included.
  */
 
+import { maskFrom } from '../../src/core/mask/index.js';
 import type { Mask } from '../../src/core/types.js';
 import { fromRows, toRows } from './art.js';
 
@@ -37,7 +38,6 @@ export function makeMask(spec: MaskSpec): Mask {
   const width = (rows[0] as string).length;
   const inside = new Uint8Array(width * height);
   const unvisited = new Uint8Array(width * height);
-  let pathCellCount = 0;
 
   for (let y = 0; y < height; y++) {
     const row = rows[y] as string;
@@ -47,7 +47,6 @@ export function makeMask(spec: MaskSpec): Mask {
       switch (char) {
         case INSIDE_CHAR:
           inside[i] = 1;
-          pathCellCount++;
           break;
         case UNVISITED_CHAR:
           inside[i] = 1;
@@ -64,7 +63,7 @@ export function makeMask(spec: MaskSpec): Mask {
     }
   }
 
-  return { width, height, inside, unvisited, pathCellCount };
+  return maskFrom({ width, height, inside, unvisited });
 }
 
 function makeRectMask(width: number, height: number): Mask {
@@ -73,7 +72,7 @@ function makeRectMask(width: number, height: number): Mask {
   }
   const inside = new Uint8Array(width * height).fill(1);
   const unvisited = new Uint8Array(width * height);
-  return { width, height, inside, unvisited, pathCellCount: width * height };
+  return maskFrom({ width, height, inside, unvisited });
 }
 
 /**

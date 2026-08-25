@@ -4,6 +4,7 @@ import { DIRECTIONS, NO_CELL, step } from '../grid.js';
 import { createRng } from '../rng.js';
 import type { Rng } from '../rng.js';
 import type { Mask } from '../types.js';
+import { maskFrom } from '../mask/index.js';
 import { PLUS_MASK, SQUARE_MASK, UNVISITED_MASK, makeMask } from '../../../test/fixtures/mask.js';
 import { pathViolations } from '../../../test/fixtures/postconditions.js';
 import { buildContourPath } from './contour.js';
@@ -51,7 +52,6 @@ function maskFromBlocks(blockFull: Uint8Array, halfWidth: number, halfHeight: nu
   const width = halfWidth * 2;
   const height = halfHeight * 2;
   const inside = new Uint8Array(width * height);
-  let pathCellCount = 0;
   for (let by = 0; by < halfHeight; by++) {
     for (let bx = 0; bx < halfWidth; bx++) {
       if (blockFull[by * halfWidth + bx] !== 1) continue;
@@ -64,11 +64,10 @@ function maskFromBlocks(blockFull: Uint8Array, halfWidth: number, halfHeight: nu
         [1, 1],
       ]) {
         inside[(y0 + (dy as number)) * width + (x0 + (dx as number))] = 1;
-        pathCellCount++;
       }
     }
   }
-  return { width, height, inside, unvisited: new Uint8Array(width * height), pathCellCount };
+  return maskFrom({ width, height, inside, unvisited: new Uint8Array(width * height) });
 }
 
 describe('buildContourPath: property tests', () => {

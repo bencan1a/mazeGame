@@ -59,11 +59,10 @@ function componentCount(width: number, height: number, inside: Uint8Array): numb
 }
 
 describe('repairMask acceptance criteria', () => {
-  it('produces a mask with exactly one 4-connected component, over hundreds of random blobs', () => {
-    // A raw blob is disconnected in only a handful of the sampled cases, so
-    // most of what this pins down is that generateBlob (and the first
-    // largestComponent call) stay connected; the dumbbell fixture below is
-    // what actually exercises the largestComponent call *after* the open.
+  it('labels every 4-connected component of the repaired mask as its own region', () => {
+    // generateBlob draws one compact mass, so the repaired mask is a single
+    // region in almost every sampled case; the dumbbell fixture below is what
+    // exercises a repair that ends up with two.
     let ran = 0;
     fc.assert(
       fc.property(seedArb, gridSizeArb, fillFractionArb, (seed, gridSize, fillFraction) => {
@@ -71,7 +70,7 @@ describe('repairMask acceptance criteria', () => {
         const mask = attemptRepair(blob);
         if (mask === null) return;
         ran++;
-        expect(componentCount(mask.width, mask.height, mask.inside)).toBe(1);
+        expect(mask.regionCount).toBe(componentCount(mask.width, mask.height, mask.inside));
       }),
       { numRuns: NUM_RUNS },
     );
@@ -227,6 +226,28 @@ describe('repairMask determinism', () => {
   }, 20_000);
 });
 
+/**
+ * Two solid blocks of unequal size joined by a single-half-resolution-cell-wide
+ * neck, block-aligned at full resolution.
+ */
+function dumbbellBlob(): Blob {
+  const halfWidth = 11;
+  const halfHeight = 5;
+  const halfInside = new Uint8Array(halfWidth * halfHeight);
+  const setHalf = (x: number, y: number): void => {
+    halfInside[toIndex(x, y, halfWidth)] = 1;
+  };
+  // Left block (15 half-res cells): x in 0..2, y in 0..4.
+  for (let y = 0; y <= 4; y++) for (let x = 0; x <= 2; x++) setHalf(x, y);
+  // Right block (9 half-res cells, smaller): x in 8..10, y in 1..3.
+  for (let y = 1; y <= 3; y++) for (let x = 8; x <= 10; x++) setHalf(x, y);
+  // Neck (5 half-res cells, 1 wide): y = 2, x in 3..7.
+  for (let x = 3; x <= 7; x++) setHalf(x, 2);
+
+  const halfBlob: Blob = { width: halfWidth, height: halfHeight, inside: halfInside };
+  return upscale2x(halfBlob, halfWidth * 2, halfHeight * 2);
+}
+
 describe('repairMask edge cases', () => {
   it('throws when the region has no 2-cell-thick interior to survive the open', () => {
     // A single-cell-wide ring: every cell has exactly 2 inside neighbours (so
@@ -266,37 +287,46 @@ describe('repairMask edge cases', () => {
     expect(() => repairMask(blob)).toThrow(/not block-aligned/);
   });
 
-  it('re-takes the largest component after the open severs a thin neck (dumbbell fixture)', () => {
+  it('keeps both lobes when the open severs a thin neck (dumbbell fixture)', () => {
     // Two solid blocks of unequal size joined by a single-half-resolution-
     // cell-wide neck. The neck has no 2D thickness (every neck cell's
     // perpendicular neighbours are outside), so erosion removes it entirely
     // and dilation cannot bridge the gap back — the open step splits one
-    // connected raw blob into two disconnected lobes. Only the second
-    // largestComponent call (after the open) drops the smaller lobe; without
-    // it both lobes would still be present but disconnected, which is
-    // exactly the case a mutation of that second call would slip through.
-    const halfWidth = 11;
-    const halfHeight = 5;
-    const halfInside = new Uint8Array(halfWidth * halfHeight);
-    const setHalf = (x: number, y: number): void => {
-      halfInside[toIndex(x, y, halfWidth)] = 1;
-    };
-    // Left block (15 half-res cells): x in 0..2, y in 0..4.
-    for (let y = 0; y <= 4; y++) for (let x = 0; x <= 2; x++) setHalf(x, y);
-    // Right block (9 half-res cells, smaller): x in 8..10, y in 1..3.
-    for (let y = 1; y <= 3; y++) for (let x = 8; x <= 10; x++) setHalf(x, y);
-    // Neck (5 half-res cells, 1 wide): y = 2, x in 3..7.
-    for (let x = 3; x <= 7; x++) setHalf(x, 2);
-
-    const halfBlob: Blob = { width: halfWidth, height: halfHeight, inside: halfInside };
-    const blob = upscale2x(halfBlob, halfWidth * 2, halfHeight * 2);
-
-    const mask = repairMask(blob);
-    expect(componentCount(mask.width, mask.height, mask.inside)).toBe(1);
+    // connected raw blob into two disconnected lobes. Both survive as regions,
+    // and each is separately 4-connected.
+    const mask = repairMask(dumbbellBlob());
+    expect(componentCount(mask.width, mask.height, mask.inside)).toBe(2);
+    expect(mask.regionCount).toBe(2);
     expect(maskViolations(mask)).toEqual([]); // block-aligned input, so absorbParity has nothing to do
-    // The bigger (left) lobe survives...
+    // Both the bigger (left) and the smaller (right) lobe survive, in
+    // different regions.
+    const left = mask.regionOf[toIndex(2, 2, mask.width)] as number;
+    const right = mask.regionOf[toIndex(18, 4, mask.width)] as number;
+    expect(left).toBeGreaterThan(0);
+    expect(right).toBeGreaterThan(0);
+    expect(left).not.toBe(right);
+  });
+
+  it('blames the size floor, not the open, when every lobe is below the minimum', () => {
+    const mask = (): unknown => repairMask(dumbbellBlob(), { minRegionCells: 1000 });
+    expect(mask).toThrow(MaskRepairError);
+    expect(mask).toThrow(/none reached the 1000-cell minimum region size/);
+  });
+
+  it('names the effective floor, rounded up to whole blocks, not the raw request', () => {
+    // Repair filters at half resolution, so a request of 999 can only bite at
+    // the next whole 2x2 block up.
+    const mask = (): unknown => repairMask(dumbbellBlob(), { minRegionCells: 999 });
+    expect(mask).toThrow(/none reached the 1000-cell minimum region size/);
+    expect(mask).toThrow(/minRegionCells 999, rounded up/);
+  });
+
+  it('drops a lobe below the minimum region size while keeping the rest', () => {
+    // The same dumbbell, with the smaller lobe's 9 half-res cells (36
+    // full-resolution) below a threshold the larger lobe's 15 (60) clears.
+    const mask = repairMask(dumbbellBlob(), { minRegionCells: 40 });
+    expect(mask.regionCount).toBe(1);
     expect(mask.inside[toIndex(2, 2, mask.width)]).toBe(1);
-    // ...the smaller (right) lobe does not.
     expect(mask.inside[toIndex(18, 4, mask.width)]).toBe(0);
   });
 
@@ -323,5 +353,38 @@ describe('repairMask edge cases', () => {
     const mask = repairMask(blob);
     expect(mask.inside[toIndex(6, 6, width)]).toBe(1);
     expect(mask.inside[toIndex(7, 7, width)]).toBe(1);
+  });
+});
+
+describe('repairMask over a lobed blob', () => {
+  it('keeps each lobe as its own region, and never more regions than lobes asked for', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 1_000_000 }),
+        fc.integer({ min: 20, max: 100 }),
+        fc.integer({ min: 2, max: 8 }),
+        (seed, gridSize, lobeCount) => {
+          const blob = generateBlob({ seed, gridSize, lobeCount });
+          let mask;
+          try {
+            mask = repairMask(blob);
+          } catch (err) {
+            // A lobe too thin to survive the open can leave nothing at all.
+            expect(err).toBeInstanceOf(MaskRepairError);
+            return;
+          }
+          expect(mask.regionCount).toBeGreaterThan(0);
+          expect(mask.regionCount).toBeLessThanOrEqual(lobeCount);
+          expect(maskViolations(mask)).toEqual([]);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  }, 30_000);
+
+  it('gives every lobe room at a grid size that has it', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      expect(repairMask(generateBlob({ seed, gridSize: 100, lobeCount: 4 })).regionCount).toBe(4);
+    }
   });
 });

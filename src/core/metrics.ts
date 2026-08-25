@@ -95,15 +95,25 @@ function coverageOf(board: Board, mask: Mask): number {
   return insideCount > 0 ? coveredCount / insideCount : 0;
 }
 
-/** Corners over interior cells, along the walk itself rather than per segment. */
+/**
+ * Corners over interior cells, along the walk itself rather than per segment,
+ * and per region: the two cells either side of a region boundary are the ends
+ * of two separate walks, not a turn.
+ */
 function bendRateOf(path: HamiltonianPath, width: number): number {
-  const cells = path.cells;
-  if (cells.length < 3) return 0;
+  const { cells, regionStart } = path;
   let corners = 0;
-  for (let i = 1; i + 1 < cells.length; i++) {
-    const dirIn = directionBetween(cells[i - 1] as number, cells[i] as number, width);
-    const dirOut = directionBetween(cells[i] as number, cells[i + 1] as number, width);
-    if (dirIn !== dirOut) corners++;
+  let interior = 0;
+  for (let r = 0; r + 1 < regionStart.length; r++) {
+    const from = regionStart[r] as number;
+    const to = regionStart[r + 1] as number;
+    if (to - from < 3) continue;
+    interior += to - from - 2;
+    for (let i = from + 1; i + 1 < to; i++) {
+      const dirIn = directionBetween(cells[i - 1] as number, cells[i] as number, width);
+      const dirOut = directionBetween(cells[i] as number, cells[i + 1] as number, width);
+      if (dirIn !== dirOut) corners++;
+    }
   }
-  return corners / (cells.length - 2);
+  return interior > 0 ? corners / interior : 0;
 }
