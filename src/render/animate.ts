@@ -231,7 +231,10 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     ctx.lineWidth = LINE_WIDTH_CELLS * path.scale;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    ctx.setLineDash([path.dashLength, path.totalLength]);
+    // The gap exceeds the path so the pattern cannot wrap: an exactly-equal
+    // period puts a zero-length dash back at distance 0 when the offset
+    // reaches the end, which a round cap draws as a dot on the tail cell.
+    ctx.setLineDash([path.dashLength, path.totalLength + path.dashLength]);
     ctx.lineDashOffset = windowStart === 0 ? 0 : -windowStart;
     ctx.beginPath();
     ctx.moveTo(path.xs[0] as number, path.ys[0] as number);
@@ -393,7 +396,10 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const finish = (): void => {
     if (settled) return;
     settled = true;
-    clearAnimationLayer(readLayer());
+    // The frame and the subscription are released first: reading the layer
+    // can throw while an orientation change is recreating the canvas, and a
+    // throw here would otherwise leak the listener for the page's lifetime
+    // and leave the caller's completion unreachable.
     if (frameHandle !== null) {
       scheduler.cancelFrame(frameHandle);
       frameHandle = null;
@@ -401,6 +407,12 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     if (unsubscribeVisible !== null) {
       unsubscribeVisible();
       unsubscribeVisible = null;
+    }
+    try {
+      clearAnimationLayer(readLayer());
+    } catch {
+      // Nothing to clear if the layer is gone; the caller still gets its
+      // completion, which is the part the game loop is waiting on.
     }
   };
 
@@ -455,21 +467,18 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     frameHandle = null;
     if (settled) return;
     const progress = elapsed() / durationMs;
+    if (progress >= 1) {
+      complete();
+      return;
+    }
     const layer = readLayer();
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), progress);
-    if (progress >= 1) {
-      complete();
-    } else {
-      frameHandle = scheduler.requestFrame(step);
-    }
+    frameHandle = scheduler.requestFrame(step);
   };
 
   unsubscribeVisible = scheduler.onVisible(() => {
     if (settled || elapsed() < durationMs) return;
-    const layer = readLayer();
-    clearAnimationLayer(layer);
-    drawSnakeOutFrame(layer.ctx, currentPath(), 1);
     complete();
   });
   frameHandle = scheduler.requestFrame(step);

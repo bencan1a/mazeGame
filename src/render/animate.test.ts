@@ -848,3 +848,33 @@ describe('viewportChanged', () => {
     expect(viewportChanged(base, { ...base, originY: 4 })).toBe(true);
   });
 });
+
+describe('startSnakeOutAnimation, teardown under a failing layer', () => {
+  it('still completes and releases the scheduler when the layer is gone', () => {
+    const scheduler = fakeScheduler();
+    let alive = true;
+    let completed = 0;
+    startSnakeOutAnimation({
+      board: ACYCLIC_BOARD,
+      segmentId: 1,
+      viewport: createViewport({ scale: 10 }),
+      durationMs: 100,
+      layer: () => {
+        if (!alive) throw new Error('layer recreated mid-exit');
+        return fakeAnimationLayer().layer;
+      },
+      scheduler,
+      onComplete: () => {
+        completed++;
+      },
+    });
+
+    alive = false;
+    scheduler.clock.value = 200;
+    runQueuedFrames(scheduler, 200);
+
+    expect(completed).toBe(1);
+    expect(scheduler.frames.size).toBe(0);
+    expect(scheduler.visibleSubscribers.size).toBe(0);
+  });
+});
