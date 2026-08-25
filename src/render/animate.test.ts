@@ -156,11 +156,12 @@ describe('buildExitPath', () => {
     // dashLength = 4 polyline edges * scale 10 = 40. The on-board run (4 polyline
     // edges + 2 ray edges) is 6 * 10 = 60, so the board's true edge sits at
     // 60 + 5 = 65. dashLength (40) already exceeds a full arrowhead's reach
-    // (10), so the dash's own body carries the head clear on its own:
-    // totalLength is just the 65 to the true edge. The last vertex still has
-    // to carry the head, which leads the trailing edge by dashLength, so it
-    // sits totalLength + dashLength - 60 = 45 past the last on-board vertex
-    // (y = 35), landing at y = 80.
+    // (10), so the dash's own body carries the head clear on its own. Travel
+    // is the 65 to the true edge plus the round cap's radius (1.5), so the
+    // trailing cap clears too: 66.5. The last vertex still has to carry the
+    // head, which leads the trailing edge by dashLength, so it sits
+    // totalLength + dashLength - 60 = 46.5 past the last on-board vertex
+    // (y = 35), landing at y = 81.5.
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
     expect(Array.from(path.xs)).toEqual([5, 15, 25, 35, 35, 35, 35, 35]);
     expect(Array.from(path.ys)).toEqual([5, 5, 5, 5, 15, 25, 35, 81.5]);
@@ -172,8 +173,9 @@ describe('buildExitPath', () => {
   it('is dashLength 0 for a one-cell segment, with a ray-only path', () => {
     // A 1x1 board: the head is already on every edge, so the on-board run is
     // just the half-cell to the true edge (5). dashLength is 0 (no body), so
-    // totalLength is that 5 plus a full arrowhead's reach (10): 15. The final
-    // vertex is totalLength + dashLength - 0 = 15 past the head, at x = 20.
+    // travel is that 5, plus the round cap's radius (1.5), plus a full
+    // arrowhead's reach (10): 16.5. The final vertex is totalLength +
+    // dashLength - 0 = 16.5 past the head, at x = 21.5.
     const board = makeBoard({ art: 'A', dirs: { a: 'E' } });
     const path = buildExitPath(board, 1, viewport);
     expect(Array.from(path.xs)).toEqual([5, 21.5]);
@@ -369,14 +371,14 @@ describe('drawSnakeOutFrame', () => {
 
   it('carries the arrowhead off the board rather than dropping it at the edge', () => {
     const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
-    // The board's true edge sits at arc length totalLength - max(0, arrowReach
-    // - dashLength) (buildExitPath's own derivation, run in reverse — this
-    // segment's dashLength already exceeds arrowReach, so that max is 0 and
-    // the true edge is just totalLength). The arrowhead anchor (windowStart +
-    // dashLength) reaches that edge once windowStart does, i.e. at this
-    // progress.
+    // Travel is the run to the board's true edge, plus the round cap's radius
+    // so the trailing cap clears, plus whatever margin the arrowhead needs
+    // beyond what the dash's own body already gives it. Running that in
+    // reverse recovers the true edge, which the arrowhead anchor (windowStart
+    // + dashLength) reaches at this progress.
     const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
-    const edgeLength = path.totalLength - Math.max(0, arrowReach - path.dashLength);
+    const capRadius = (LINE_WIDTH_CELLS / 2) * viewport.scale;
+    const edgeLength = path.totalLength - capRadius - Math.max(0, arrowReach - path.dashLength);
     const headExitsAt = (edgeLength - path.dashLength) / path.totalLength;
     const boardBottom = 40; // 4 cells at scale 10, and this segment exits south
 
@@ -474,17 +476,12 @@ describe('drawSnakeOutFrame', () => {
 
   it('keeps the head attached to the body, on the same path, past the board edge', () => {
     // A straight 5-cell segment ("aaaaA") exiting east on a 5-wide board at
-    // scale 10, sampled at progress 0.9. dashLength = 4 * 10 = 40 exceeds a full
-    // arrowhead's reach (10), so the on-board run (also 40) is all the
-    // travel totalLength needs: 45 (40 + the half-cell to the true edge).
-    // The final edge still has to carry the head, which leads the trailing
-    // edge by dashLength, so it runs from x = 45 to
-    // x = 45 + (totalLength + dashLength - 40) = 45 + 45 = 90.
-    //
-    // At progress 0.9, windowStart = 40.5 and the arrowhead anchor sits at
-    // windowStart + dashLength = 80.5 along the path — 90% of the way along
-    // the final edge, i.e. x = 45 + 0.9 * 45 = 85.5, a point on the same
-    // vertices the stroke itself uses.
+    // scale 10. dashLength = 4 * 10 = 40 exceeds a full arrowhead's reach
+    // (10), so the dash's own body carries the head clear and travel is the
+    // on-board run (40) plus the half-cell to the true edge (5) plus the round
+    // cap's radius (1.5): 46.5. The final edge carries the head, which leads
+    // the trailing edge by dashLength, so it runs from x = 45 to
+    // x = 45 + (totalLength + dashLength - 40) = 45 + 46.5 = 91.5.
     const board = makeBoard('aaaaA');
     const path = buildExitPath(board, 1, viewport);
     expect(path.totalLength).toBe(46.5);

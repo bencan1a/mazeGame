@@ -511,17 +511,16 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const step = (): void => {
     frameHandle = null;
     if (settled) return;
-    const progress = elapsed() / durationMs;
-    if (progress >= 1) {
-      complete();
-      return;
-    }
+    // The last frame is drawn, not skipped: at progress 1 the piece has fully
+    // cleared the board, so ending on an earlier frame leaves the tail visibly
+    // inside it and then blinks it away.
+    const progress = Math.min(1, elapsed() / durationMs);
     const drawn = guard(() => {
       const layer = readLayer();
       clearAnimationLayer(layer);
       drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     });
-    if (!drawn) {
+    if (!drawn || progress >= 1) {
       complete();
       return;
     }
