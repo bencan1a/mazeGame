@@ -13,9 +13,12 @@ import { DX, DY, directionBetween, step, stepsToEdge, xOf, yOf } from '../core/g
 import type { Board, Direction, SegmentId } from '../core/types.js';
 import {
   ARROWHEAD_LENGTH_CELLS,
+  CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
+  cornerRadiusAt,
   fillArrowheadAt,
   requireDirection,
+  strokeCorner,
   type FillContext2D,
   type StrokeContext2D,
 } from './draw.js';
@@ -30,26 +33,38 @@ function requireValidSegmentId(board: Board, id: number): asserts id is SegmentI
 }
 
 /**
- * A segment's exit path: its own polyline (tail to head, cell center to cell
- * center), the exit ray (head to the board's outer edge), and a final
- * straight run continuing past the board in the same direction — precomputed
- * once so a per-frame draw only ever restrokes the same vertices with a
- * different dash offset. `edgeDirs[k]` is the direction travelled between
- * vertex `k` and vertex `k + 1`.
+ * A segment's exit path: its own route (tail to head, cell center to cell
+ * center, rounding each bend), the exit ray (head to the board's outer
+ * edge), and a final straight run continuing past the board in the same
+ * direction — precomputed once so a per-frame draw only ever restrokes the
+ * same geometry with a different dash offset. `edgeDirs[k]` is the direction
+ * travelled between vertex `k` and vertex `k + 1`.
  *
  * Every edge is exactly `scale` long except the very last, which absorbs
  * both the half-cell step to the board's true outer edge and the run beyond
  * it — long enough that by `progress = 1` the dash and the arrowhead riding
  * at its leading edge have both fully passed the board, so `drawSnakeOutFrame`
  * never has to place either past a vertex the path doesn't have.
- * `drawSnakeOutFrame` relies on the uniform spacing before that last edge to
- * place the leading arrowhead without walking the vertex list.
+ *
+ * Distances along it — `dashLength`, `totalLength`, the dash offset a frame
+ * sets, the arrowhead's place — are arc lengths on the rounded route, which
+ * is shorter than the polyline through the same vertices: that is the space
+ * a dashed stroke on a canvas measures itself in.
  */
 export interface ExitPath {
   readonly xs: Float64Array;
   readonly ys: Float64Array;
   readonly edgeDirs: Uint8Array;
-  /** Length of the segment's own polyline, tail center to head center. Zero for a one-cell segment. */
+  /**
+   * Radius the path rounds each vertex with, 0 where it runs straight
+   * through. Both ends are 0, and so is the head vertex: that one carries
+   * the arrowhead at rest, which has to sit on the head cell's own centre
+   * pointing along `segDir`, exactly as the static layer draws it.
+   */
+  readonly cornerRadii: Float64Array;
+  /** Index of the head cell's vertex: where the segment's own body ends and the exit ray begins. */
+  readonly headVertex: number;
+  /** Length of the segment's own body along the rounded route, tail center to head center. Zero for a one-cell segment. */
   readonly dashLength: number;
   /**
    * How far `progress` travels the dash's own trailing edge: the ray to the
@@ -79,8 +94,8 @@ interface ExitTopology {
   readonly edgeDirs: Uint8Array;
   readonly dir: Direction;
   readonly width: number;
-  readonly dashLengthCells: number;
-  readonly uniformLengthCells: number;
+  /** Index of the head cell's vertex, which is also how many edges the segment's own body has. */
+  readonly headVertex: number;
   readonly strokeColor: string;
 }
 
@@ -132,24 +147,30 @@ function buildExitTopology(board: Board, segmentId: SegmentId): ExitTopology {
     edgeDirs,
     dir,
     width: board.width,
-    dashLengthCells: segLen - 1,
-    uniformLengthCells: segLen - 1 + numRaySteps,
+    headVertex: segLen - 1,
     strokeColor: paletteColor(board.segColor[segmentId - 1] as number),
   };
 }
 
+/** Arc length a rounded corner of `radius` saves against the two straight legs it replaces. */
+function cornerShortening(radius: number): number {
+  return radius * (2 - Math.PI / 2);
+}
+
 /**
- * Lays `topology` out at `viewport`'s scale and origin, writing cell centers
- * into `xs`/`ys` in place — sized to `topology.cellIndices.length + 1` by
- * the caller — rather than allocating new arrays, so a caller re-laying the
- * same topology out at a new viewport (a pan or a pinch mid-exit) does not
- * pay for a fresh `ExitPath` on every frame.
+ * Lays `topology` out at `viewport`'s scale and origin, writing vertices and
+ * corner radii into the caller's arrays in place — sized to
+ * `topology.cellIndices.length + 1` by the caller — rather than allocating
+ * new ones, so a caller re-laying the same topology out at a new viewport (a
+ * pan or a pinch mid-exit) does not pay for a fresh `ExitPath` on every
+ * frame.
  */
 function layoutExitPath(
   topology: ExitTopology,
   viewport: Viewport<'css'>,
   xs: Float64Array,
   ys: Float64Array,
+  cornerRadii: Float64Array,
 ): { readonly dashLength: number; readonly totalLength: number } {
   const { cellIndices, dir, width } = topology;
   for (let i = 0; i < cellIndices.length; i++) {
@@ -158,17 +179,46 @@ function layoutExitPath(
     ys[i] = cellCenterY(viewport, yOf(cellIndex, width));
   }
 
-  const dashLength = topology.dashLengthCells * viewport.scale;
+  const maxRadius = CORNER_RADIUS_CELLS * viewport.scale;
+  const last = cellIndices.length - 1;
+  cornerRadii[0] = 0;
+  cornerRadii[last] = 0;
+  cornerRadii[cellIndices.length] = 0;
+  let onBoardLength = 0;
+  let dashLength = 0;
+  let previousRadius = 0;
+  for (let k = 1; k <= last; k++) {
+    // The last on-board vertex is left square along with the head: the leg
+    // leaving it is the final edge, whose length the travel below has not
+    // settled yet. It is a straight run into the exit ray anyway, unless it
+    // is the head itself.
+    const roundable = k < last && k !== topology.headVertex;
+    const cornerRadius = roundable
+      ? cornerRadiusAt(
+          xs[k - 1] as number,
+          ys[k - 1] as number,
+          xs[k] as number,
+          ys[k] as number,
+          xs[k + 1] as number,
+          ys[k + 1] as number,
+          maxRadius,
+        )
+      : 0;
+    cornerRadii[k] = cornerRadius;
+    onBoardLength +=
+      viewport.scale - cornerShortening(previousRadius) / 2 - cornerShortening(cornerRadius) / 2;
+    if (k === topology.headVertex) dashLength = onBoardLength;
+    previousRadius = cornerRadius;
+  }
+
   const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
-  const uniformLength = topology.uniformLengthCells * viewport.scale;
   const capRadius = (LINE_WIDTH_CELLS / 2) * viewport.scale;
   const totalLength =
-    uniformLength + viewport.scale / 2 + capRadius + Math.max(0, arrowReach - dashLength);
-  const finalEdgeLength = totalLength + dashLength - uniformLength;
+    onBoardLength + viewport.scale / 2 + capRadius + Math.max(0, arrowReach - dashLength);
+  const finalEdgeLength = totalLength + dashLength - onBoardLength;
 
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
-  const last = cellIndices.length - 1;
   xs[cellIndices.length] = (xs[last] as number) + dx * finalEdgeLength;
   ys[cellIndices.length] = (ys[last] as number) + dy * finalEdgeLength;
 
@@ -186,13 +236,17 @@ export function buildExitPath(
   viewport: Viewport<'css'>,
 ): ExitPath {
   const topology = buildExitTopology(board, segmentId);
-  const xs = new Float64Array(topology.cellIndices.length + 1);
-  const ys = new Float64Array(topology.cellIndices.length + 1);
-  const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys);
+  const vertexCount = topology.cellIndices.length + 1;
+  const xs = new Float64Array(vertexCount);
+  const ys = new Float64Array(vertexCount);
+  const cornerRadii = new Float64Array(vertexCount);
+  const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys, cornerRadii);
   return {
     xs,
     ys,
     edgeDirs: topology.edgeDirs,
+    cornerRadii,
+    headVertex: topology.headVertex,
     dashLength,
     totalLength,
     scale: viewport.scale,
@@ -213,7 +267,7 @@ export interface DashContext2D extends StrokeContext2D, FillContext2D {
  * nothing and would fail a caller's completion check without ever throwing.
  *
  * A single dash the length of the segment's own body is stroked along the
- * concatenated path, offset so it starts at the tail at `progress = 0` and
+ * concatenated route, offset so it starts at the tail at `progress = 0` and
  * has its trailing edge at the board's true edge — or a little past it, for
  * a segment short enough that its arrowhead would not otherwise clear — by
  * `progress = 1` (see `buildExitPath`). An arrowhead is filled at the dash's
@@ -240,9 +294,18 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     ctx.lineDashOffset = windowStart === 0 ? 0 : -windowStart;
     ctx.beginPath();
     ctx.moveTo(path.xs[0] as number, path.ys[0] as number);
-    for (let i = 1; i < path.xs.length; i++) {
-      ctx.lineTo(path.xs[i] as number, path.ys[i] as number);
+    const lastVertex = path.xs.length - 1;
+    for (let i = 1; i < lastVertex; i++) {
+      strokeCorner(
+        ctx,
+        path.xs[i] as number,
+        path.ys[i] as number,
+        path.xs[i + 1] as number,
+        path.ys[i + 1] as number,
+        path.cornerRadii[i] as number,
+      );
     }
+    ctx.lineTo(path.xs[lastVertex] as number, path.ys[lastVertex] as number);
     ctx.stroke();
     // The layer's context is reused across exits and `clearAnimationLayer`
     // preserves it, so a dash left set here would apply to the next stroke.
@@ -250,31 +313,17 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     ctx.lineDashOffset = 0;
   }
 
-  const leadArcLength = windowStart + path.dashLength;
+  // The route past the head vertex is the exit ray, which never turns, so
+  // the leading edge is that far straight along it — `windowStart` is
+  // already the lead's distance past the head, whatever the body behind it
+  // curved through.
+  const rayDir = path.edgeDirs[path.headVertex] as Direction;
+  const rayX = DX[rayDir] as number;
+  const rayY = DY[rayDir] as number;
+  const leadX = (path.xs[path.headVertex] as number) + rayX * windowStart;
+  const leadY = (path.ys[path.headVertex] as number) + rayY * windowStart;
 
-  const uniformEdgeCount = path.edgeDirs.length - 1;
-  const uniformLength = uniformEdgeCount * path.scale;
-  const finalEdgeLength = path.totalLength + path.dashLength - uniformLength;
-  let edgeIndex: number;
-  let edgeT: number;
-  if (uniformEdgeCount > 0 && leadArcLength <= uniformLength) {
-    edgeIndex = Math.min(uniformEdgeCount - 1, Math.floor(leadArcLength / path.scale));
-    edgeT = (leadArcLength - edgeIndex * path.scale) / path.scale;
-  } else {
-    edgeIndex = path.edgeDirs.length - 1;
-    edgeT = (leadArcLength - uniformLength) / finalEdgeLength;
-  }
-  edgeT = Math.min(1, Math.max(0, edgeT));
-
-  const ax = path.xs[edgeIndex] as number;
-  const ay = path.ys[edgeIndex] as number;
-  const bx = path.xs[edgeIndex + 1] as number;
-  const by = path.ys[edgeIndex + 1] as number;
-  const leadDir = path.edgeDirs[edgeIndex] as Direction;
-  const leadX = ax + (bx - ax) * edgeT;
-  const leadY = ay + (by - ay) * edgeT;
-
-  fillArrowheadAt(ctx, leadX, leadY, leadDir, path.scale, path.strokeColor);
+  fillArrowheadAt(ctx, leadX, leadY, rayDir, path.scale, path.strokeColor);
 }
 
 function requirePositiveFiniteDuration(durationMs: number): void {
@@ -473,19 +522,23 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return { cancel: finish };
   }
   let pathViewport: Viewport<'css'> = setupViewport;
-  const xs = new Float64Array(topology.cellIndices.length + 1);
-  const ys = new Float64Array(topology.cellIndices.length + 1);
+  const vertexCount = topology.cellIndices.length + 1;
+  const xs = new Float64Array(vertexCount);
+  const ys = new Float64Array(vertexCount);
+  const cornerRadii = new Float64Array(vertexCount);
   const path: ExitPath = {
     xs,
     ys,
     edgeDirs: topology.edgeDirs,
+    cornerRadii,
+    headVertex: topology.headVertex,
     dashLength: 0,
     totalLength: 0,
     scale: pathViewport.scale,
     strokeColor: topology.strokeColor,
   };
   const applyLayout = (viewport: Viewport<'css'>): void => {
-    const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys);
+    const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys, cornerRadii);
     Object.assign(path, { dashLength, totalLength, scale: viewport.scale });
   };
   applyLayout(pathViewport);
