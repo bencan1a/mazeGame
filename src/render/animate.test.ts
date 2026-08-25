@@ -905,3 +905,79 @@ describe('startSnakeOutAnimation, teardown under a failing layer', () => {
     expect(scheduler.visibleSubscribers.size).toBe(0);
   });
 });
+
+describe('startSnakeOutAnimation, getters that fail', () => {
+  const failing = (): never => {
+    throw new Error('recreated mid-exit');
+  };
+
+  it('leaks no visibility subscription when the layer is gone at setup', () => {
+    const scheduler = fakeScheduler();
+    let completed = 0;
+    const animation = startSnakeOutAnimation({
+      board: ACYCLIC_BOARD,
+      segmentId: 1,
+      viewport: createViewport({ scale: 10 }),
+      durationMs: 100,
+      layer: failing,
+      scheduler,
+      onComplete: () => {
+        completed++;
+      },
+    });
+    animation.cancel();
+
+    expect(completed).toBe(1);
+    expect(scheduler.visibleSubscribers.size).toBe(0);
+    expect(scheduler.frames.size).toBe(0);
+  });
+
+  it('completes rather than throwing when the viewport getter fails at setup', () => {
+    const scheduler = fakeScheduler();
+    let completed = 0;
+    expect(() =>
+      startSnakeOutAnimation({
+        board: ACYCLIC_BOARD,
+        segmentId: 1,
+        viewport: failing,
+        durationMs: 100,
+        layer: fakeAnimationLayer().layer,
+        scheduler,
+        onComplete: () => {
+          completed++;
+        },
+      }),
+    ).not.toThrow();
+    expect(completed).toBe(1);
+    expect(scheduler.visibleSubscribers.size).toBe(0);
+  });
+
+  it('completes rather than freezing when the viewport getter fails mid-flight', () => {
+    const scheduler = fakeScheduler();
+    let alive = true;
+    let completed = 0;
+    const viewport = createViewport({ scale: 10 });
+    startSnakeOutAnimation({
+      board: ACYCLIC_BOARD,
+      segmentId: 1,
+      viewport: () => {
+        if (!alive) throw new Error('recreated mid-exit');
+        return viewport;
+      },
+      durationMs: 1000,
+      layer: fakeAnimationLayer().layer,
+      scheduler,
+      onComplete: () => {
+        completed++;
+      },
+    });
+
+    alive = false;
+    scheduler.clock.value = 100;
+    runQueuedFrames(scheduler, 100);
+
+    expect(completed).toBe(1);
+    expect(scheduler.frames.size).toBe(0);
+    expect(scheduler.visibleSubscribers.size).toBe(0);
+  });
+});

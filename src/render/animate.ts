@@ -427,28 +427,49 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const startTime = scheduler.now();
   const elapsed = (): number => scheduler.now() - startTime;
 
-  /** Runs `use` against the current layer, completing instead of throwing if it has gone. */
-  const withLayer = (use: (layer: AnimationLayer) => void): boolean => {
-    let layer: AnimationLayer;
+  /**
+   * Runs `body`, completing instead of throwing. Both getters and the drawing
+   * they feed can fail while a resize is recreating the canvas, and a throw
+   * escaping a frame would leave nothing scheduled and the caller's completion
+   * unreachable — so every read and draw goes through here.
+   */
+  const guard = (body: () => void): boolean => {
     try {
-      layer = readLayer();
+      body();
+      return true;
     } catch {
       complete();
       return false;
     }
-    use(layer);
-    return true;
+  };
+
+  /** Subscribes and schedules only while still live, so teardown cannot be outrun. */
+  const arm = (onFrame: () => void): void => {
+    if (settled) return;
+    unsubscribeVisible = scheduler.onVisible(() => {
+      if (settled || elapsed() < durationMs) return;
+      complete();
+    });
+    if (settled) {
+      unsubscribeVisible();
+      unsubscribeVisible = null;
+      return;
+    }
+    frameHandle = scheduler.requestFrame(onFrame);
   };
 
   const topology = tryBuildExitTopology(board, segmentId);
   if (topology === null) {
-    withLayer(clearAnimationLayer);
-    unsubscribeVisible = scheduler.onVisible(() => complete());
-    frameHandle = scheduler.requestFrame(() => complete());
+    guard(() => clearAnimationLayer(readLayer()));
+    arm(() => complete());
     return { cancel: finish };
   }
 
-  let pathViewport: Viewport<'css'> = { ...readViewport() };
+  let setupViewport: Viewport<'css'> | null = null;
+  if (!guard(() => void (setupViewport = { ...readViewport() })) || setupViewport === null) {
+    return { cancel: finish };
+  }
+  let pathViewport: Viewport<'css'> = setupViewport;
   const xs = new Float64Array(topology.cellIndices.length + 1);
   const ys = new Float64Array(topology.cellIndices.length + 1);
   const path: ExitPath = {
@@ -474,7 +495,8 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return path;
   };
 
-  withLayer((layer) => {
+  guard(() => {
+    const layer = readLayer();
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, path, 0);
   });
@@ -487,7 +509,8 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
       complete();
       return;
     }
-    const drawn = withLayer((layer) => {
+    const drawn = guard(() => {
+      const layer = readLayer();
       clearAnimationLayer(layer);
       drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     });
@@ -495,11 +518,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     frameHandle = scheduler.requestFrame(step);
   };
 
-  unsubscribeVisible = scheduler.onVisible(() => {
-    if (settled || elapsed() < durationMs) return;
-    complete();
-  });
-  frameHandle = scheduler.requestFrame(step);
+  arm(step);
 
   return { cancel: finish };
 }
