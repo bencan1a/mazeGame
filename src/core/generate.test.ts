@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { assertDeterministic, checkStructure, greedyClear } from './validate/index.js';
 import * as validateModule from './validate/index.js';
 import * as pathModule from './path/index.js';
+import * as contourModule from './path/contour.js';
 import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
@@ -279,25 +280,22 @@ describe('generateBoard: path stage failure and fallback', () => {
     // leaves every other test in this file green, because contour never
     // actually declines on real generated masks at the sizes exercised
     // elsewhere in this file.
-    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+    const contourSpy = vi.spyOn(contourModule, 'buildContourPath').mockReturnValue({
       ok: false,
       reason: 'forced decline to exercise the backbite fallback',
     });
 
     const result = generateBoardWithDiagnostics(paramsAt({ gridSize: 20, seed: 5 }));
     assertExternallySound(result.board);
+    expect(contourSpy).toHaveBeenCalled();
 
     contourSpy.mockRestore();
   });
 
   it('reports a "path:" failure, retried, when both contour and backbite decline', () => {
-    const contourSpy = vi.spyOn(pathModule, 'buildContourPath').mockReturnValue({
+    const regionPathSpy = vi.spyOn(pathModule, 'buildRegionPaths').mockReturnValue({
       ok: false,
-      reason: 'forced contour decline for this test',
-    });
-    const backbiteSpy = vi.spyOn(pathModule, 'buildBackbitePath').mockReturnValue({
-      ok: false,
-      reason: 'forced backbite failure for this test',
+      reason: 'region 1 of 1: contour declined and backbite failed, forced for this test',
     });
 
     let caught: unknown;
@@ -311,8 +309,7 @@ describe('generateBoard: path stage failure and fallback', () => {
     expect(failure.attemptFailures).toHaveLength(DEFAULT_MAX_ATTEMPTS);
     expect(failure.attemptFailures.every((reason) => reason.startsWith('path:'))).toBe(true);
 
-    contourSpy.mockRestore();
-    backbiteSpy.mockRestore();
+    regionPathSpy.mockRestore();
   });
 });
 

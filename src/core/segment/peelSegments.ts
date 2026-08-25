@@ -30,6 +30,11 @@
  * What can degrade is piece quality, not feasibility: when the free set
  * fragments, the lengths on offer shrink. `PeelStats` reports how often that
  * happened, so a sweep can see the trade rather than infer it.
+ *
+ * A multi-region path is peeled as one sequence: a piece may not span two
+ * regions, but the ray test is board-wide, so a ray crossing another region's
+ * cells still finds them. Peeling each region on its own would miss exactly
+ * that, and the missed blockers are the ones that would close a cycle.
  */
 
 import { NO_CELL, directionBetween, opposite, step, xOf, yOf } from '../grid.js';
@@ -115,21 +120,41 @@ export function peelSegments(
     };
   }
 
+  // linked[e] is 1 where positions e and e+1 are consecutive cells of one
+  // region. The pair straddling a region boundary is not a step of any walk,
+  // so nothing may extend, cut or measure a run across it.
+  const linked = new Uint8Array(length - 1);
   const stepDir = new Uint8Array(length - 1);
-  for (let e = 0; e < length - 1; e++) {
-    const from = cells[e] as number;
-    const to = cells[e + 1] as number;
-    const dir = directionBetween(from, to, width);
-    if (dir === -1) {
-      throw new Error(
-        `peelSegments: path cells ${from} and ${to} (step ${e}) are not 4-neighbours; ` +
-          'peelSegments requires a valid HamiltonianPath',
-      );
+  const regionStart = path.regionStart;
+  const regionsEnd = regionStart.length > 0 ? (regionStart[regionStart.length - 1] as number) : 0;
+  if (regionsEnd !== length) {
+    throw new Error(
+      `peelSegments: path.regionStart covers ${regionsEnd} of ${length} path cells; ` +
+        'peelSegments requires a valid HamiltonianPath',
+    );
+  }
+  for (let r = 0; r + 1 < regionStart.length; r++) {
+    const from = regionStart[r] as number;
+    const to = regionStart[r + 1] as number;
+    for (let e = from; e + 1 < to; e++) {
+      const a = cells[e] as number;
+      const b = cells[e + 1] as number;
+      const dir = directionBetween(a, b, width);
+      if (dir === -1) {
+        throw new Error(
+          `peelSegments: path cells ${a} and ${b} (step ${e}) are not 4-neighbours; ` +
+            'peelSegments requires a valid HamiltonianPath',
+        );
+      }
+      stepDir[e] = dir;
+      linked[e] = 1;
     }
-    stepDir[e] = dir;
   }
 
-  const straight = straightRuns(stepDir);
+  /** Whether positions `e` and `e + 1` are consecutive cells of one region. */
+  const linkedAt = (e: number): boolean => e >= 0 && e < length - 1 && linked[e] === 1;
+
+  const straight = straightRuns(stepDir, linked);
   // Below 1 each constraint is vacuous: every cut satisfies it.
   const minStraightRun = Math.max(1, Math.round(params.minStraightRun));
   const minLength = Math.max(1, Math.round(params.minPieceLength));
@@ -266,8 +291,8 @@ export function peelSegments(
       if (pieceLen < floor) return;
       const from = mode === BACKWARD ? pos - pieceLen + 1 : pos;
       const to = from + pieceLen - 1;
-      const before = freeRun(from - 1, -1, absorbBelow);
-      const after = freeRun(to + 1, 1, absorbBelow);
+      const before = linkedAt(from - 1) ? freeRun(from - 1, -1, absorbBelow) : 0;
+      const after = linkedAt(to) ? freeRun(to + 1, 1, absorbBelow) : 0;
       // A remnant below the floor could only ever become an illegal piece.
       if (!relaxed && ((before > 0 && before < floor) || (after > 0 && after < floor))) return;
       const cost = scorePiece(from, to, pieceLen, target, before, after);
@@ -287,14 +312,10 @@ export function peelSegments(
       propose(mode, free);
     };
 
-    if (pos >= 1 && committed[pos - 1] === 0 && (stepDir[pos - 1] as number) === dir) {
+    if (linkedAt(pos - 1) && committed[pos - 1] === 0 && (stepDir[pos - 1] as number) === dir) {
       tryMode(BACKWARD, -1);
     }
-    if (
-      pos <= length - 2 &&
-      committed[pos + 1] === 0 &&
-      opposite(stepDir[pos] as Direction) === dir
-    ) {
+    if (linkedAt(pos) && committed[pos + 1] === 0 && opposite(stepDir[pos] as Direction) === dir) {
       tryMode(FORWARD, 1);
     }
     if (floor === 1) propose(BACKWARD, 1);
@@ -322,7 +343,7 @@ export function peelSegments(
         continue;
       }
       let hi = lo;
-      while (hi + 1 < length && committed[hi + 1] === 0) hi++;
+      while (hi + 1 < length && committed[hi + 1] === 0 && linkedAt(hi)) hi++;
 
       if (hi - lo + 1 >= minLength) {
         const headAtHi = hi > lo ? (stepDir[hi - 1] as Direction) : null;
@@ -395,12 +416,16 @@ export function peelSegments(
     return free < absorbBelow ? FRAGMENT_COST + STRANDED_COST : FRAGMENT_COST;
   }
 
-  /** Free positions starting at `pos` and walking by `stride`, capped at `cap`. */
+  /**
+   * Free positions starting at `pos` and walking by `stride`, capped at `cap`
+   * and stopping at a region boundary.
+   */
   function freeRun(pos: number, stride: number, cap: number): number {
     let n = 0;
     let p = pos;
     while (n < cap && p >= 0 && p < length && committed[p] === 0) {
       n++;
+      if (!linkedAt(stride > 0 ? p : p - 1)) break;
       p += stride;
     }
     return n;
@@ -412,12 +437,13 @@ export function peelSegments(
    * split anywhere is exempt, as the path itself offers nothing better.
    */
   function cutViolates(e: number): boolean {
-    if (e < 0 || e > length - 2) return false;
-    // Cell 0 has no stroke arriving at it, so it is not a corner; every other
-    // corner cut splits nothing straight and is free. Reading stepDir[-1] to
-    // decide that would answer undefined, which compares unequal and would
-    // wave the cut through.
-    if (e >= 1 && stepDir[e - 1] !== stepDir[e]) return false;
+    // A region boundary is not a cut: no run crosses it, so nothing is severed.
+    if (!linkedAt(e)) return false;
+    // The first cell of a region has no stroke arriving at it, so it is not a
+    // corner; every other corner cut splits nothing straight and is free.
+    // stepDir holds 0 at an unlinked edge, which is a legal Direction and
+    // would compare equal to a northward run.
+    if (linkedAt(e - 1) && stepDir[e - 1] !== stepDir[e]) return false;
     const runFrom = straight.start[e] as number;
     const runTo = straight.end[e] as number;
     const validLo = runFrom + minStraightRun - 1;
@@ -510,15 +536,18 @@ interface StraightRuns {
   readonly end: Int32Array;
 }
 
-function straightRuns(stepDir: Uint8Array): StraightRuns {
+/** Runs break at a region boundary as well as at a turn. */
+function straightRuns(stepDir: Uint8Array, linked: Uint8Array): StraightRuns {
   const edges = stepDir.length;
   const start = new Int32Array(edges);
   const end = new Int32Array(edges);
+  const joined = (a: number, b: number): boolean =>
+    linked[a] === 1 && linked[b] === 1 && stepDir[a] === stepDir[b];
   for (let e = 0; e < edges; e++) {
-    start[e] = e === 0 || stepDir[e] !== stepDir[e - 1] ? e : (start[e - 1] as number);
+    start[e] = e === 0 || !joined(e, e - 1) ? e : (start[e - 1] as number);
   }
   for (let e = edges - 1; e >= 0; e--) {
-    end[e] = e === edges - 1 || stepDir[e] !== stepDir[e + 1] ? e : (end[e + 1] as number);
+    end[e] = e === edges - 1 || !joined(e, e + 1) ? e : (end[e + 1] as number);
   }
   return { start, end };
 }

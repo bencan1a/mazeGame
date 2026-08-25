@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import type { Mask } from '../types.js';
+import { maskFrom } from '../mask/index.js';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import { classifyTiling } from './tiling.js';
 
@@ -121,10 +122,7 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
     // No cell is inside, so the block partition finds zero full blocks; the
     // claimed count of 4 is what must still be caught.
     const mask: Mask = {
-      width: 2,
-      height: 2,
-      inside: new Uint8Array(4),
-      unvisited: new Uint8Array(4),
+      ...maskFrom({ width: 2, height: 2, inside: new Uint8Array(4), unvisited: new Uint8Array(4) }),
       pathCellCount: 4,
     };
     const result = classifyTiling(mask);
@@ -137,10 +135,12 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
     // Tracing 8 steps around a 4-cell cycle would revisit cells 0 and 1 —
     // repeats a Hamiltonian path must never have.
     const mask: Mask = {
-      width: 2,
-      height: 2,
-      inside: new Uint8Array([1, 1, 1, 1]),
-      unvisited: new Uint8Array(4),
+      ...maskFrom({
+        width: 2,
+        height: 2,
+        inside: new Uint8Array([1, 1, 1, 1]),
+        unvisited: new Uint8Array(4),
+      }),
       pathCellCount: 8,
     };
     const result = classifyTiling(mask);
@@ -152,10 +152,12 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
     // Same real 4-cell block, but the mask claims only 2 — a path allocated
     // at length 2 would cover only half the actual region.
     const mask: Mask = {
-      width: 2,
-      height: 2,
-      inside: new Uint8Array([1, 1, 1, 1]),
-      unvisited: new Uint8Array(4),
+      ...maskFrom({
+        width: 2,
+        height: 2,
+        inside: new Uint8Array([1, 1, 1, 1]),
+        unvisited: new Uint8Array(4),
+      }),
       pathCellCount: 2,
     };
     const result = classifyTiling(mask);
@@ -182,7 +184,10 @@ describe('classifyTiling: trusting mask.pathCellCount without reconciling it (re
             inside[i] = bit;
             if (bit === 1) real++;
           }
-          const mask: Mask = { width, height, inside, unvisited, pathCellCount: real + delta };
+          const mask: Mask = {
+            ...maskFrom({ width, height, inside, unvisited }),
+            pathCellCount: real + delta,
+          };
           const result = classifyTiling(mask);
           expect(result.ok).toBe(false);
         },

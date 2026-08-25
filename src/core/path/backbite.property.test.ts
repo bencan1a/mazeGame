@@ -4,6 +4,7 @@ import { DIRECTIONS, NO_CELL, parityOf, step } from '../grid.js';
 import { createRng } from '../rng.js';
 import type { Rng } from '../rng.js';
 import type { Mask } from '../types.js';
+import { maskFrom } from '../mask/index.js';
 import { makeMask } from '../../../test/fixtures/mask.js';
 import { pathViolations } from '../../../test/fixtures/postconditions.js';
 import { buildBackbitePath } from './backbite.js';
@@ -73,7 +74,6 @@ function maskFromBlocksWithHoles(
   const height = halfHeight * 2;
   const inside = new Uint8Array(width * height);
   const unvisited = new Uint8Array(width * height);
-  let pathCellCount = 0;
   for (let by = 0; by < halfHeight; by++) {
     for (let bx = 0; bx < halfWidth; bx++) {
       if (blockFull[by * halfWidth + bx] !== 1) continue;
@@ -86,7 +86,6 @@ function maskFromBlocksWithHoles(
         [1, 1],
       ]) {
         inside[(y0 + (dy as number)) * width + (x0 + (dx as number))] = 1;
-        pathCellCount++;
       }
     }
   }
@@ -125,13 +124,12 @@ function maskFromBlocksWithHoles(
     if (!safe) continue;
 
     unvisited[i] = 1;
-    pathCellCount--;
     holes++;
     blackRemoved = nextBlackRemoved;
     whiteRemoved = nextWhiteRemoved;
   }
 
-  return { width, height, inside, unvisited, pathCellCount };
+  return maskFrom({ width, height, inside, unvisited });
 }
 
 describe('buildBackbitePath: property tests', () => {

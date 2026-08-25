@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PLUS_MASK, UNVISITED_MASK, makeMask } from '../../../test/fixtures/mask.js';
 import { pathViolations } from '../../../test/fixtures/postconditions.js';
 import { createRng } from '../rng.js';
+import { maskFrom } from '../mask/index.js';
 import { buildContourPath } from './contour.js';
 import { DEFAULT_MIXING_MOVES_PER_CELL, buildBackbitePath } from './backbite.js';
 
@@ -41,10 +42,7 @@ describe('buildBackbitePath: handles regions the contour method rejects', () => 
 describe('buildBackbitePath: mask.pathCellCount disagreeing with inside/unvisited (regression)', () => {
   it('reports ok: false instead of a garbage path for an all-empty mask claiming path cells', () => {
     const mask = {
-      width: 2,
-      height: 2,
-      inside: new Uint8Array(4),
-      unvisited: new Uint8Array(4),
+      ...maskFrom({ width: 2, height: 2, inside: new Uint8Array(4), unvisited: new Uint8Array(4) }),
       pathCellCount: 4,
     };
     const result = buildBackbitePath(mask, createRng(1));

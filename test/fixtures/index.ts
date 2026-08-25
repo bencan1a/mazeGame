@@ -12,7 +12,7 @@ export {
   renderMask,
 } from './mask.js';
 export type { MaskSpec, RectSpec } from './mask.js';
-export { makePath, makePathFromCells, pathDirections } from './path.js';
+export { joinRegionPaths, makePath, makePathFromCells, pathDirections } from './path.js';
 export {
   ACYCLIC_BOARD,
   ACYCLIC_BOARD_ART,

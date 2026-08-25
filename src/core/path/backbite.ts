@@ -91,7 +91,8 @@ export interface BackbiteOptions {
  * beyond what a Hamiltonian path needs at all: `pathCellCount` cells, one
  * 4-connected component, balanced checkerboard parity, no path cell with zero
  * or more-than-two-dead-ends-worth of path-cell neighbours. A region that
- * fails that is reported as `ok: false`, not thrown.
+ * fails that is reported as `ok: false`, not thrown — a multi-region mask
+ * included, since it is not one 4-connected piece.
  */
 export function buildBackbitePath(
   mask: Mask,
@@ -99,7 +100,13 @@ export function buildBackbitePath(
   options: BackbiteOptions = {},
 ): BackbiteResult {
   const target = mask.pathCellCount;
-  if (target === 0) return { ok: true, path: { cells: new Uint32Array(0) }, moves: 0 };
+  if (target === 0) {
+    return {
+      ok: true,
+      path: { cells: new Uint32Array(0), regionStart: Uint32Array.from([0]) },
+      moves: 0,
+    };
+  }
 
   const { width, height } = mask;
   const size = width * height;
@@ -193,7 +200,11 @@ export function buildBackbitePath(
     }
   }
 
-  return { ok: true, path: { cells: pathCells }, moves };
+  return {
+    ok: true,
+    path: { cells: pathCells, regionStart: Uint32Array.from([0, pathCells.length]) },
+    moves,
+  };
 }
 
 /**

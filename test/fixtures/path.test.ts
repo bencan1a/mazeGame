@@ -85,14 +85,20 @@ describe('makePathFromCells', () => {
 describe('path postconditions', () => {
   it('catches a repeated cell', () => {
     const mask = makeMask({ width: 2, height: 2 });
-    const violations = pathViolations({ cells: Uint32Array.from([0, 1, 3, 1]) }, mask);
+    const violations = pathViolations(
+      { cells: Uint32Array.from([0, 1, 3, 1]), regionStart: Uint32Array.from([0, 4]) },
+      mask,
+    );
 
     expect(violations).toContainEqual(expect.stringContaining('more than once'));
   });
 
   it('catches a cell off the grid', () => {
     const mask = makeMask({ width: 2, height: 2 });
-    const violations = pathViolations({ cells: Uint32Array.from([0, 1, 3, 99]) }, mask);
+    const violations = pathViolations(
+      { cells: Uint32Array.from([0, 1, 3, 99]), regionStart: Uint32Array.from([0, 4]) },
+      mask,
+    );
 
     expect(violations).toContainEqual(expect.stringContaining('outside the grid'));
   });
@@ -100,8 +106,11 @@ describe('path postconditions', () => {
   it('agrees with directionBetween about what a step is', () => {
     const mask = makeMask({ width: 3, height: 3 });
     expect(directionBetween(0, 1, mask.width)).not.toBe(-1);
-    expect(pathViolations({ cells: Uint32Array.from([0, 2]) }, mask)).toContainEqual(
-      expect.stringContaining('not 4-neighbours'),
-    );
+    expect(
+      pathViolations(
+        { cells: Uint32Array.from([0, 2]), regionStart: Uint32Array.from([0, 2]) },
+        mask,
+      ),
+    ).toContainEqual(expect.stringContaining('not 4-neighbours'));
   });
 });

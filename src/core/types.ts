@@ -86,7 +86,9 @@ export const DEFAULT_PLAY_PARAMS: PlayParams = {
 };
 
 /**
- * A binary region on the grid, after repair and parity absorption.
+ * A silhouette on the grid, after repair and parity absorption. It may be
+ * several disjoint lobes: a silhouette is not one connected mass, and each
+ * lobe carries its own Hamiltonian path.
  *
  * `inside[i] === 1` means the cell belongs to the silhouette.
  * `unvisited[i] === 1` means the cell is inside the silhouette but is
@@ -100,14 +102,29 @@ export interface Mask {
   readonly unvisited: Uint8Array;
   /** Count of cells with inside=1 and unvisited=0. The path must cover exactly these. */
   readonly pathCellCount: number;
+  /**
+   * 1-based region id per cell; 0 where the cell carries no path — outside the
+   * silhouette, or inside it and unvisited. Each region is separately
+   * 4-connected.
+   */
+  readonly regionOf: Uint16Array;
+  /** Number of regions. Valid ids are 1..regionCount. */
+  readonly regionCount: number;
 }
 
 /**
- * A Hamiltonian path over `{ inside && !unvisited }`, in walk order.
- * Consecutive entries are 4-neighbours. Length === Mask.pathCellCount.
+ * One Hamiltonian path per region of a `Mask`, concatenated in region-id
+ * order. Total length === Mask.pathCellCount.
+ *
+ * `regionStart` is CSR over `cells`: region id `r` walks
+ * `cells[regionStart[r - 1] .. regionStart[r])`. Consecutive entries within a
+ * region are 4-neighbours; the pair straddling a region boundary is not, so
+ * anything walking the path has to stop at `regionStart`.
  */
 export interface HamiltonianPath {
   readonly cells: Uint32Array;
+  /** Length regionCount + 1, starting at 0 and ending at cells.length. */
+  readonly regionStart: Uint32Array;
 }
 
 /** The finished board: flat typed arrays in CSR form, no per-cell objects. */

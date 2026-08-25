@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import type { Mask } from '../../src/core/types.js';
+import { maskFrom } from '../../src/core/mask/index.js';
 import { PLUS_MASK, SQUARE_MASK, UNVISITED_MASK, makeMask, renderMask } from './mask.js';
 import { maskViolations } from './postconditions.js';
 
@@ -99,9 +100,20 @@ describe('mask postconditions', () => {
     );
   });
 
-  it('catches a mask in two pieces', () => {
-    const violations = maskViolations(makeMask(['##.##', '##.##'].join('\n')));
-    expect(violations).toEqual([expect.stringContaining('more than one component')]);
+  it('accepts a mask in two pieces as two regions', () => {
+    const mask = makeMask(['##.##', '##.##'].join('\n'));
+    expect(mask.regionCount).toBe(2);
+    expect(maskViolations(mask)).toEqual([]);
+  });
+
+  it('catches one region label spanning two disconnected pieces', () => {
+    const mask = makeMask(['##.##', '##.##'].join('\n'));
+    const regionOf = mask.regionOf.slice();
+    for (let i = 0; i < regionOf.length; i++) if (regionOf[i] === 2) regionOf[i] = 1;
+    const broken: Mask = { ...mask, regionOf, regionCount: 1 };
+    expect(maskViolations(broken)).toContainEqual(
+      expect.stringContaining('region 1 is not connected'),
+    );
   });
 
   it('catches a one-cell-wide spur, which may have no Hamiltonian path', () => {
@@ -123,13 +135,12 @@ describe('mask postconditions', () => {
   });
 
   it('catches an unvisited cell that is not inside', () => {
-    const broken: Mask = {
+    const broken: Mask = maskFrom({
       width: 2,
       height: 2,
       inside: new Uint8Array([1, 1, 1, 0]),
       unvisited: new Uint8Array([0, 0, 0, 1]),
-      pathCellCount: 3,
-    };
+    });
     expect(maskViolations(broken)).toContainEqual(
       expect.stringContaining('unvisited but not inside'),
     );

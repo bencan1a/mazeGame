@@ -1,35 +1,40 @@
 /**
  * A Hamiltonian path alternates checkerboard colour every step, so one can
- * only exist when the two colour counts differ by at most 1. Absorbing the
- * difference marks cells `unvisited` rather than editing the silhouette.
+ * only exist when the two colour counts differ by at most 1. Each region gets
+ * its own path, so the balance has to hold region by region rather than over
+ * the board. Absorbing the difference marks cells `unvisited` rather than
+ * editing the silhouette.
  */
 
 import { DIRECTIONS, NO_CELL, parityOf, step } from '../grid.js';
 import type { Direction, Mask } from '../types.js';
 import { MaskRepairError } from './errors.js';
+import { maskFrom } from './regions.js';
 
-/** `unvisited` may mark at most this many cells. */
+/** Absorption may mark at most this many cells per region. */
 const MAX_UNVISITED_CELLS = 3;
 
 /**
- * Marks the minimum set of `inside` cells `unvisited` so that `|black - white|`
- * over the remaining path cells is at most 1: given an imbalance `d`, exactly
- * `|d| - 1` majority-colour cells are removed, never more and never from the
- * minority.
+ * Marks the minimum set of `inside` cells `unvisited` so that
+ * `|black - white|` over each region's remaining path cells is at most 1:
+ * given a region imbalance `d`, exactly `|d| - 1` of that region's
+ * majority-colour cells are removed, never more and never from the minority.
  *
- * Every removal keeps the region one 4-connected component, and the
- * articulation-point table is recomputed each round rather than once up front:
- * a cell that was safe becomes a cut vertex once a neighbour of it is gone.
+ * Every removal keeps its region one 4-connected component, and the
+ * articulation-point table is recomputed after each one rather than once up
+ * front: a cell that was safe becomes a cut vertex once a neighbour of it is
+ * gone.
  *
- * Throws if more than `MAX_UNVISITED_CELLS` would be needed.
+ * Throws if any region needs more than `MAX_UNVISITED_CELLS`, or if the board
+ * would end up with more than `MAX_UNVISITED_CELLS` per region in total.
  */
 export function absorbParity(mask: Mask): Mask {
-  const { width, height, inside, unvisited } = mask;
+  const { width, height, inside, unvisited, regionOf, regionCount } = mask;
   const size = width * height;
 
   const alive = new Uint8Array(size);
-  let black = 0;
-  let white = 0;
+  const black = new Uint32Array(regionCount);
+  const white = new Uint32Array(regionCount);
   let existingUnvisited = 0;
   for (let i = 0; i < size; i++) {
     if (inside[i] !== 1) continue;
@@ -37,54 +42,74 @@ export function absorbParity(mask: Mask): Mask {
       existingUnvisited++;
       continue;
     }
+    const region = regionOf[i] as number;
+    if (region === 0) continue;
     alive[i] = 1;
-    if (parityOf(i, width) === 0) black++;
-    else white++;
+    if (parityOf(i, width) === 0) black[region - 1] = (black[region - 1] as number) + 1;
+    else white[region - 1] = (white[region - 1] as number) + 1;
   }
 
-  const imbalance = black - white;
-  if (Math.abs(imbalance) <= 1) return mask;
-
-  const needed = Math.abs(imbalance) - 1;
-  if (existingUnvisited + needed > MAX_UNVISITED_CELLS) {
-    throw new MaskRepairError(
-      `checkerboard parity absorption needs ${needed} more cell(s) on top of ` +
-        `${existingUnvisited} already unvisited to bring |black - white| (currently ` +
-        `${Math.abs(imbalance)}) within 1, exceeding the ${MAX_UNVISITED_CELLS}-cell limit — ` +
-        'the silhouette needs to change, this cannot be absorbed',
-    );
-  }
-
-  const majorityParity: 0 | 1 = imbalance > 0 ? 0 : 1;
-  const outUnvisited = unvisited.slice();
-
-  for (let round = 0; round < needed; round++) {
-    const isArticulation = findArticulationPoints(alive, width, height);
-    let chosen = NO_CELL;
-    for (let i = 0; i < size; i++) {
-      if (alive[i] !== 1 || isArticulation[i] === 1) continue;
-      if (parityOf(i, width) !== majorityParity) continue;
-      chosen = i;
-      break;
-    }
-    if (chosen === NO_CELL) {
-      // A defensive assertion, not a reachable case: a spanning tree of the
-      // region always has a majority-colour leaf, and a leaf is never a cut
-      // vertex.
+  const needed = new Uint32Array(regionCount);
+  const majorityParity = new Uint8Array(regionCount);
+  let totalNeeded = 0;
+  for (let r = 0; r < regionCount; r++) {
+    const imbalance = (black[r] as number) - (white[r] as number);
+    if (Math.abs(imbalance) <= 1) continue;
+    const count = Math.abs(imbalance) - 1;
+    if (count > MAX_UNVISITED_CELLS) {
       throw new MaskRepairError(
-        `checkerboard parity absorption could not find a majority-colour cell (round ` +
-          `${round + 1} of ${needed}) whose removal keeps the region a single connected piece ` +
-          '— this should be unreachable',
+        `checkerboard parity absorption needs ${count} cell(s) in region ${r + 1} to bring its ` +
+          `|black - white| (currently ${Math.abs(imbalance)}) within 1, exceeding the ` +
+          `${MAX_UNVISITED_CELLS}-cell per-region limit — the silhouette needs to change, this ` +
+          'cannot be absorbed',
       );
     }
-    alive[chosen] = 0;
-    outUnvisited[chosen] = 1;
+    needed[r] = count;
+    majorityParity[r] = imbalance > 0 ? 0 : 1;
+    totalNeeded += count;
   }
 
-  let pathCellCount = 0;
-  for (let i = 0; i < size; i++) if (alive[i] === 1) pathCellCount++;
+  if (regionCount === 0 || (totalNeeded === 0 && existingUnvisited === 0)) return mask;
 
-  return { width, height, inside, unvisited: outUnvisited, pathCellCount };
+  const budget = MAX_UNVISITED_CELLS * regionCount;
+  if (existingUnvisited + totalNeeded > budget) {
+    throw new MaskRepairError(
+      `checkerboard parity absorption would leave ${existingUnvisited + totalNeeded} unvisited ` +
+        `cell(s) across ${regionCount} region(s), over the ${budget}-cell budget of ` +
+        `${MAX_UNVISITED_CELLS} per region — the silhouette needs to change, this cannot be ` +
+        'absorbed',
+    );
+  }
+  if (totalNeeded === 0) return mask;
+
+  const outUnvisited = unvisited.slice();
+  for (let r = 0; r < regionCount; r++) {
+    for (let round = 0; round < (needed[r] as number); round++) {
+      const isArticulation = findArticulationPoints(alive, width, height);
+      let chosen = NO_CELL;
+      for (let i = 0; i < size; i++) {
+        if (alive[i] !== 1 || isArticulation[i] === 1) continue;
+        if (regionOf[i] !== r + 1) continue;
+        if (parityOf(i, width) !== majorityParity[r]) continue;
+        chosen = i;
+        break;
+      }
+      if (chosen === NO_CELL) {
+        // A defensive assertion, not a reachable case: a spanning tree of the
+        // region always has a majority-colour leaf, and a leaf is never a cut
+        // vertex.
+        throw new MaskRepairError(
+          `checkerboard parity absorption could not find a majority-colour cell in region ` +
+            `${r + 1} (round ${round + 1} of ${needed[r] as number}) whose removal keeps the ` +
+            'region a single connected piece — this should be unreachable',
+        );
+      }
+      alive[chosen] = 0;
+      outUnvisited[chosen] = 1;
+    }
+  }
+
+  return maskFrom({ width, height, inside, unvisited: outUnvisited });
 }
 
 /**

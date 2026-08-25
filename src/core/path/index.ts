@@ -9,3 +9,5 @@ export {
   DEFAULT_MIXING_MOVES_PER_CELL,
   DEFAULT_STALL_LIMIT_PER_CELL,
 } from './backbite.js';
+export type { RegionPathsFailed, RegionPathsOk, RegionPathsResult } from './regions.js';
+export { buildRegionPaths } from './regions.js';

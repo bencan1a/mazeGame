@@ -1,64 +1,51 @@
-/** Largest 4-connected component extraction. */
+/** 4-connected component filtering. */
 
 import { DIRECTIONS, NO_CELL, step } from '../grid.js';
 import type { Blob } from './blob.js';
 
 /**
- * Zeroes every cell outside the largest 4-connected component of `grid.inside`.
- * A tie keeps whichever component row-major scan order finds first —
- * deterministic, not meaningful beyond that. A grid with no inside cells comes
- * back unchanged rather than throwing.
+ * Zeroes every component of `grid.inside` holding fewer than `minCells` cells,
+ * and keeps the rest. A silhouette is several lobes, so this drops the ones
+ * too small to hold a path rather than reducing the grid to one lobe.
  */
-export function largestComponent(grid: Blob): Blob {
+export function dropSmallComponents(grid: Blob, minCells: number): Blob {
   const { width, height, inside } = grid;
   const size = width * height;
+  const out = new Uint8Array(size);
   const seen = new Uint8Array(size);
-  let bestStart = NO_CELL;
-  let bestSize = 0;
+  const members: number[] = [];
 
   for (let start = 0; start < size; start++) {
     if (inside[start] !== 1 || seen[start] === 1) continue;
-    const memberCount = floodFill(start, inside, seen, width, height, undefined);
-    if (memberCount > bestSize) {
-      bestSize = memberCount;
-      bestStart = start;
-    }
+    members.length = 0;
+    collectComponent(start, inside, seen, width, height, members);
+    if (members.length < minCells) continue;
+    for (const cell of members) out[cell] = 1;
   }
 
-  const out = new Uint8Array(size);
-  if (bestStart !== NO_CELL) {
-    const members = new Uint8Array(size);
-    floodFill(bestStart, inside, members, width, height, out);
-  }
   return { width, height, inside: out };
 }
 
-/**
- * Flood-fills the 4-connected component of `inside` cells containing `start`.
- * Every visited cell is set in `seen`, and in `mark` too when it is given.
- */
-function floodFill(
+/** Appends the 4-connected component of `inside` cells containing `start` to `members`. */
+function collectComponent(
   start: number,
   inside: Uint8Array,
   seen: Uint8Array,
   width: number,
   height: number,
-  mark: Uint8Array | undefined,
-): number {
+  members: number[],
+): void {
   seen[start] = 1;
-  if (mark) mark[start] = 1;
+  members.push(start);
   const stack = [start];
-  let count = 1;
   while (stack.length > 0) {
     const cell = stack.pop() as number;
     for (const dir of DIRECTIONS) {
       const next = step(cell, dir, width, height);
       if (next === NO_CELL || inside[next] !== 1 || seen[next] === 1) continue;
       seen[next] = 1;
-      if (mark) mark[next] = 1;
-      count++;
+      members.push(next);
       stack.push(next);
     }
   }
-  return count;
 }

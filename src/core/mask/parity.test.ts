@@ -7,6 +7,7 @@ import { classifyTiling } from '../path/tiling.js';
 import type { Mask } from '../types.js';
 import { generateBlob } from './blob.js';
 import { absorbParity } from './parity.js';
+import { maskFrom } from './regions.js';
 import { MaskRepairError } from './errors.js';
 import { repairMask } from './repair.js';
 
@@ -75,8 +76,7 @@ function leafyCorridor(spineLength: number, toothCount: number): Mask {
     const x = 2 * t + 1;
     inside[toIndex(x, 1, width)] = 1;
   }
-  const pathCellCount = spineLength + toothCount;
-  return { width, height, inside, unvisited: new Uint8Array(width * height), pathCellCount };
+  return maskFrom({ width, height, inside, unvisited: new Uint8Array(width * height) });
 }
 
 const spineArb = fc.integer({ min: 4, max: 60 }).map((n) => n - (n % 2)); // even
@@ -171,7 +171,7 @@ describe('absorbParity: minimal absorption over leafy-corridor fixtures', () => 
   it('fails loudly rather than degrading when more than 3 cells would be needed', () => {
     const mask = leafyCorridor(20, 6); // needed = 5
     expect(() => absorbParity(mask)).toThrow(MaskRepairError);
-    expect(() => absorbParity(mask)).toThrow(/exceeding the 3-cell limit/);
+    expect(() => absorbParity(mask)).toThrow(/exceeding the 3-cell per-region limit/);
   });
 });
 
@@ -212,12 +212,12 @@ describe('absorbParity: pre-existing unvisited cells count toward the 3-cell bud
     expect(Math.abs(after.black - after.white)).toBeLessThanOrEqual(1);
   });
 
-  it('fails loudly when existing-plus-new unvisited would exceed 3', () => {
+  it('fails loudly when existing-plus-new unvisited would exceed the budget', () => {
     // Same idea with 4 leaves and one already unvisited: 3 more are needed on
-    // top of the 1 that already exists, for a total of 4.
+    // top of the 1 that already exists, for a total of 4 over one region.
     const mask = makeMask(['################', '.o.#.#.#.#......'].join('\n'));
     expect(() => absorbParity(mask)).toThrow(MaskRepairError);
-    expect(() => absorbParity(mask)).toThrow(/on top of 1 already unvisited/);
+    expect(() => absorbParity(mask)).toThrow(/leave 4 unvisited cell\(s\) across 1 region\(s\)/);
   });
 });
 

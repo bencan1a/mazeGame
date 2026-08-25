@@ -7,6 +7,11 @@
  * it hands back is acyclic without any search and the stage has no failure
  * mode of its own.
  *
+ * The mask can be several disjoint lobes, so the path stage fills one region
+ * at a time and hands the peel a single concatenated walk with the region
+ * boundaries marked. Segments stay inside a region; rays cross the gaps
+ * between them, which is part of the puzzle.
+ *
  * What is left that can fail is `MaskRepairError`, a path stage that declines
  * (`ok: false`), and `BoardInvariantError` from validation. All three are
  * retried: derive a new internal seed and rerun the whole pipeline,
@@ -20,7 +25,7 @@ import type { GenParams, Board, GenerateBoard, HamiltonianPath, Seed } from './t
 import { BoardInvariantError } from './types.js';
 import { generateBlob, repairMask, MaskRepairError } from './mask/index.js';
 import type { Mask } from './types.js';
-import { buildContourPath, buildBackbitePath } from './path/index.js';
+import { buildRegionPaths } from './path/index.js';
 import { peelSegments } from './segment/index.js';
 import type { PeelStats } from './segment/index.js';
 import { occupancyFromSegments, buildBlockingGraph } from './orient/index.js';
@@ -181,21 +186,15 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
     throw err;
   }
 
-  // Backbite takes no such steer, so a board that falls through to it lands
+  // Backbite takes no such steer, so a region that falls through to it lands
   // wherever its own mixing puts the bend rate.
-  const contourResult = buildContourPath(mask, createRng(contourSeed), params.bendProbability);
-  const pathResult = contourResult.ok
-    ? contourResult
-    : buildBackbitePath(mask, createRng(backbiteSeed));
-  if (!pathResult.ok) {
-    const contourReason = contourResult.ok ? '' : contourResult.reason;
-    return {
-      ok: false,
-      reason:
-        `path: contour declined (${contourReason}) and backbite failed: ` +
-        `${(pathResult as { reason: string }).reason}`,
-    };
-  }
+  const pathResult = buildRegionPaths(
+    mask,
+    createRng(contourSeed),
+    createRng(backbiteSeed),
+    params.bendProbability,
+  );
+  if (!pathResult.ok) return { ok: false, reason: `path: ${pathResult.reason}` };
   const path = pathResult.path;
 
   const segments = peelSegments(

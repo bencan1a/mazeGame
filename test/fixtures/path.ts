@@ -2,6 +2,9 @@
  * Synthetic `HamiltonianPath` fixtures. A boustrophedon walk is Hamiltonian
  * over any full rectangle and correct by inspection, which is why the fixtures
  * cover only rectangles.
+ *
+ * Both builders produce a single-region path. A multi-region walk is built by
+ * concatenating single-region ones with `joinRegionPaths`.
  */
 
 import { directionBetween } from '../../src/core/grid.js';
@@ -34,7 +37,7 @@ export function makePath(mask: Mask): HamiltonianPath {
       cells[at++] = y * mask.width + x;
     }
   }
-  return { cells };
+  return { cells, regionStart: Uint32Array.from([0, full]) };
 }
 
 /**
@@ -43,7 +46,8 @@ export function makePath(mask: Mask): HamiltonianPath {
  * yours rather than inventing one.
  */
 export function makePathFromCells(mask: Mask, cells: Iterable<number>): HamiltonianPath {
-  const path: HamiltonianPath = { cells: Uint32Array.from(cells) };
+  const walk = Uint32Array.from(cells);
+  const path: HamiltonianPath = { cells: walk, regionStart: Uint32Array.from([0, walk.length]) };
   const violations = pathViolations(path, mask);
   if (violations.length > 0) {
     throw new Error(
@@ -51,6 +55,30 @@ export function makePathFromCells(mask: Mask, cells: Iterable<number>): Hamilton
     );
   }
   return path;
+}
+
+/**
+ * One path per region, in the order given. Each input must be a single-region
+ * walk; the result carries the region boundaries the peel needs.
+ */
+export function joinRegionPaths(regions: readonly HamiltonianPath[]): HamiltonianPath {
+  let total = 0;
+  for (const region of regions) total += region.cells.length;
+  const cells = new Uint32Array(total);
+  const regionStart = new Uint32Array(regions.length + 1);
+  let written = 0;
+  for (let r = 0; r < regions.length; r++) {
+    const region = regions[r] as HamiltonianPath;
+    if (region.regionStart.length !== 2) {
+      throw new Error(
+        `joinRegionPaths: input ${r} has ${region.regionStart.length - 1} regions, expected 1`,
+      );
+    }
+    cells.set(region.cells, written);
+    written += region.cells.length;
+    regionStart[r + 1] = written;
+  }
+  return { cells, regionStart };
 }
 
 /** Direction of each step of a path, for tests that care about turns. */

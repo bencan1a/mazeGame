@@ -34,35 +34,70 @@ previous row, which is a bug every grid codebase writes once.
 buildMask(params: GenParams): Mask
 ```
 
+**A silhouette is several lobes, not one mass.** Both reference boards are
+disjoint regions — the cup is four stacked bands plus a plume of steam. A
+Hamiltonian path cannot jump a gap, so a multi-region mask is several
+independent fill problems sharing one grid, and every postcondition that
+assumed one connected mass is stated over a region instead.
+
+`regionOf` carries that: a 1-based region id per cell, 0 wherever the cell has
+no path — outside the silhouette, or inside it and unvisited. `regionCount`
+is how many there are.
+
 Postconditions the validator will check:
 
-- `inside` has exactly one 4-connected component.
+- Each region is separately 4-connected: `regionOf` labels exactly the path
+  cells (`inside && !unvisited`), and each label is one 4-connected piece.
 - No cell with `inside === 1` has fewer than 2 inside-neighbours (the
   morphological open is supposed to have removed 1-cell spurs; if this fails,
   a Hamiltonian path may not exist).
-- `|black| − |white| ∈ {0, ±1}` over cells where `inside && !unvisited`.
-- `unvisited` marks 1–3 cells at most, and every one has `inside === 1`.
-- `pathCellCount` equals the count of `inside && !unvisited` cells.
+- `|black| − |white| ∈ {0, ±1}` **per region**, over that region's path cells.
+  Each region is its own path, so a board-wide balance says nothing.
+- `unvisited` marks at most 3 cells per region, and every one has
+  `inside === 1`.
+- `pathCellCount` equals the count of `inside && !unvisited` cells, and the
+  region sizes sum to it.
 
 `unvisited` is the parity-absorption mechanism. Marking a cell unvisited is
 strictly preferred over editing the silhouette: it is visually invisible and it
 makes the path feasible unconditionally.
 
+**Lobes too small to hold a path are dropped.** `RepairOptions.minRegionCells`
+is that floor, in full-resolution cells, and it defaults to 4 — one 2x2 block,
+the smallest lobe with no cell of degree below 2. Repair moves whole 2x2
+blocks, so the effective floor is the setting rounded up to a multiple of 4.
+The morphological open already erases anything near the default, so this is a
+floor rather than a tuning dial; raise it to trim lobes that survive the open
+but read as speckle.
+
 ### `Mask -> HamiltonianPath` (S2)
 
 ```ts
-buildPath(mask: Mask, rng: Rng): HamiltonianPath
+buildRegionPaths(mask: Mask, contourRng: Rng, backbiteRng: Rng, turnBias?: number): RegionPathsResult
 ```
+
+**One path per region, concatenated.** `HamiltonianPath.regionStart` is CSR
+over `cells`: region `r` walks `cells[regionStart[r - 1] .. regionStart[r])`.
+Anything walking the path has to stop at those boundaries — the pair
+straddling one is not a step.
 
 Postconditions:
 
-- `cells.length === mask.pathCellCount`.
-- Every entry is inside and not unvisited.
+- `cells.length === mask.pathCellCount`, and `regionStart` has
+  `mask.regionCount + 1` entries, starting at 0 and ending at `cells.length`.
+- Every entry is inside, not unvisited, and in the region whose slice it sits
+  in.
 - No repeats — it is a path, not a walk.
-- Consecutive entries are 4-neighbours (`directionBetween` !== -1).
+- Consecutive entries **within a region** are 4-neighbours
+  (`directionBetween` !== -1).
 
-The contour method returns a Hamiltonian _cycle_; cutting it anywhere yields the
-path. Backbite is the fallback for regions that will not tile into 2×2 blocks.
+`buildContourPath` and `buildBackbitePath` each fill a single region and are
+what `buildRegionPaths` calls per region; handed a multi-region mask they
+report `ok: false` rather than filling one lobe and calling it done. The
+contour method returns a Hamiltonian _cycle_; cutting it anywhere yields the
+path. Backbite is the fallback, chosen per region, for lobes that will not tile
+into 2×2 blocks. A lobe neither method can fill fails the stage — a board
+missing a lobe is not the silhouette that was asked for.
 
 ### `HamiltonianPath -> segments + heads` (S3)
 
@@ -87,6 +122,11 @@ Postconditions:
 - Segments partition the path exactly: undoing `segReversed` and concatenating
   reproduces `path.cells` in order.
 - No segment is empty.
+- **No segment spans two regions.** A multi-region path is peeled as one
+  sequence rather than one region at a time, because the ray test is
+  board-wide: a ray crossing another lobe's cells finds them, and those are
+  exactly the blockers a per-region peel would miss and a cycle would close
+  around.
 - **The blocking digraph is acyclic**, and `peelOrder` is a witness: every
   segment a ray crosses was committed strictly earlier. This holds by
   construction — there is no search, and no way for the stage to fail.
@@ -164,8 +204,12 @@ validateBoard(board: Board, mask: Mask): void  // throws BoardInvariantError
 
 Checks, all of them, every time in dev and in tests:
 
-- blocking digraph is acyclic (topological sort consumes all n segments)
+- blocking digraph is acyclic (topological sort consumes all n segments) —
+  board-wide, since rays cross the gaps between lobes
 - coverage ≥ 99% of inside cells; unvisited cells account for the remainder
+- coverage per region: every path cell of every region is covered, so a board
+  that drops a whole lobe fails naming the lobe rather than passing on a
+  percentage the other lobes carry
 - `occupancy` and the CSR segment lists agree in both directions
 - every segment is reachable — a greedy clear removes all n
 - determinism: regenerating from the same `(seed, params)` gives identical arrays
@@ -179,9 +223,10 @@ computeMetrics(board: Board, context: MetricsContext): BoardMetrics
 `MetricsContext` is `{ mask, path, generationMs }` — three things a finished
 `Board` cannot answer for. `coverage` is covered cells over _inside_ cells, and
 only `Mask` records which cells are inside. `bendRate` counts corners along the
-walk; a `Board` records each segment's own run but not where the walk continued
-between them, so measuring it per segment drops every cell at a cut and drifts
-with `meanPieceLength` on an identical path. `generationMs` is wall clock, which
+walk, region by region; a `Board` records each segment's own run but not where
+the walk continued between them, so measuring it per segment drops every cell
+at a cut and drifts with `meanPieceLength` on an identical path. The two cells
+either side of a region boundary end two separate walks rather than turning. `generationMs` is wall clock, which
 `src/core/` may not read (ADR-0004). `generateBoardWithDiagnostics` carries the
 mask and the path out on its result so a caller has all three without replaying
 a stage.
@@ -244,11 +289,12 @@ means dropping that set rather than regenerating.
 
 `test/fixtures/` provides synthetic inputs so no stream waits on another:
 
-| Builder           | Produces                                                            | Used by        |
-| ----------------- | ------------------------------------------------------------------- | -------------- |
-| `makeMask(spec)`  | A `Mask` from an ASCII-art string or a rectangle                    | S2, S4         |
-| `makePath(mask)`  | A trivially-correct boustrophedon path over a rectangle             | S3, S4         |
-| `makeBoard(spec)` | A small hand-checkable `Board`, including a deliberately cyclic one | S3, S4, S5, S6 |
+| Builder                  | Produces                                                            | Used by        |
+| ------------------------ | ------------------------------------------------------------------- | -------------- |
+| `makeMask(spec)`         | A `Mask` from an ASCII-art string or a rectangle, regions labelled  | S2, S4         |
+| `makePath(mask)`         | A trivially-correct boustrophedon path over a rectangle             | S3, S4         |
+| `joinRegionPaths(paths)` | One multi-region walk from several single-region ones               | S3, S4         |
+| `makeBoard(spec)`        | A small hand-checkable `Board`, including a deliberately cyclic one | S3, S4, S5, S6 |
 
 ASCII specs keep the failing case readable in a test report, which matters more
 than it sounds when six agents are reading each other's test failures.

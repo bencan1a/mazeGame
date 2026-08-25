@@ -35,6 +35,15 @@ export function buildContourPath(
    */
   turnBias?: number,
 ): ContourResult {
+  if (mask.regionCount > 1) {
+    return {
+      ok: false,
+      reason:
+        `mask has ${mask.regionCount} regions and the contour method fills one at a time; ` +
+        'call it per region',
+    };
+  }
+
   const tiling = classifyTiling(mask);
   if (!tiling.ok) return tiling;
 
@@ -100,5 +109,10 @@ export function buildContourPath(
     cell = next[cell] as number;
   }
 
-  return { ok: true, path: { cells }, offsetX, offsetY };
+  return {
+    ok: true,
+    path: { cells, regionStart: Uint32Array.from([0, cells.length]) },
+    offsetX,
+    offsetY,
+  };
 }
