@@ -1,5 +1,13 @@
-import { generateBoard } from '../core/generate.js';
-import type { Board, GenParams, PlayParams } from '../core/types.js';
+import { generateBoardWithDiagnostics } from '../core/generate.js';
+import { computeMetrics } from '../core/metrics.js';
+import type {
+  Board,
+  BoardMetrics,
+  GenParams,
+  HamiltonianPath,
+  Mask,
+  PlayParams,
+} from '../core/types.js';
 import {
   animationComplete,
   createGameState,
@@ -8,7 +16,10 @@ import {
   isFree,
   isRemoved,
   restart,
+  restoreGameState,
+  snapshotGameState,
   tap,
+  type GameSnapshot,
   type GameState,
   type GestureArbiter,
 } from '../game/index.js';
@@ -58,7 +69,56 @@ export interface BoardController {
   getHud(): BoardHud;
   subscribe(listener: (hud: BoardHud) => void): () => void;
   restartBoard(): void;
+  /**
+   * Rebuilds the board from new parameters, in place. Throws whatever
+   * generation threw, having changed nothing — the board on screen stays
+   * playable under its old parameters.
+   */
+  reconfigure(genParams: GenParams, playParams?: PlayParams): void;
+  getGenParams(): GenParams;
+  getPlayParams(): PlayParams;
+  /** What a caller would have to store to resume this game after a reload. */
+  getSnapshot(): GameSnapshot;
+  /** Metrics for the board on screen, computed on first call and reused after. */
+  getMetrics(): BoardMetrics;
   destroy(): void;
+}
+
+/**
+ * Everything a caller needs to write a resumable save, in one payload. It
+ * carries `status` because a won or lost board must not be resumed — it would
+ * come back already over, with no way to play it — and `segmentCount` because
+ * the first callback fires before the constructor has returned, so a caller
+ * has no controller to read it off yet.
+ */
+export interface ResumableState {
+  readonly snapshot: GameSnapshot;
+  readonly genParams: GenParams;
+  readonly playParams: PlayParams;
+  readonly segmentCount: number;
+  readonly status: GameState['status'];
+}
+
+export interface BoardControllerOptions {
+  /**
+   * Resumes a saved game on the generated board rather than starting fresh.
+   * A snapshot that does not fit the board throws out of the constructor,
+   * leaving the caller to decide between a fresh board and an error.
+   */
+  readonly snapshot?: GameSnapshot;
+  /**
+   * Segment count the `snapshot` was taken against. A generated board that
+   * disagrees is the same seed describing different segments, so the removed
+   * set no longer names what the player cleared — the constructor throws
+   * rather than resuming a game onto a board it does not fit.
+   */
+  readonly expectedSegmentCount?: number;
+  /**
+   * Called whenever the resumable state changes — a settled tap, a restart, a
+   * reconfigure. The controller holds no storage of its own; this is the hook
+   * a persistence layer writes through.
+   */
+  readonly onSnapshot?: (state: ResumableState) => void;
 }
 
 export interface BoardCanvases {
@@ -100,6 +160,25 @@ export function boardPanBounds(
   };
 }
 
+interface GeneratedBoard {
+  readonly board: Board;
+  readonly mask: Mask;
+  readonly path: HamiltonianPath;
+  readonly generationMs: number;
+}
+
+/**
+ * `src/core/` cannot read a clock, so the caller times the call and hands the
+ * reading to `computeMetrics`. `mask` and `path` come out for the same
+ * reason: coverage counts against the silhouette's inside cells and the bend
+ * rate against the walk, neither of which a finished `Board` records.
+ */
+function generateTimed(params: GenParams): GeneratedBoard {
+  const startedAt = performance.now();
+  const { board, mask, path } = generateBoardWithDiagnostics(params);
+  return { board, mask, path, generationMs: performance.now() - startedAt };
+}
+
 function readDpr(): number {
   const dpr = window.devicePixelRatio;
   return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
@@ -111,18 +190,37 @@ function readDpr(): number {
  */
 export function createBoardController(
   canvases: BoardCanvases,
-  genParams: GenParams,
-  playParams: PlayParams,
+  initialGenParams: GenParams,
+  initialPlayParams: PlayParams,
+  options: BoardControllerOptions = {},
 ): BoardController {
   const { base, overlay, surface } = canvases;
-  const board: Board = generateBoard(genParams);
   const scheduler = createDomScheduler();
 
-  let state: GameState = createGameState(board, playParams);
+  let genParams: GenParams = initialGenParams;
+  let playParams: PlayParams = initialPlayParams;
+  let generated: GeneratedBoard = generateTimed(genParams);
+  let board: Board = generated.board;
+  let metrics: BoardMetrics | null = null;
+
+  if (
+    options.snapshot !== undefined &&
+    options.expectedSegmentCount !== undefined &&
+    options.expectedSegmentCount !== board.segmentCount
+  ) {
+    throw new RangeError(
+      `createBoardController: saved game expects ${options.expectedSegmentCount} segments, ` +
+        `seed ${genParams.seed} now generates ${board.segmentCount}`,
+    );
+  }
+  let state: GameState =
+    options.snapshot === undefined
+      ? createGameState(board, playParams)
+      : restoreGameState(board, playParams, options.snapshot);
   let dpr = readDpr();
   let cssWidth = 1;
   let cssHeight = 1;
-  const staticLayer: StaticLayer = createStaticLayer(board, { dpr });
+  let staticLayer: StaticLayer = createStaticLayer(board, { dpr });
   let animationLayer: AnimationLayer | null = null;
   let animation: SnakeOutAnimation | null = null;
   let drawnRemoved: Set<number> | null = null;
@@ -152,6 +250,22 @@ export function createBoardController(
   const publish = (): void => {
     const snapshot = hud();
     for (const listener of [...listeners]) listener(snapshot);
+  };
+
+  /**
+   * Fires only where the game has settled onto a state worth resuming from,
+   * rather than beside every `publish` — a layout change moves no game state,
+   * and a tap mid-animation is still queued rather than resolved.
+   */
+  const publishSnapshot = (): void => {
+    if (options.onSnapshot === undefined) return;
+    options.onSnapshot({
+      snapshot: snapshotGameState(state),
+      genParams,
+      playParams,
+      segmentCount: board.segmentCount,
+      status: state.status,
+    });
   };
 
   const removedSet = (): Set<number> => {
@@ -277,6 +391,7 @@ export function createBoardController(
         syncStaticLayer();
         blit();
         publish();
+        publishSnapshot();
         driveOutcome();
       },
     });
@@ -311,6 +426,7 @@ export function createBoardController(
       state = animationComplete(state);
       blit();
       publish();
+      publishSnapshot();
       driveOutcome();
     });
   };
@@ -404,6 +520,9 @@ export function createBoardController(
     detach();
     throw cause;
   }
+  // A board is worth resuming from before it is played: without this, a
+  // reload between generating and the first tap comes back on a new seed.
+  publishSnapshot();
 
   return {
     getHud: hud,
@@ -424,6 +543,52 @@ export function createBoardController(
       syncStaticLayer();
       blit();
       publish();
+      publishSnapshot();
+    },
+    reconfigure(nextGenParams, nextPlayParams) {
+      if (disposed) return;
+      // Everything that can throw runs before anything is torn down, so a
+      // parameter set that cannot generate — or a buffer that cannot take a
+      // 2d context — leaves the board on screen playable under its old
+      // parameters. The cost is that both buffers are briefly live.
+      const nextGenerated = generateTimed(nextGenParams);
+      const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
+
+      if (bounceHandle !== null) {
+        scheduler.cancelFrame(bounceHandle);
+        bounceHandle = null;
+      }
+      animation?.cancel();
+      animation = null;
+      staticLayer.canvas.width = 0;
+      staticLayer.canvas.height = 0;
+
+      genParams = nextGenParams;
+      playParams = nextPlayParams ?? playParams;
+      generated = nextGenerated;
+      board = nextGenerated.board;
+      staticLayer = nextStaticLayer;
+      metrics = null;
+      state = createGameState(board, playParams);
+      drawnRemoved = null;
+      // A new board is a new fit: keeping a pinch from the previous one lands
+      // a different grid size at a scale the player never chose for it.
+      userZoomed = false;
+      resize();
+      publishSnapshot();
+    },
+    getGenParams: () => genParams,
+    getPlayParams: () => playParams,
+    getSnapshot: () => snapshotGameState(state),
+    getMetrics() {
+      // A greedy clear over the whole board is too much to pay on every
+      // regenerate, and only a caller showing the numbers ever asks.
+      metrics ??= computeMetrics(board, {
+        mask: generated.mask,
+        path: generated.path,
+        generationMs: generated.generationMs,
+      });
+      return metrics;
     },
     destroy() {
       disposed = true;

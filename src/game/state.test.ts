@@ -3,7 +3,16 @@ import fc from 'fast-check';
 import { DEFAULT_PLAY_PARAMS } from '../core/types.js';
 import type { PlayParams } from '../core/types.js';
 import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../test/fixtures/board.js';
-import { animationComplete, createGameState, isFree, isRemoved, restart, tap } from './state.js';
+import {
+  animationComplete,
+  createGameState,
+  isFree,
+  isRemoved,
+  restart,
+  restoreGameState,
+  snapshotGameState,
+  tap,
+} from './state.js';
 import type { GameState } from './state.js';
 
 const PLAY_PARAMS: PlayParams = { ...DEFAULT_PLAY_PARAMS, lives: 3, animationDurationMs: 1 };
@@ -326,5 +335,119 @@ describe('board identity across a full play-through and restart', () => {
     expect(state.board).toBe(ACYCLIC_BOARD);
     expect(ACYCLIC_BOARD.occupancy).toEqual(occupancyBefore);
     expect(ACYCLIC_BOARD.edgeTarget).toEqual(edgeTargetBefore);
+  });
+});
+
+describe('snapshotGameState / restoreGameState', () => {
+  it('carries the removed set and lives onto the same board', () => {
+    let state = freshGame();
+    state = settle(tap(state, 3));
+    state = settle(tap(state, 2));
+
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, snapshotGameState(state));
+
+    expect(restored.removedCount).toBe(state.removedCount);
+    expect(restored.lives).toBe(state.lives);
+    expect(Array.from(restored.removed)).toEqual(Array.from(state.removed));
+    expect(restored.status).toBe(state.status);
+  });
+
+  it('lists removed ids in ascending order whatever order they left in', () => {
+    let state = freshGame();
+    state = settle(tap(state, 3));
+    state = settle(tap(state, 1));
+
+    expect(snapshotGameState(state).removedSegments).toEqual([1, 3]);
+  });
+
+  it('lands settled, with nothing queued or animating', () => {
+    let state = freshGame();
+    state = tap(state, 3);
+    expect(state.animating).toBe(true);
+
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, snapshotGameState(state));
+
+    expect(restored.animating).toBe(false);
+    expect(restored.queue).toEqual([]);
+    expect(restored.lastOutcome).toBeNull();
+  });
+
+  it('restores a lost game as lost rather than as a fresh one', () => {
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: [],
+      lives: 0,
+    });
+    expect(restored.status).toBe('lost');
+  });
+
+  it('restores a cleared board as won', () => {
+    const all = Array.from({ length: ACYCLIC_BOARD.segmentCount }, (_, i) => i + 1);
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: all,
+      lives: 2,
+    });
+    expect(restored.status).toBe('won');
+  });
+
+  it('calls a cleared board with no lives left lost, not won', () => {
+    const all = Array.from({ length: ACYCLIC_BOARD.segmentCount }, (_, i) => i + 1);
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: all,
+      lives: 0,
+    });
+    expect(restored.status).toBe('lost');
+  });
+
+  it('counts a repeated id once rather than rejecting it', () => {
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: [2, 2],
+      lives: 3,
+    });
+    expect(restored.removedCount).toBe(1);
+  });
+
+  it('refuses a segment that is not on the board', () => {
+    for (const id of [0, -1, ACYCLIC_BOARD.segmentCount + 1, 1.5, NaN]) {
+      expect(() =>
+        restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, { removedSegments: [id], lives: 3 }),
+      ).toThrow(RangeError);
+    }
+  });
+
+  it('refuses more lives than the game starts with, which no play reaches', () => {
+    expect(() =>
+      restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+        removedSegments: [],
+        lives: PLAY_PARAMS.lives + 1,
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it('refuses a life count that is not a whole number of lives', () => {
+    for (const lives of [-1, 1.5, NaN]) {
+      expect(() =>
+        restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, { removedSegments: [], lives }),
+      ).toThrow(RangeError);
+    }
+  });
+
+  it('restoring a settled state from its own snapshot is indistinguishable from it', () => {
+    const ids = Array.from({ length: ACYCLIC_BOARD.segmentCount }, (_, i) => i + 1);
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom(...ids, null), { maxLength: 12 }), (taps) => {
+        let state = freshGame();
+        for (const input of taps) state = settle(tap(state, input));
+
+        const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, snapshotGameState(state));
+
+        expect(restored.removedCount).toBe(state.removedCount);
+        expect(restored.lives).toBe(state.lives);
+        expect(restored.status).toBe(state.status);
+        expect(Array.from(restored.removed)).toEqual(Array.from(state.removed));
+        // A restored game must accept the same next moves as the one it
+        // replaces, which the counters alone do not guarantee.
+        for (const id of ids) expect(isFree(restored, id)).toBe(isFree(state, id));
+      }),
+    );
   });
 });
