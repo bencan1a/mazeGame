@@ -5,6 +5,7 @@ import {
   CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
   MIN_LEGIBLE_ARROWHEAD_CSS_PX,
+  cornerRadiusAt,
   REFERENCE_CSS_VIEWPORT_WIDTH,
   drawArrowhead,
   drawSegment,
@@ -63,6 +64,26 @@ describe('arrowhead sizing stays within one cell', () => {
   it('never lets ARROWHEAD_LENGTH_CELLS or ARROWHEAD_WIDTH_CELLS exceed 1, which is what keeps the triangle out of a neighbouring cell', () => {
     expect(ARROWHEAD_LENGTH_CELLS).toBeLessThanOrEqual(1);
     expect(ARROWHEAD_WIDTH_CELLS).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('cornerRadiusAt', () => {
+  it('is the plain half-leg bound at a right angle, which is every corner between two cell centers', () => {
+    expect(cornerRadiusAt(0, 0, 10, 0, 10, 10, 3.5)).toBe(3.5);
+    expect(cornerRadiusAt(0, 0, 10, 0, 10, 10, 8)).toBe(5);
+  });
+
+  it('is 0 where the legs run straight on', () => {
+    expect(cornerRadiusAt(0, 0, 10, 0, 20, 0, 3.5)).toBe(0);
+  });
+
+  it('pulls the radius in on a sharp turn, where the arc would otherwise leave its leg past the vertex it came from', () => {
+    // Legs meeting at about 27 degrees: an arc of the half-leg bound (3.354)
+    // would meet them 14.2 out, twice the 6.708 leg it has to fit inside.
+    const radius = cornerRadiusAt(0, 0, 10, 0, 4, 3, 3.5);
+    const turn = Math.acos(-((10 * -6 + 0 * 3) / (10 * Math.hypot(6, 3))));
+    expect(radius / Math.tan(turn / 2)).toBeLessThanOrEqual(Math.hypot(6, 3) / 2 + 1e-9);
+    expect(radius).toBeLessThan(1);
   });
 });
 

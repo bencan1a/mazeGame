@@ -173,10 +173,15 @@ export function isBoardLegibleUnzoomed(
 
 /**
  * The radius to round the vertex at `(cx, cy)` with, arrived at from
- * `(ax, ay)` and leaving toward `(bx, by)`: `maxRadius`, pulled in to half
- * of whichever leg is shorter so the corners at either end of one leg
- * cannot claim overlapping stretches of it, and 0 where the two legs do
- * not turn at all.
+ * `(ax, ay)` and leaving toward `(bx, by)`: `maxRadius`, pulled in so the
+ * arc meets each leg within half of it and the corners at either end of one
+ * leg cannot claim overlapping stretches, and 0 where the two legs do not
+ * turn at all.
+ *
+ * An arc of radius `r` leaves its leg `r / tan(turn / 2)` from the vertex,
+ * which is `r` itself only at a right angle: the sharper the turn, the
+ * further out it reaches, so the radius that fits depends on the angle and
+ * not on the leg lengths alone.
  */
 export function cornerRadiusAt(
   ax: number,
@@ -191,8 +196,14 @@ export function cornerRadiusAt(
   const inY = cy - ay;
   const outX = bx - cx;
   const outY = by - cy;
-  if (inX * outY - inY * outX === 0) return 0;
-  return Math.min(maxRadius, Math.hypot(inX, inY) / 2, Math.hypot(outX, outY) / 2);
+  const cross = inX * outY - inY * outX;
+  if (cross === 0) return 0;
+  const inLength = Math.hypot(inX, inY);
+  const outLength = Math.hypot(outX, outY);
+  // tan(turn / 2) without the trig, so a right angle comes out as exactly 1
+  // and every corner between two cell centers keeps the plain half-leg bound.
+  const halfTurnTangent = Math.abs(cross) / (inLength * outLength - (inX * outX + inY * outY));
+  return Math.min(maxRadius, halfTurnTangent * (Math.min(inLength, outLength) / 2));
 }
 
 /**
