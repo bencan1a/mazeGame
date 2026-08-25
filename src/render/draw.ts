@@ -2,7 +2,8 @@
  * Segment drawing: the two seams both the static layer and the snake-out
  * animation stroke through — a segment's body (`strokeSegmentPolyline`) and
  * its arrowhead (`drawArrowhead`) — plus `drawSegment`, which is both of
- * those in the segment's palette colour, and `drawSegmentGuarded`, the same
+ * those in the segment's palette colour or a caller's override, and
+ * `drawSegmentGuarded`, the same
  * draw with malformed per-segment data turned into a skip instead of a
  * throw.
  */
@@ -249,6 +250,7 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
   board: Board,
   segmentId: SegmentId,
   viewport: Viewport<S>,
+  color?: string,
 ): void {
   const start = board.segStart[segmentId - 1];
   const end = board.segStart[segmentId];
@@ -268,7 +270,10 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
     setbackY = (DY[dir] as number) * setback;
   }
 
-  ctx.strokeStyle = paletteColor(board.segColor[segmentId - 1] as number);
+  // The palette lookup runs even when `color` overrides it, so a malformed
+  // `segColor` still throws rather than being hidden by the override.
+  const paletteStroke = paletteColor(board.segColor[segmentId - 1] as number);
+  ctx.strokeStyle = color ?? paletteStroke;
   ctx.lineWidth = LINE_WIDTH_CELLS * viewport.scale;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -368,6 +373,7 @@ export function drawArrowhead<S extends PixelSpace>(
   board: Board,
   segmentId: SegmentId,
   viewport: Viewport<S>,
+  color?: string,
 ): void {
   const start = board.segStart[segmentId - 1];
   const end = board.segStart[segmentId];
@@ -377,8 +383,8 @@ export function drawArrowhead<S extends PixelSpace>(
   const headCell = board.segCells[end - 1] as number;
   const cx = cellCenterX(viewport, xOf(headCell, board.width));
   const cy = cellCenterY(viewport, yOf(headCell, board.width));
-  const color = paletteColor(board.segColor[segmentId - 1] as number);
-  fillArrowheadAt(ctx, cx, cy, dir, viewport.scale, color);
+  const paletteFill = paletteColor(board.segColor[segmentId - 1] as number);
+  fillArrowheadAt(ctx, cx, cy, dir, viewport.scale, color ?? paletteFill);
 }
 
 /**
@@ -392,9 +398,10 @@ export function drawSegment<S extends PixelSpace>(
   board: Board,
   segmentId: SegmentId,
   viewport: Viewport<S>,
+  color?: string,
 ): void {
-  strokeSegmentPolyline(ctx, board, segmentId, viewport);
-  drawArrowhead(ctx, board, segmentId, viewport);
+  strokeSegmentPolyline(ctx, board, segmentId, viewport, color);
+  drawArrowhead(ctx, board, segmentId, viewport, color);
 }
 
 /**
@@ -415,9 +422,10 @@ export function drawSegmentGuarded<S extends PixelSpace>(
   board: Board,
   segmentId: SegmentId,
   viewport: Viewport<S>,
+  color?: string,
 ): boolean {
   try {
-    drawSegment(ctx, board, segmentId, viewport);
+    drawSegment(ctx, board, segmentId, viewport, color);
     return true;
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;

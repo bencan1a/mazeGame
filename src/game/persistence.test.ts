@@ -65,7 +65,11 @@ describe('saveGame / loadSavedGame round trip', () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.genParams).toEqual(GEN_PARAMS);
     expect(loaded?.playParams).toEqual(PLAY_PARAMS);
-    expect(loaded?.snapshot).toEqual({ removedSegments: [1, 3, 5], lives: 2 });
+    expect(loaded?.snapshot).toEqual({
+      removedSegments: [1, 3, 5],
+      bouncedSegments: [],
+      lives: 2,
+    });
     expect(loaded?.segmentCount).toBe(SEGMENT_COUNT);
   });
 
@@ -295,5 +299,46 @@ describe('loadSavedGame removed-segment bounds', () => {
 
   it('keeps a list that fits the board it claims', () => {
     expect(loadSavedGame(stored([1, 2]))).not.toBeNull();
+  });
+});
+
+describe('bounce marks in a save', () => {
+  it('round-trips the bounced set', () => {
+    const storage = new FakeStorage();
+    saveGame(
+      { removedSegments: [2], bouncedSegments: [1, 4], lives: 1 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      storage,
+    );
+
+    expect(loadSavedGame(storage)?.snapshot.bouncedSegments).toEqual([1, 4]);
+  });
+
+  it('reads a record written before bounce marks existed as having none', () => {
+    const storage = new FakeStorage();
+    saveGame({ removedSegments: [2], lives: 1 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    const stored = JSON.parse(storage.getItem('arrow-maze:save:v1') as string) as Record<
+      string,
+      unknown
+    >;
+    delete stored.bouncedSegments;
+    storage.setItem('arrow-maze:save:v1', JSON.stringify(stored));
+
+    expect(loadSavedGame(storage)?.snapshot.bouncedSegments).toEqual([]);
+  });
+
+  it('discards a record whose bounced set names a segment off the board', () => {
+    const storage = new FakeStorage();
+    saveGame({ removedSegments: [], lives: 1 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    const stored = JSON.parse(storage.getItem('arrow-maze:save:v1') as string) as Record<
+      string,
+      unknown
+    >;
+    stored.bouncedSegments = [SEGMENT_COUNT + 1];
+    storage.setItem('arrow-maze:save:v1', JSON.stringify(stored));
+
+    expect(loadSavedGame(storage)).toBeNull();
   });
 });

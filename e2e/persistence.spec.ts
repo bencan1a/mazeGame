@@ -3,6 +3,7 @@ import { BASE_PATH } from '../playwright.config.js';
 import {
   FIXTURE_BOARD,
   canvasSignature,
+  settledCanvasSignature,
   firstBlockedSegment,
   firstFreeSegment,
   fixtureBoard,
@@ -31,7 +32,10 @@ test.describe('persistence', () => {
     await expect
       .poll(async () => (await readSavedGame(page))?.value.removedSegments)
       .toEqual([free]);
-    const midGame = await canvasSignature(page);
+    await expect
+      .poll(async () => (await readSavedGame(page))?.value.bouncedSegments)
+      .toEqual([blocked]);
+    const midGame = await settledCanvasSignature(page);
 
     // No query string this time: everything the board is built from has to come
     // out of storage, so a save that lost the seed cannot pass.

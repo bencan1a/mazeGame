@@ -12,6 +12,7 @@ import {
   animationComplete,
   createGameState,
   createGestureArbiter,
+  hasBounced,
   hitTest,
   isFree,
   isRemoved,
@@ -36,11 +37,13 @@ import {
   maxZoomScale,
   panViewport,
   redrawStaticLayer,
-  removedSetsDiffer,
+  segmentSetsDiffer,
+  startBounceAnimation,
   startSnakeOutAnimation,
   zoomViewportAt,
   type AnimationLayer,
   type SnakeOutAnimation,
+  type SnakeOutAnimationOptions,
   type StaticLayer,
   type PanBounds,
   type Viewport,
@@ -135,11 +138,11 @@ export interface BoardCanvases {
  * anything has been painted, which an empty set is otherwise indistinguishable
  * from — treating those alike reads as "no change" and skips the first paint.
  */
-export function removedSetChanged(
+export function drawnSetChanged(
   drawn: ReadonlySet<number> | null,
   current: ReadonlySet<number>,
 ): boolean {
-  return drawn === null || removedSetsDiffer(drawn, current);
+  return drawn === null || segmentSetsDiffer(drawn, current);
 }
 
 /**
@@ -223,10 +226,16 @@ export function createBoardController(
   let staticLayer: StaticLayer = createStaticLayer(board, { dpr });
   let animationLayer: AnimationLayer | null = null;
   let animation: SnakeOutAnimation | null = null;
-  let drawnRemoved: Set<number> | null = null;
+  let drawnHidden: Set<number> | null = null;
+  let drawnBounced: Set<number> | null = null;
+  /**
+   * The segment currently drawn on the animation layer instead of the static
+   * one. Not the same as "removed": a bouncing segment is still on the board.
+   */
+  let liftedId: number | null = null;
   let viewport: Viewport<'css'> = createViewport({ scale: 1, dpr });
   let legibleUnzoomed = true;
-  let bounceHandle: number | null = null;
+  let settleHandle: number | null = null;
   /** False once the visible canvas has refused a 2d context, leaving a blank board. */
   let canvasOk = true;
   let blitPending = false;
@@ -268,10 +277,31 @@ export function createBoardController(
     });
   };
 
-  const removedSet = (): Set<number> => {
+  /** Segments the static layer must not draw: gone from the board, or in flight over it. */
+  const hiddenSet = (): Set<number> => {
     const set = new Set<number>();
     for (let id = 1; id <= board.segmentCount; id++) {
-      if (state.removed[id] === 1) set.add(id);
+      if (isRemoved(state, id)) set.add(id);
+    }
+    if (liftedId !== null) set.add(liftedId);
+    return set;
+  };
+
+  /**
+   * The segment whose bounce the state machine has resolved but whose
+   * animation has not landed yet. Its mark belongs to the animation, which
+   * turns it white at the impact; painting it white on the buffer first shows
+   * the result of the bounce before the bounce.
+   */
+  const bounceInFlight = (): number | null =>
+    state.animating && state.lastOutcome?.kind === 'bounced' ? state.lastOutcome.id : null;
+
+  /** Segments the static layer must paint in the blocked colour rather than their own. */
+  const bouncedSet = (): Set<number> => {
+    const inFlight = bounceInFlight();
+    const set = new Set<number>();
+    for (let id = 1; id <= board.segmentCount; id++) {
+      if (id !== inFlight && hasBounced(state, id)) set.add(id);
     }
     return set;
   };
@@ -321,12 +351,14 @@ export function createBoardController(
     blitStaticLayer(ctx, staticLayer.canvas, rects, base.width, base.height);
   };
 
-  /** Repaints the offscreen buffer only when the removed set has changed. */
+  /** Repaints the offscreen buffer only when what it would draw has changed. */
   const syncStaticLayer = (): void => {
-    const removed = removedSet();
-    if (!removedSetChanged(drawnRemoved, removed)) return;
-    redrawStaticLayer(staticLayer, board, removed);
-    drawnRemoved = removed;
+    const hidden = hiddenSet();
+    const bounced = bouncedSet();
+    if (!drawnSetChanged(drawnHidden, hidden) && !drawnSetChanged(drawnBounced, bounced)) return;
+    redrawStaticLayer(staticLayer, board, hidden, bounced);
+    drawnHidden = hidden;
+    drawnBounced = bounced;
   };
 
   const resize = (): void => {
@@ -370,6 +402,26 @@ export function createBoardController(
     publish();
   };
 
+  /** What both flight animations are driven with; the bounce adds to it. */
+  const flightOptions = (id: number): SnakeOutAnimationOptions => ({
+    board,
+    segmentId: id,
+    viewport: () => viewport,
+    durationMs: playParams.animationDurationMs,
+    layer: () => animationLayer as AnimationLayer,
+    scheduler,
+    onComplete: () => {
+      animation = null;
+      liftedId = null;
+      state = animationComplete(state);
+      syncStaticLayer();
+      blit();
+      publish();
+      publishSnapshot();
+      driveOutcome();
+    },
+  });
+
   const startExit = (id: number): void => {
     if (animationLayer === null) {
       // Without an overlay there is no exit to play, but the state machine
@@ -378,22 +430,24 @@ export function createBoardController(
       return;
     }
     animation?.cancel();
-    animation = startSnakeOutAnimation({
-      board,
-      segmentId: id,
-      viewport: () => viewport,
-      durationMs: playParams.animationDurationMs,
-      layer: () => animationLayer as AnimationLayer,
-      scheduler,
-      onComplete: () => {
-        animation = null;
-        state = animationComplete(state);
-        syncStaticLayer();
-        blit();
-        publish();
-        publishSnapshot();
-        driveOutcome();
-      },
+    animation = startSnakeOutAnimation(flightOptions(id));
+  };
+
+  const startBounce = (id: number): void => {
+    if (animationLayer === null) {
+      settleWithoutAnimation();
+      return;
+    }
+    animation?.cancel();
+    // A bouncing segment is still on the board, so nothing has taken it off
+    // the buffer the way the removed set takes an exiting one off: without
+    // this it would stay painted at rest under the moving copy.
+    liftedId = id;
+    syncStaticLayer();
+    blit();
+    animation = startBounceAnimation({
+      ...flightOptions(id),
+      isRemovedSegment: (segmentId) => isRemoved(state, segmentId),
     });
   };
 
@@ -410,18 +464,26 @@ export function createBoardController(
       startExit(state.lastOutcome.id);
       return;
     }
+    if (state.lastOutcome.kind === 'bounced') {
+      // The life is already spent in state, so the counter drops as the bounce
+      // starts rather than when it lands.
+      publish();
+      startBounce(state.lastOutcome.id);
+      return;
+    }
     settleWithoutAnimation();
   };
 
   /** Advances the queue on the next frame for an outcome with nothing to draw. */
   const settleWithoutAnimation = (): void => {
-    // A bounce has no exit to animate, so the queue advances on the next frame
-    // rather than waiting for a completion that would never arrive. Only one
-    // settle may be pending: a duplicate would land on a later removal and
-    // clear `animating` while that exit was still drawing.
-    if (bounceHandle !== null) return;
-    bounceHandle = scheduler.requestFrame(() => {
-      bounceHandle = null;
+    // Reached only when there is no overlay to animate on, so the queue
+    // advances on the next frame rather than waiting for a completion that
+    // would never arrive. Only one settle may be pending: a duplicate would
+    // land on a later removal and clear `animating` while that exit was still
+    // drawing.
+    if (settleHandle !== null) return;
+    settleHandle = scheduler.requestFrame(() => {
+      settleHandle = null;
       if (disposed) return;
       state = animationComplete(state);
       blit();
@@ -533,12 +595,13 @@ export function createBoardController(
     restartBoard() {
       // A settle frame from before the restart would land on a later removal
       // and clear `animating` while that exit was still drawing.
-      if (bounceHandle !== null) {
-        scheduler.cancelFrame(bounceHandle);
-        bounceHandle = null;
+      if (settleHandle !== null) {
+        scheduler.cancelFrame(settleHandle);
+        settleHandle = null;
       }
       animation?.cancel();
       animation = null;
+      liftedId = null;
       state = restart(state);
       syncStaticLayer();
       blit();
@@ -554,12 +617,13 @@ export function createBoardController(
       const nextGenerated = generateTimed(nextGenParams);
       const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
 
-      if (bounceHandle !== null) {
-        scheduler.cancelFrame(bounceHandle);
-        bounceHandle = null;
+      if (settleHandle !== null) {
+        scheduler.cancelFrame(settleHandle);
+        settleHandle = null;
       }
       animation?.cancel();
       animation = null;
+      liftedId = null;
       staticLayer.canvas.width = 0;
       staticLayer.canvas.height = 0;
 
@@ -570,7 +634,8 @@ export function createBoardController(
       staticLayer = nextStaticLayer;
       metrics = null;
       state = createGameState(board, playParams);
-      drawnRemoved = null;
+      drawnHidden = null;
+      drawnBounced = null;
       // A new board is a new fit: keeping a pinch from the previous one lands
       // a different grid size at a scale the player never chose for it.
       userZoomed = false;
@@ -592,12 +657,13 @@ export function createBoardController(
     },
     destroy() {
       disposed = true;
-      if (bounceHandle !== null) {
-        scheduler.cancelFrame(bounceHandle);
-        bounceHandle = null;
+      if (settleHandle !== null) {
+        scheduler.cancelFrame(settleHandle);
+        settleHandle = null;
       }
       animation?.cancel();
       animation = null;
+      liftedId = null;
       // Zeroing the offscreen buffer frees it now rather than at the next GC,
       // which matters under a mount/unmount/mount cycle where two would
       // otherwise be live at once.

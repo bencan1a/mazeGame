@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BOUNCE_FULL_TRAVEL_CELLS,
+  BOUNCE_IMPACT_FRACTION,
+  MIN_BOUNCE_DURATION_FRACTION,
+  bounceDurationMs,
+  bounceEase,
   buildExitPath,
+  drawExitFrameAt,
   drawSnakeOutFrame,
+  findBounceTarget,
+  startBounceAnimation,
   startSnakeOutAnimation,
   viewportChanged,
   type SnakeOutScheduler,
@@ -9,10 +17,12 @@ import {
 import { createAnimationLayer, redrawStaticLayer, type CanvasLike } from './layers.js';
 import {
   ARROWHEAD_LENGTH_CELLS,
+  ARROWHEAD_WIDTH_CELLS,
   CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
   strokeSegmentPolyline,
 } from './draw.js';
+import { BLOCKED_SEGMENT_COLOR, paletteColor } from './palette.js';
 import { createBufferViewport, createViewport } from './viewport.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import type { AnimationLayer, StaticLayer } from './layers.js';
@@ -1169,5 +1179,211 @@ describe('drawSnakeOutFrame at the end of travel', () => {
       (c): c is Extract<Call, { op: 'stroke' }> => c.op === 'stroke',
     )?.offset as number);
     expect(dashStart).toBeGreaterThanOrEqual(path.totalLength);
+  });
+});
+
+describe('findBounceTarget', () => {
+  const never = (): boolean => false;
+
+  it('stops at a body crossing the ray, half a line width out from its centre', () => {
+    // "a" exits east from (1,0); "b" runs down column 3 with its head at the
+    // bottom, so what stands on the ray at (3,0) is body, not arrowhead.
+    const board = makeBoard(['aA.b.', '...b.', '...B.'].join('\n'));
+    expect(findBounceTarget(board, 1, never)).toEqual({
+      blockerId: 2,
+      steps: 2,
+      travelCells: 2 - ARROWHEAD_LENGTH_CELLS / 2 - LINE_WIDTH_CELLS / 2,
+    });
+  });
+
+  it('stops further back from an arrowhead facing along the ray than one across it', () => {
+    const facing = makeBoard('aA.Bb');
+    const across = makeBoard(['aA.B.', '...b.'].join('\n'));
+    expect(findBounceTarget(facing, 1, never)?.travelCells).toBeCloseTo(
+      2 - ARROWHEAD_LENGTH_CELLS / 2 - ARROWHEAD_LENGTH_CELLS / 2,
+      9,
+    );
+    expect(findBounceTarget(across, 1, never)?.travelCells).toBeCloseTo(
+      2 - ARROWHEAD_LENGTH_CELLS / 2 - ARROWHEAD_WIDTH_CELLS / 2,
+      9,
+    );
+  });
+
+  it('passes over the segment’s own cells and stops at the first foreign one', () => {
+    // A ring whose head at (1,0) exits east back across its own cell (2,0).
+    const board = makeBoard({
+      art: ['aAaB', 'a.a.', 'aaa.'].join('\n'),
+      walks: { a: 'SSWWNNE' },
+      dirs: { b: 'N' },
+    });
+    expect(findBounceTarget(board, 1, never)?.blockerId).toBe(2);
+    expect(findBounceTarget(board, 1, never)?.steps).toBe(2);
+  });
+
+  it('passes over a removed occupant, which occupancy still names at its old cells', () => {
+    const board = makeBoard(['aA.b.', '...b.', '...B.'].join('\n'));
+    expect(findBounceTarget(board, 1, (id) => id === 2)).toBeNull();
+  });
+
+  it('answers null for a clear ray and for a segment the board does not have', () => {
+    expect(findBounceTarget(makeBoard('aA...'), 1, never)).toBeNull();
+    expect(findBounceTarget(makeBoard('aA...'), 7, never)).toBeNull();
+  });
+});
+
+describe('bounceEase', () => {
+  it('starts and ends at rest, and is fully out at the impact', () => {
+    expect(bounceEase(0)).toBe(0);
+    expect(bounceEase(BOUNCE_IMPACT_FRACTION)).toBeCloseTo(1, 12);
+    expect(bounceEase(1)).toBe(0);
+  });
+
+  it('advances to the impact and retreats after it', () => {
+    const out = [0.1, 0.2, 0.3, 0.4].map(bounceEase);
+    const back = [0.5, 0.7, 0.9].map(bounceEase);
+    for (let i = 1; i < out.length; i++)
+      expect(out[i] as number).toBeGreaterThan(out[i - 1] as number);
+    for (let i = 1; i < back.length; i++)
+      expect(back[i] as number).toBeLessThan(back[i - 1] as number);
+  });
+
+  it('clamps a progress outside [0, 1] rather than travelling past rest', () => {
+    expect(bounceEase(-3)).toBe(0);
+    expect(bounceEase(4)).toBe(0);
+  });
+});
+
+describe('bounceDurationMs', () => {
+  it('scales with the travel, between a floor and the full exit duration', () => {
+    expect(bounceDurationMs(400, 0)).toBe(400 * MIN_BOUNCE_DURATION_FRACTION);
+    expect(bounceDurationMs(400, BOUNCE_FULL_TRAVEL_CELLS)).toBe(400);
+    expect(bounceDurationMs(400, BOUNCE_FULL_TRAVEL_CELLS * 10)).toBe(400);
+    expect(bounceDurationMs(400, BOUNCE_FULL_TRAVEL_CELLS / 2)).toBe(200);
+  });
+});
+
+describe('drawExitFrameAt', () => {
+  const viewport = createViewport({ scale: 10 });
+
+  it('paints body and arrowhead in the colour it is given, not the segment’s own', () => {
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    const ctx = new FakeCtx();
+    drawExitFrameAt(ctx, path, 5, BLOCKED_SEGMENT_COLOR);
+    const strokes = ctx.calls.filter((c) => c.op === 'stroke');
+    const fills = ctx.calls.filter((c) => c.op === 'fill');
+    expect(strokes.every((c) => c.color === BLOCKED_SEGMENT_COLOR)).toBe(true);
+    expect(fills.every((c) => c.color === BLOCKED_SEGMENT_COLOR)).toBe(true);
+    expect(path.strokeColor).not.toBe(BLOCKED_SEGMENT_COLOR);
+  });
+
+  it('rejects a non-finite distance, which a dash offset would swallow silently', () => {
+    const path = buildExitPath(ACYCLIC_BOARD, 1, viewport);
+    expect(() => drawExitFrameAt(new FakeCtx(), path, NaN, '#fff')).toThrow(RangeError);
+  });
+});
+
+describe('startBounceAnimation', () => {
+  const viewport = createViewport({ scale: 10 });
+  // "a" exits east from (1,0) into "b"'s body at (3,0).
+  const BOUNCE_BOARD = makeBoard(['aA.b.', '...b.', '...B.'].join('\n'));
+  const TRAVEL_CELLS = 2 - ARROWHEAD_LENGTH_CELLS / 2 - LINE_WIDTH_CELLS / 2;
+
+  function start(onComplete: () => void = (): void => {}): {
+    ctx: FakeCtx;
+    scheduler: ReturnType<typeof fakeScheduler>;
+    durationMs: number;
+  } {
+    const { layer, ctx } = fakeAnimationLayer();
+    const scheduler = fakeScheduler();
+    startBounceAnimation({
+      board: BOUNCE_BOARD,
+      segmentId: 1,
+      viewport,
+      durationMs: 400,
+      layer,
+      scheduler,
+      isRemovedSegment: () => false,
+      onComplete,
+    });
+    return { ctx, scheduler, durationMs: bounceDurationMs(400, TRAVEL_CELLS) };
+  }
+
+  /** Where the arrowhead sits this frame, as a distance east of the head cell centre at (15, 5). */
+  function arrowheadDistance(ctx: FakeCtx): number {
+    const moves = ctx.calls.filter((c) => c.op === 'moveTo');
+    const tip = moves[moves.length - 1] as { x: number; y: number };
+    return tip.x - (ARROWHEAD_LENGTH_CELLS * 10) / 2 - 15;
+  }
+
+  it('runs for less than the exit it stands in for', () => {
+    const { durationMs } = start();
+    expect(durationMs).toBeLessThan(400);
+    expect(durationMs).toBeGreaterThan(0);
+  });
+
+  it('starts at rest in the segment’s own colour', () => {
+    const { ctx } = start();
+    expect(arrowheadDistance(ctx)).toBeCloseTo(0, 9);
+    const fills = ctx.calls.filter((c) => c.op === 'fill');
+    expect((fills[fills.length - 1] as { color: string }).color).toBe(
+      paletteColor(BOUNCE_BOARD.segColor[0] as number),
+    );
+  });
+
+  it('reaches the blockage and no further, still in its own colour', () => {
+    const { ctx, scheduler, durationMs } = start();
+    scheduler.clock.value = durationMs * BOUNCE_IMPACT_FRACTION;
+    ctx.calls.length = 0;
+    runQueuedFrames(scheduler, scheduler.clock.value);
+    expect(arrowheadDistance(ctx)).toBeCloseTo(TRAVEL_CELLS * 10, 6);
+    const fills = ctx.calls.filter((c) => c.op === 'fill');
+    expect((fills[fills.length - 1] as { color: string }).color).toBe(
+      paletteColor(BOUNCE_BOARD.segColor[0] as number),
+    );
+  });
+
+  it('turns white on the way back, and is back at rest when it completes', () => {
+    let completions = 0;
+    const { ctx, scheduler, durationMs } = start(() => {
+      completions++;
+    });
+
+    scheduler.clock.value = durationMs * BOUNCE_IMPACT_FRACTION;
+    runQueuedFrames(scheduler, scheduler.clock.value);
+
+    scheduler.clock.value = durationMs * 0.8;
+    ctx.calls.length = 0;
+    runQueuedFrames(scheduler, scheduler.clock.value);
+    const distance = arrowheadDistance(ctx);
+    expect(distance).toBeGreaterThan(0);
+    expect(distance).toBeLessThan(TRAVEL_CELLS * 10);
+    const strokes = ctx.calls.filter((c) => c.op === 'stroke');
+    const fills = ctx.calls.filter((c) => c.op === 'fill');
+    expect(strokes.every((c) => c.color === BLOCKED_SEGMENT_COLOR)).toBe(true);
+    expect(fills.every((c) => c.color === BLOCKED_SEGMENT_COLOR)).toBe(true);
+
+    scheduler.clock.value = durationMs;
+    runQueuedFrames(scheduler, scheduler.clock.value);
+    expect(completions).toBe(1);
+    expect(scheduler.visibleSubscribers.size).toBe(0);
+  });
+
+  it('rejects a segmentId or durationMs the caller got wrong', () => {
+    const { layer } = fakeAnimationLayer();
+    const scheduler = fakeScheduler();
+    const options = {
+      board: BOUNCE_BOARD,
+      viewport,
+      layer,
+      scheduler,
+      isRemovedSegment: () => false,
+      onComplete: (): void => {},
+    };
+    expect(() => startBounceAnimation({ ...options, segmentId: 99, durationMs: 400 })).toThrow(
+      RangeError,
+    );
+    expect(() => startBounceAnimation({ ...options, segmentId: 1, durationMs: 0 })).toThrow(
+      RangeError,
+    );
   });
 });

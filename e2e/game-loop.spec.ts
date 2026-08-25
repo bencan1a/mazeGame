@@ -9,6 +9,8 @@ import {
   openBoard,
   readCounter,
   readLives,
+  readSavedGame,
+  settledCanvasSignature,
   tapSegment,
 } from './app.js';
 
@@ -23,6 +25,24 @@ test.describe('game loop', () => {
     await tapSegment(page, board, blocked);
 
     await expect.poll(() => readLives(page)).toBe(livesBefore - 1);
+    expect((await readCounter(page)).removed).toBe(0);
+  });
+
+  test('a bounced segment stays marked on the board it bounced off', async ({ page }) => {
+    const board = fixtureBoard(FIXTURE_BOARD);
+    const blocked = firstBlockedSegment(board);
+
+    await openBoard(page, FIXTURE_BOARD);
+    const untouched = await canvasSignature(page);
+
+    await tapSegment(page, board, blocked);
+
+    await expect
+      .poll(async () => (await readSavedGame(page))?.value.bouncedSegments)
+      .toEqual([blocked]);
+    // Nothing has left the board, so the only thing the base layer can have
+    // repainted once the bounce lands is the segment that bounced.
+    expect(await settledCanvasSignature(page)).not.toBe(untouched);
     expect((await readCounter(page)).removed).toBe(0);
   });
 
