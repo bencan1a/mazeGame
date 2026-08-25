@@ -56,6 +56,11 @@ jobs:
   # failure at a glance, and so a flaky runner cannot mask a red generator.
   e2e:
     runs-on: ubuntu-latest
+    # The install step downloads no browser at the pinned version, but nothing
+    # in a lockfile bump would say if that changed, and the default is all
+    # three engines.
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     steps:
       - uses: actions/checkout@v4
 

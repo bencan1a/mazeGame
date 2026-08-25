@@ -35,8 +35,9 @@ export function liveStat(page: Page): Locator {
   return page.getByLabel(/lives remaining/);
 }
 
+/** Found by content, so reordering the chrome does not silently break every test. */
 export function counterStat(page: Page): Locator {
-  return page.locator('.hud-stat').nth(1);
+  return page.locator('.hud-stat').filter({ hasText: /\d+\/\d+/ });
 }
 
 export function baseCanvas(page: Page): Locator {
