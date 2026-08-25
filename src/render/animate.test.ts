@@ -925,9 +925,12 @@ describe('startSnakeOutAnimation, getters that fail', () => {
         completed++;
       },
     });
+    // Cancelling before the deferred completion frame runs means the caller
+    // asked for no completion, and must still leave nothing subscribed.
     animation.cancel();
+    runQueuedFrames(scheduler, 1);
 
-    expect(completed).toBe(1);
+    expect(completed).toBe(0);
     expect(scheduler.visibleSubscribers.size).toBe(0);
     expect(scheduler.frames.size).toBe(0);
   });
@@ -948,6 +951,9 @@ describe('startSnakeOutAnimation, getters that fail', () => {
         },
       }),
     ).not.toThrow();
+    // Completion is deferred to a frame so the caller holds its handle first.
+    expect(completed).toBe(0);
+    runQueuedFrames(scheduler, 1);
     expect(completed).toBe(1);
     expect(scheduler.visibleSubscribers.size).toBe(0);
   });

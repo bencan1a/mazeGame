@@ -428,17 +428,19 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const elapsed = (): number => scheduler.now() - startTime;
 
   /**
-   * Runs `body`, completing instead of throwing. Both getters and the drawing
+   * Runs `body` and reports whether it survived. Both getters and the drawing
    * they feed can fail while a resize is recreating the canvas, and a throw
    * escaping a frame would leave nothing scheduled and the caller's completion
-   * unreachable — so every read and draw goes through here.
+   * unreachable — so every read and draw goes through here. The caller decides
+   * how to settle: before this function returns its handle, completion must be
+   * deferred to a frame, or `onComplete` would run before the caller can hold
+   * the handle it is expected to cancel.
    */
   const guard = (body: () => void): boolean => {
     try {
       body();
       return true;
     } catch {
-      complete();
       return false;
     }
   };
@@ -467,6 +469,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
 
   let setupViewport: Viewport<'css'> | null = null;
   if (!guard(() => void (setupViewport = { ...readViewport() })) || setupViewport === null) {
+    arm(() => complete());
     return { cancel: finish };
   }
   let pathViewport: Viewport<'css'> = setupViewport;
@@ -495,11 +498,15 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     return path;
   };
 
-  guard(() => {
+  const drewFirst = guard(() => {
     const layer = readLayer();
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, path, 0);
   });
+  if (!drewFirst) {
+    arm(() => complete());
+    return { cancel: finish };
+  }
 
   const step = (): void => {
     frameHandle = null;
@@ -514,7 +521,10 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
       clearAnimationLayer(layer);
       drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     });
-    if (!drawn) return;
+    if (!drawn) {
+      complete();
+      return;
+    }
     frameHandle = scheduler.requestFrame(step);
   };
 
