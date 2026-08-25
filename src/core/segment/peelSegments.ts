@@ -126,7 +126,13 @@ export function peelSegments(
   const linked = new Uint8Array(length - 1);
   const stepDir = new Uint8Array(length - 1);
   const regionStart = path.regionStart;
-  if (regionStart.length === 0 || regionStart[0] !== 0) {
+  if (regionStart.length === 0) {
+    throw new Error(
+      `peelSegments: path.regionStart is empty over a ${length}-cell path; a single-region walk ` +
+        'needs [0, length]. peelSegments requires a valid HamiltonianPath',
+    );
+  }
+  if (regionStart[0] !== 0) {
     throw new Error(
       `peelSegments: path.regionStart starts at ${regionStart[0] as number}, expected 0; ` +
         'peelSegments requires a valid HamiltonianPath',

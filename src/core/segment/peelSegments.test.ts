@@ -64,6 +64,13 @@ describe('peelSegments: a path in several regions', () => {
     );
   });
 
+  it('refuses an empty regionStart without reporting an undefined bound', () => {
+    const broken = { cells: path.cells, regionStart: new Uint32Array(0) };
+    expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
+      /regionStart is empty over a 32-cell path/,
+    );
+  });
+
   it('refuses a regionStart that does not begin at 0', () => {
     const broken = { cells: path.cells, regionStart: Uint32Array.from([1, 16, 32]) };
     expect(() => peelSegments(broken, DEFAULT_GEN_PARAMS, createRng(3), 9, 4)).toThrow(
