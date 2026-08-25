@@ -37,14 +37,14 @@ Headless Chromium via Playwright, in the `e2e` CI job, against a real
 `npm run build` served under the same base path GitHub Pages uses. Run it
 locally with `npm run test:e2e`; it builds and previews the bundle itself.
 
-| Check                                                                                         | Status                                 |
-| --------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Offline: service worker registers, second load works with the network cut                     | `e2e/offline.spec.ts`                  |
-| PWA manifest, icons, scope, and `start_url` resolve under the deployed base path              | `e2e/pwa.spec.ts`                      |
-| Hit testing and the tap radius: a synthetic tap at a known pixel selects the expected segment | `e2e/hit-test.spec.ts`                 |
-| Game loop: bounce costs a life, zero lives restarts the same seed, clearing wins              | `e2e/game-loop.spec.ts`                |
-| Visual regression on a fixture board                                                          | `e2e/visual.spec.ts`                   |
-| Persistence: `(seed, params, removed, lives)` survives a reload                               | **not covered** — nothing persists yet |
+| Check                                                                                         | Status                    |
+| --------------------------------------------------------------------------------------------- | ------------------------- |
+| Offline: service worker registers, second load works with the network cut                     | `e2e/offline.spec.ts`     |
+| PWA manifest, icons, scope, and `start_url` resolve under the deployed base path              | `e2e/pwa.spec.ts`         |
+| Hit testing and the tap radius: a synthetic tap at a known pixel selects the expected segment | `e2e/hit-test.spec.ts`    |
+| Game loop: bounce costs a life, zero lives restarts the same seed, clearing wins              | `e2e/game-loop.spec.ts`   |
+| Visual regression on a fixture board                                                          | `e2e/visual.spec.ts`      |
+| Persistence: `(seed, params, removed, lives)` survives a reload                               | `e2e/persistence.spec.ts` |
 
 Why it is a built bundle and not `npm run dev`: a service worker only registers
 in a secure context, and every scope, `start_url` and asset URL is prefixed by

@@ -274,3 +274,24 @@ export async function tapSegment(page: Page, board: Board, id: number): Promise<
   if (aimed === undefined) throw new Error(`segment ${id} has no cells`);
   await tapCell(page, board, aimed.x, aimed.y);
 }
+
+export interface SavedRecord {
+  readonly key: string;
+  readonly value: Record<string, unknown>;
+}
+
+/**
+ * The app's saved game, found by scanning storage rather than by naming the
+ * key: the key is the app's own and there is only ever one.
+ */
+export async function readSavedGame(page: Page): Promise<SavedRecord | null> {
+  return page.evaluate(() => {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('arrow-maze'));
+    if (keys.length === 0) return null;
+    if (keys.length > 1) throw new Error(`expected one saved game, found ${keys.join(', ')}`);
+    const key = keys[0] as string;
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    return { key, value: JSON.parse(raw) as Record<string, unknown> };
+  });
+}
