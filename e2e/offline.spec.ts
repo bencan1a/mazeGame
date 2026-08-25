@@ -8,7 +8,11 @@ test.describe('offline', () => {
 
   test('a second load plays with the network cut', async ({ page, context }) => {
     await openBoard(page);
-    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.evaluate(async () => {
+      // Awaited for its timing only: the registration itself does not survive
+      // being returned across the boundary.
+      await navigator.serviceWorker.ready;
+    });
     await expect
       .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
       .toBe(true);
