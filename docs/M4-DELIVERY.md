@@ -65,11 +65,13 @@ different board under the same seed. Restore verifies the regenerated board's
 `segmentCount` against the record before applying the removed-set.
 
 **A2. #27 dev panel.** New `src/ui/DevPanel.tsx`, collapsed by default,
-calling `controller.reconfigure` on change. Two things the issue's comment is
-right to insist on: label `bendProbability` as a steer and show the achieved
-`bendRate` beside it, and label `minPieceLength` and `meanPieceLength` the
-same way — `GenParams` documents all three as targets the generator gives up
-under pressure, not settings.
+calling `controller.reconfigure` on change. Label `bendProbability` as a steer
+and show the achieved `bendRate` beside it: the mapping is monotonic but not
+linear, and the reachable band moves with grid size (measured below), so a
+slider reading 0.9 on a board measuring 0.45 needs the second number to make
+sense. `minPieceLength` and `meanPieceLength` want the same treatment —
+`GenParams` documents all three as targets the generator gives up under
+pressure, not settings.
 
 **A3. #29 install path.** An install button behind `beforeinstallprompt`, and
 static iOS instructions for Safari, which fires no such event. Smallest piece
@@ -107,17 +109,29 @@ resume mid-game with lives intact, then generate a fresh board. This is the
 gate, and it needs A1 deployed to Pages — nothing resumes mid-game before
 persistence exists. Record the result in #29.
 
-**C3. One decision, worth taking early.** #27's comment asks the panel to
-surface which path method produced the current board, because a board that
-fell through to backbite ignores `bendProbability` entirely and the slider
-will look broken on exactly those seeds. Nothing reports that today:
-`GenerateBoardDiagnostics` carries `attempts`, `attemptFailures` and `peel`,
-and neither path builder returns its identity. Surfacing it means adding a
-field to `src/core/generate.ts` — a shared file, so a `contract-change` issue
-and a PR of its own. The alternative is to ship the achieved `bendRate` beside
-the slider and accept that a backbite board looks unresponsive. Either is
-defensible; the contract change is small and the panel is the instrument the
-whole tuning phase runs on.
+**C3. Nothing to decide — the fallback never fires.** An earlier draft of this
+plan asked whether the dev panel should report which of the two path builders
+made the current board, because the backbite fallback ignores `bendProbability`
+and the slider would look broken on those seeds. Measured over 720 boards — 60
+seeds at each of four grid sizes and three `bendProbability` settings — the
+contour builder succeeded every time and backbite ran on none of them. On
+procedurally generated blobs the fallback is dead code, so there is no class of
+board on which the slider does nothing, and no reason to spend a
+`contract-change` on reporting a distinction the player cannot encounter.
+
+The same run confirms the slider steers on every board:
+
+| gridSize | `bendProbability` 0.1 | 0.6   | 0.9   |
+| -------- | --------------------- | ----- | ----- |
+| 20       | 0.298                 | 0.401 | 0.468 |
+| 40       | 0.204                 | 0.368 | 0.449 |
+| 60       | 0.178                 | 0.363 | 0.449 |
+| 100      | 0.160                 | 0.357 | 0.448 |
+
+Achieved `bendRate`, mean over 60 seeds at `fillFraction` 0.45. Monotonic
+everywhere, with a ceiling near 0.45 at every size and a floor that rises as
+the board shrinks — a small region's own boundary forces corners. That is the
+band the panel's readout has to make legible.
 
 ## Critical path
 
@@ -126,7 +140,6 @@ A0 seam ──> A1 persistence ──> deploy to Pages ──> C2 acceptance tes
         └─> A2 dev panel ──> A3 install path
 B1 runner ────────────────────> B2 persistence test
 C1 no-network trace  (any time)
-C3 contract-change decision  (now, blocks nothing but shapes A2)
 ```
 
 Three lanes run concurrently from the start; only C2 is genuinely gated, and
