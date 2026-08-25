@@ -984,3 +984,29 @@ describe('startSnakeOutAnimation, getters that fail', () => {
     expect(scheduler.visibleSubscribers.size).toBe(0);
   });
 });
+
+describe('drawSnakeOutFrame at the end of travel', () => {
+  it('leaves nothing of the piece inside the board at progress 1', () => {
+    // ACYCLIC_BOARD is 4x4 at scale 10 and segment 1 exits south, so the
+    // board's own bottom edge is y = 40. Travel is sized so both the dash's
+    // trailing cap and the arrowhead's base are past it by then.
+    const path = buildExitPath(ACYCLIC_BOARD, 1, createViewport({ scale: 10 }));
+    const boardBottom = 40;
+
+    const ctx = new FakeCtx();
+    drawSnakeOutFrame(ctx, path, 1);
+
+    const strokeAt = ctx.calls.findIndex((c) => c.op === 'stroke');
+    const headYs = ctx.calls
+      .slice(strokeAt + 1)
+      .filter((c) => c.op === 'moveTo' || c.op === 'lineTo')
+      .map((c) => (c as { y: number }).y);
+    expect(headYs.length).toBeGreaterThan(0);
+    expect(Math.min(...headYs)).toBeGreaterThan(boardBottom);
+
+    const dashStart = -(ctx.calls.find(
+      (c): c is Extract<Call, { op: 'stroke' }> => c.op === 'stroke',
+    )?.offset as number);
+    expect(dashStart).toBeGreaterThanOrEqual(path.totalLength);
+  });
+});
