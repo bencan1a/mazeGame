@@ -14,7 +14,6 @@ import type { Board, Direction, SegmentId } from '../core/types.js';
 import {
   ARROWHEAD_LENGTH_CELLS,
   LINE_WIDTH_CELLS,
-  drawSegmentGuarded,
   fillArrowheadAt,
   requireDirection,
   type FillContext2D,
@@ -65,18 +64,32 @@ export interface ExitPath {
 }
 
 /**
- * Builds `segmentId`'s exit path in `viewport`'s pixel space. Throws
- * `RangeError` for a `segmentId` outside the board, a segment with no cells,
- * or a malformed `segColor`/`segDir` — a caller driving a per-frame loop
- * should check the segment with `drawSegmentGuarded` first, as
- * `startSnakeOutAnimation` does, and fall back the same way it does for a
- * `RangeError` this still throws despite that guard.
+ * The cell-space part of a segment's exit path: which cells it passes
+ * through and which direction each edge between them travels. None of this
+ * depends on the viewport, so it is computed once per segment and reused by
+ * `layoutExitPath` across however many viewports the exit is drawn at (a pan
+ * or a pinch resizes the same journey rather than choosing a different one).
+ * `cellIndices` covers the on-board vertices only — the polyline followed by
+ * the ray — in tail-to-head-to-edge order; the final, off-board vertex
+ * `layoutExitPath` appends has no cell of its own. `edgeDirs` covers every
+ * edge, including that last one.
  */
-export function buildExitPath(
-  board: Board,
-  segmentId: SegmentId,
-  viewport: Viewport<'css'>,
-): ExitPath {
+interface ExitTopology {
+  readonly cellIndices: Uint32Array;
+  readonly edgeDirs: Uint8Array;
+  readonly dir: Direction;
+  readonly width: number;
+  readonly dashLengthCells: number;
+  readonly uniformLengthCells: number;
+  readonly strokeColor: string;
+}
+
+/**
+ * Builds `segmentId`'s exit topology. Throws `RangeError` for a `segmentId`
+ * outside the board, a segment with no cells, or a malformed
+ * `segColor`/`segDir`.
+ */
+function buildExitTopology(board: Board, segmentId: SegmentId): ExitTopology {
   requireValidSegmentId(board, segmentId);
   const start = board.segStart[segmentId - 1] as number;
   const end = board.segStart[segmentId] as number;
@@ -88,17 +101,15 @@ export function buildExitPath(
   const headCell = board.segCells[end - 1] as number;
   const numRaySteps = stepsToEdge(headCell, dir, board.width, board.height);
 
-  const vertexCount = segLen + numRaySteps + 1;
-  const xs = new Float64Array(vertexCount);
-  const ys = new Float64Array(vertexCount);
-  const edgeDirs = new Uint8Array(vertexCount - 1);
+  const onBoardCount = segLen + numRaySteps;
+  const cellIndices = new Uint32Array(onBoardCount);
+  const edgeDirs = new Uint8Array(onBoardCount);
 
   let vi = 0;
   let prevCell = -1;
   for (let i = start; i < end; i++) {
     const cellIndex = board.segCells[i] as number;
-    xs[vi] = cellCenterX(viewport, xOf(cellIndex, board.width));
-    ys[vi] = cellCenterY(viewport, yOf(cellIndex, board.width));
+    cellIndices[vi] = cellIndex;
     if (vi > 0) {
       const edgeDir = directionBetween(prevCell, cellIndex, board.width);
       edgeDirs[vi - 1] = edgeDir === -1 ? dir : edgeDir;
@@ -110,35 +121,81 @@ export function buildExitPath(
   let rayCell = headCell;
   for (let s = 0; s < numRaySteps; s++) {
     rayCell = step(rayCell, dir, board.width, board.height);
-    xs[vi] = cellCenterX(viewport, xOf(rayCell, board.width));
-    ys[vi] = cellCenterY(viewport, yOf(rayCell, board.width));
+    cellIndices[vi] = rayCell;
     edgeDirs[vi - 1] = dir;
     vi++;
   }
+  edgeDirs[onBoardCount - 1] = dir;
 
-  const dashLength = (segLen - 1) * viewport.scale;
+  return {
+    cellIndices,
+    edgeDirs,
+    dir,
+    width: board.width,
+    dashLengthCells: segLen - 1,
+    uniformLengthCells: segLen - 1 + numRaySteps,
+    strokeColor: paletteColor(board.segColor[segmentId - 1] as number),
+  };
+}
+
+/**
+ * Lays `topology` out at `viewport`'s scale and origin, writing cell centers
+ * into `xs`/`ys` in place — sized to `topology.cellIndices.length + 1` by
+ * the caller — rather than allocating new arrays, so a caller re-laying the
+ * same topology out at a new viewport (a pan or a pinch mid-exit) does not
+ * pay for a fresh `ExitPath` on every frame.
+ */
+function layoutExitPath(
+  topology: ExitTopology,
+  viewport: Viewport<'css'>,
+  xs: Float64Array,
+  ys: Float64Array,
+): { readonly dashLength: number; readonly totalLength: number } {
+  const { cellIndices, dir, width } = topology;
+  for (let i = 0; i < cellIndices.length; i++) {
+    const cellIndex = cellIndices[i] as number;
+    xs[i] = cellCenterX(viewport, xOf(cellIndex, width));
+    ys[i] = cellCenterY(viewport, yOf(cellIndex, width));
+  }
+
+  const dashLength = topology.dashLengthCells * viewport.scale;
   const arrowReach = ARROWHEAD_LENGTH_CELLS * viewport.scale;
-  const uniformLength = (segLen - 1 + numRaySteps) * viewport.scale;
-  // The dash's own trailing edge only has to reach the true board edge: once
-  // it is there, the whole dash — and the arrowhead riding dashLength ahead
-  // of it — is already off the board, so nothing further is visible. A
-  // segment whose own body is shorter than the arrowhead's reach needs the
-  // difference as extra travel, or its head would stop short of clearing.
+  const uniformLength = topology.uniformLengthCells * viewport.scale;
   const totalLength = uniformLength + viewport.scale / 2 + Math.max(0, arrowReach - dashLength);
-  // The arrowhead anchor can still lead the trailing edge by more than that
-  // margin — by its own dashLength, always — so the path has to reach that
-  // far even though progress itself stops at totalLength.
   const finalEdgeLength = totalLength + dashLength - uniformLength;
 
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
-  xs[vi] = (xs[vi - 1] as number) + dx * finalEdgeLength;
-  ys[vi] = (ys[vi - 1] as number) + dy * finalEdgeLength;
-  edgeDirs[vi - 1] = dir;
+  const last = cellIndices.length - 1;
+  xs[cellIndices.length] = (xs[last] as number) + dx * finalEdgeLength;
+  ys[cellIndices.length] = (ys[last] as number) + dy * finalEdgeLength;
 
-  const strokeColor = paletteColor(board.segColor[segmentId - 1] as number);
+  return { dashLength, totalLength };
+}
 
-  return { xs, ys, edgeDirs, dashLength, totalLength, scale: viewport.scale, strokeColor };
+/**
+ * Builds `segmentId`'s exit path in `viewport`'s pixel space. Throws
+ * `RangeError` for a `segmentId` outside the board, a segment with no cells,
+ * or a malformed `segColor`/`segDir`.
+ */
+export function buildExitPath(
+  board: Board,
+  segmentId: SegmentId,
+  viewport: Viewport<'css'>,
+): ExitPath {
+  const topology = buildExitTopology(board, segmentId);
+  const xs = new Float64Array(topology.cellIndices.length + 1);
+  const ys = new Float64Array(topology.cellIndices.length + 1);
+  const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys);
+  return {
+    xs,
+    ys,
+    edgeDirs: topology.edgeDirs,
+    dashLength,
+    totalLength,
+    scale: viewport.scale,
+    strokeColor: topology.strokeColor,
+  };
 }
 
 /** The subset of a 2D context `drawSnakeOutFrame` needs beyond `StrokeContext2D`/`FillContext2D`. */
@@ -188,9 +245,6 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     ctx.lineDashOffset = 0;
   }
 
-  // The arrowhead rides dashLength ahead of the dash's trailing edge; the
-  // path built by buildExitPath always reaches that far, so this is never
-  // past a vertex the path doesn't have.
   const leadArcLength = windowStart + path.dashLength;
 
   const uniformEdgeCount = path.edgeDirs.length - 1;
@@ -224,19 +278,10 @@ function requirePositiveFiniteDuration(durationMs: number): void {
   }
 }
 
-/**
- * `buildExitPath`, with a `RangeError` turned into `null` instead of a throw.
- * `drawSegmentGuarded` does not catch a segment with no cells — there is
- * nothing to stroke or fill, so it draws nothing and reports success — so a
- * caller relying on that guard alone still needs this to close the gap.
- */
-function tryBuildExitPath(
-  board: Board,
-  segmentId: SegmentId,
-  viewport: Viewport<'css'>,
-): ExitPath | null {
+/** `buildExitTopology`, with a `RangeError` turned into `null` instead of a throw. */
+function tryBuildExitTopology(board: Board, segmentId: SegmentId): ExitTopology | null {
   try {
-    return buildExitPath(board, segmentId, viewport);
+    return buildExitTopology(board, segmentId);
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;
     return null;
@@ -305,7 +350,14 @@ export interface SnakeOutAnimationOptions {
    */
   readonly viewport: Viewport<'css'> | (() => Viewport<'css'>);
   readonly durationMs: number;
-  readonly layer: AnimationLayer;
+  /**
+   * The animation layer to draw into. Pass a getter when the layer can be
+   * replaced during the exit: a resize or orientation change recreates the
+   * canvas the same way a pan or pinch replaces the viewport, and drawing
+   * into a discarded layer strands the segment on a canvas nothing blits
+   * again for the rest of its flight.
+   */
+  readonly layer: AnimationLayer | (() => AnimationLayer);
   readonly scheduler: SnakeOutScheduler;
   /** Called exactly once: on natural completion, or once on a backgrounded-tab catch-up. Never called after `cancel()`. */
   readonly onComplete: () => void;
@@ -321,15 +373,16 @@ export interface SnakeOutAnimation {
  * other layer untouched. Validates `segmentId` and `durationMs` up front —
  * both are the caller's own choice, so a bad one is rejected rather than
  * absorbed. `board` itself may still carry a segment with no cells or a
- * malformed `segColor`/`segDir`; that is checked with `drawSegmentGuarded`
- * and `tryBuildExitPath` before any frame is scheduled, and turns into an
- * immediate, silent completion rather than a throw out of a per-frame loop.
+ * malformed `segColor`/`segDir`; that is checked with `tryBuildExitTopology`
+ * before any frame is scheduled, and turns into an immediate, silent
+ * completion rather than a throw out of a per-frame loop.
  */
 export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): SnakeOutAnimation {
-  const { board, segmentId, durationMs, layer, scheduler, onComplete } = options;
+  const { board, segmentId, durationMs, scheduler, onComplete } = options;
   const readViewport = (): Viewport<'css'> =>
     typeof options.viewport === 'function' ? options.viewport() : options.viewport;
-  const viewport = readViewport();
+  const readLayer = (): AnimationLayer =>
+    typeof options.layer === 'function' ? options.layer() : options.layer;
   requireValidSegmentId(board, segmentId);
   requirePositiveFiniteDuration(durationMs);
 
@@ -340,7 +393,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const finish = (): void => {
     if (settled) return;
     settled = true;
-    clearAnimationLayer(layer);
+    clearAnimationLayer(readLayer());
     if (frameHandle !== null) {
       scheduler.cancelFrame(frameHandle);
       frameHandle = null;
@@ -360,43 +413,49 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const startTime = scheduler.now();
   const elapsed = (): number => scheduler.now() - startTime;
 
-  const guardedOk = drawSegmentGuarded(layer.ctx, board, segmentId, viewport);
-  clearAnimationLayer(layer);
-  const initialPath = guardedOk ? tryBuildExitPath(board, segmentId, viewport) : null;
-  if (initialPath === null) {
-    // Armed before the frame is requested: a synchronous scheduler would
-    // otherwise settle the animation before there is anything to unsubscribe,
-    // and a hidden tab never delivers the frame at all.
+  const topology = tryBuildExitTopology(board, segmentId);
+  if (topology === null) {
+    clearAnimationLayer(readLayer());
     unsubscribeVisible = scheduler.onVisible(() => complete());
     frameHandle = scheduler.requestFrame(() => complete());
     return { cancel: finish };
   }
 
-  // A snapshot copy, not a reference to whatever the getter last returned: a
-  // getter over a viewport it mutates in place would otherwise hand back the
-  // exact same object every call, so comparing against a held reference to it
-  // compares the object to itself and never sees a change.
-  let pathViewport: Viewport<'css'> = { ...viewport };
-  let path = initialPath;
+  let pathViewport: Viewport<'css'> = { ...readViewport() };
+  const xs = new Float64Array(topology.cellIndices.length + 1);
+  const ys = new Float64Array(topology.cellIndices.length + 1);
+  const path: ExitPath = {
+    xs,
+    ys,
+    edgeDirs: topology.edgeDirs,
+    dashLength: 0,
+    totalLength: 0,
+    scale: pathViewport.scale,
+    strokeColor: topology.strokeColor,
+  };
+  const applyLayout = (viewport: Viewport<'css'>): void => {
+    const { dashLength, totalLength } = layoutExitPath(topology, viewport, xs, ys);
+    Object.assign(path, { dashLength, totalLength, scale: viewport.scale });
+  };
+  applyLayout(pathViewport);
   const currentPath = (): ExitPath => {
     const now = readViewport();
     if (viewportChanged(now, pathViewport)) {
       pathViewport = { ...now };
-      path = buildExitPath(board, segmentId, pathViewport);
+      applyLayout(pathViewport);
     }
     return path;
   };
-  drawSnakeOutFrame(layer.ctx, path, 0);
 
-  // The frame timestamp and `scheduler.now()` need not share an origin, and a
-  // mismatch makes progress permanently negative, so elapsed time is read from
-  // one clock rather than differenced across two.
+  const layer0 = readLayer();
+  clearAnimationLayer(layer0);
+  drawSnakeOutFrame(layer0.ctx, path, 0);
+
   const step = (): void => {
     frameHandle = null;
-    // A frame already in flight when cancel() fires still reaches here: it
-    // must not repaint the layer cancel() just cleared or reschedule itself.
     if (settled) return;
     const progress = elapsed() / durationMs;
+    const layer = readLayer();
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), progress);
     if (progress >= 1) {
@@ -408,6 +467,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
 
   unsubscribeVisible = scheduler.onVisible(() => {
     if (settled || elapsed() < durationMs) return;
+    const layer = readLayer();
     clearAnimationLayer(layer);
     drawSnakeOutFrame(layer.ctx, currentPath(), 1);
     complete();

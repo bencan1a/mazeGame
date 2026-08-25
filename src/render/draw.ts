@@ -225,6 +225,8 @@ export function strokeSegmentPolyline<S extends PixelSpace>(
  * the geometry `drawArrowhead` uses at a segment's own head cell, factored
  * out for a caller (a snake-out animation) that needs the same triangle at a
  * point that moves frame to frame instead of one pinned to a cell center.
+ *
+ * Throws `RangeError` for a `dir` outside 0..3.
  */
 export function fillArrowheadAt(
   ctx: FillContext2D,
@@ -234,6 +236,9 @@ export function fillArrowheadAt(
   scale: number,
   color: string,
 ): void {
+  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) {
+    throw new RangeError(`dir must be 0 (N), 1 (E), 2 (S) or 3 (W), got ${String(dir)}`);
+  }
   const dx = DX[dir] as number;
   const dy = DY[dir] as number;
 

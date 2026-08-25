@@ -395,10 +395,9 @@ describe('drawSnakeOutFrame', () => {
   });
 
   it('clears the whole arrowhead of a one-cell segment past the board edge by progress 1', () => {
-    // Regression: a one-cell segment has dashLength 0, so its leading edge
-    // never overshoots the way a multi-cell body does — it needs the path's
-    // own extension to be the thing that carries it clear. Head at (1, 2),
-    // exiting south on a 3x3 board: the true edge sits at y = 30.
+    // A one-cell segment has dashLength 0, so its leading edge sits exactly
+    // at the travel distance and only the path's own extension carries it
+    // clear. Head at (1, 2), exiting south on a 3x3 board, true edge y = 30.
     const board = makeBoard({ art: ['...', '...', '.A.'].join('\n'), dirs: { a: 'S' } });
     const path = buildExitPath(board, 1, viewport);
     const boardBottom = 30;
@@ -410,8 +409,7 @@ describe('drawSnakeOutFrame', () => {
     );
     // fillArrowheadAt's tip is the first point of the triangle, i.e. the last
     // moveTo issued, and its base trails it by half an arrowhead length — the
-    // point closest to the board, and the one the old overshoot fix left
-    // stranded mid-board.
+    // point closest to the board, so it is the one that has to clear the edge.
     const half = (ARROWHEAD_LENGTH_CELLS * path.scale) / 2;
     const tip = moveTos[moveTos.length - 1] as Extract<Call, { op: 'moveTo' }>;
     expect(tip.y - half).toBeGreaterThan(boardBottom);
@@ -451,9 +449,8 @@ describe('drawSnakeOutFrame', () => {
   });
 
   it('keeps the head attached to the body, on the same path, past the board edge', () => {
-    // The case the review reported as broken: a straight 5-cell segment
-    // ("aaaaA") exiting east on a 5-wide board at scale 10, sampled at
-    // progress 0.9. dashLength = 4 * 10 = 40 already exceeds a full
+    // A straight 5-cell segment ("aaaaA") exiting east on a 5-wide board at
+    // scale 10, sampled at progress 0.9. dashLength = 4 * 10 = 40 exceeds a full
     // arrowhead's reach (10), so the on-board run (also 40) is all the
     // travel totalLength needs: 45 (40 + the half-cell to the true edge).
     // The final edge still has to carry the head, which leads the trailing
@@ -462,9 +459,8 @@ describe('drawSnakeOutFrame', () => {
     //
     // At progress 0.9, windowStart = 40.5 and the arrowhead anchor sits at
     // windowStart + dashLength = 80.5 along the path — 90% of the way along
-    // the final edge, i.e. x = 45 + 0.9 * 45 = 85.5. Under the deleted
-    // overshoot code the anchor detached from the path entirely; here it is
-    // just a point on the same vertices the stroke uses.
+    // the final edge, i.e. x = 45 + 0.9 * 45 = 85.5, a point on the same
+    // vertices the stroke itself uses.
     const board = makeBoard('aaaaA');
     const path = buildExitPath(board, 1, viewport);
     expect(path.totalLength).toBe(45);
