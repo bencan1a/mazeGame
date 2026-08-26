@@ -343,10 +343,16 @@ does not work, is in [`spikes/line-art/`](./spikes/line-art/README.md).
 | Size        | 100 or more shapes at launch, drawn from the ~400 that survive the category filter.                                                   |
 | Baking      | Rasterised at build time to a 96×96 packed bitmap per shape. No rasteriser ships, and generation stays a pure function of its inputs. |
 | Delivery    | One precached asset plus a manifest, not part of the JS bundle. Offline still means offline: the asset is cached on first load.       |
-| Attribution | Phosphor's MIT notice appears in the app, on the home screen.                                                                         |
+| Attribution | Phosphor's MIT notice ships with the build as a third-party notices file, not as UI. See below.                                       |
 
 **No shape is a brand, a letter, a number or a symbol.** PRD §8's constraint on
 third-party IP holds: original or open-licensed drawings only.
+
+**On the notice.** MIT asks that the copyright and permission notice travel with copies
+of the work, and a public deployment is a copy — that obligation does not turn on whether
+anyone is charged for it. It says nothing about where the notice lives, so it ships as
+`THIRD-PARTY-NOTICES.md` in the repo and as a file the build emits at a stable path
+beside the shape asset. Nothing about it appears in the game's chrome.
 
 ### 9.2 Board from a shape
 
