@@ -213,3 +213,61 @@ body,
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+
+.home-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: calc(1.5rem + env(safe-area-inset-top)) calc(1.5rem + env(safe-area-inset-right))
+    calc(1.5rem + env(safe-area-inset-bottom)) calc(1.5rem + env(safe-area-inset-left));
+}
+
+.home-drawing-frame {
+  width: min(70vw, 60vh, 22rem);
+  aspect-ratio: 1 / 1;
+}
+
+.home-drawing {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.home-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.home-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.home-controls button {
+  font: inherit;
+  border-radius: 0.4rem;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: inherit;
+  padding: 0.5rem 0.9rem;
+}
+
+.home-controls button[aria-label] {
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0.35rem 0.9rem;
+}
+
+.home-play {
+  font-weight: 600;
+  padding: 0.6rem 1.75rem;
+  border-color: var(--fg);
+}
