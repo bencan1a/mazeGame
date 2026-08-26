@@ -16,7 +16,7 @@ export interface Rasteriser {
    * areas, not in a stroke layer, so a cell inks where its colour differs from
    * a neighbour's or where nothing was painted at all.
    */
-  boundaryInk(svg: string, size: number): Promise<Uint8Array>;
+  boundaryInk(svg: string, size: number, quantiseBits?: number): Promise<Uint8Array>;
   close(): Promise<void>;
 }
 
@@ -53,9 +53,9 @@ export async function openRasteriser(): Promise<Rasteriser> {
       );
       return Uint8Array.from(flags);
     },
-    async boundaryInk(svg: string, size: number): Promise<Uint8Array> {
+    async boundaryInk(svg: string, size: number, quantiseBits = 4): Promise<Uint8Array> {
       const flags = await page.evaluate(
-        async ([markup, edge]: [string, number]) => {
+        async ([markup, edge, bits]: [string, number, number]) => {
           const canvas = document.createElement('canvas');
           canvas.width = edge;
           canvas.height = edge;
@@ -75,9 +75,9 @@ export async function openRasteriser(): Promise<Rasteriser> {
             keys[i] =
               (pixels[i * 4 + 3] as number) < 128
                 ? -1
-                : (((pixels[i * 4] as number) >> 4) << 8) |
-                  (((pixels[i * 4 + 1] as number) >> 4) << 4) |
-                  ((pixels[i * 4 + 2] as number) >> 4);
+                : (((pixels[i * 4] as number) >> bits) << 16) |
+                  (((pixels[i * 4 + 1] as number) >> bits) << 8) |
+                  ((pixels[i * 4 + 2] as number) >> bits);
           }
           const out: number[] = new Array<number>(edge * edge);
           for (let y = 0; y < edge; y++) {
@@ -95,7 +95,7 @@ export async function openRasteriser(): Promise<Rasteriser> {
           }
           return out;
         },
-        [svg, size] as [string, number],
+        [svg, size, quantiseBits] as [string, number, number],
       );
       return Uint8Array.from(flags);
     },

@@ -42,9 +42,15 @@ async function main(): Promise<void> {
     const svg = withoutIntrinsicSize(readFileSync(join(artDir, file), 'utf8'));
 
     let ink: Uint8Array;
-    if (mode === 'colour') {
+    if (mode === 'colour' || mode === 'colour-coarse') {
       ink = dilateInk(
-        fitInk(await raster.boundaryInk(svg, BAKE_EDGE), BAKE_EDGE, 0, EDGE, EDGE),
+        fitInk(
+          await raster.boundaryInk(svg, BAKE_EDGE, mode === 'colour-coarse' ? 6 : 4),
+          BAKE_EDGE,
+          0,
+          EDGE,
+          EDGE,
+        ),
         EDGE,
         EDGE,
         DILATION,

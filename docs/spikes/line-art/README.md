@@ -288,11 +288,10 @@ dog, ghost, hourglass, jeep, paw print, puzzle piece, rocket, student and tea ba
 all read at 78. The cost is simplicity: most come out as one or two faces, so the
 picture is an outline with a hole or two rather than a banded drawing.
 
-**The emoji route fails, and it was my highest-yield prediction.** Colour
-boundaries do produce faces, but an emoji is drawn _with colour_ — take the
-colour away and the information goes with it. The sheet is mostly disconnected
-fragments. The count is also inflated: a large share of Noto's 3,710 are
-skin-tone and gender variants of the same person.
+**The first emoji result was unfair to the source, and the retest is in
+section 13.** Colour boundaries do produce faces; what sank the first sheet was
+a stride sample that was two-thirds people-with-skin-tone variants, plus a
+boundary rule that fired on every shading step.
 
 **Cuts across a solid are worse than the earlier test suggested.** On
 game-icons' detailed silhouettes the bands shatter the shape into 12–30
@@ -304,8 +303,50 @@ Behance, Messenger and Twitter in Phosphor's. Curation has to exclude brands,
 letters, numbers and interface glyphs before taste even enters — and that is a
 large fraction of any icon set.
 
-Recommendation: **Phosphor thin as the primary source, Lucide second.** Skip the
-emoji sets and skip game-icons.
+Recommendation: **Phosphor thin as the primary source, Lucide second**, and
+skip game-icons. On emoji, see the retest below.
+
+## 13. Emoji, retested fairly
+
+Two things were wrong with section 12's emoji run: the sample and the
+treatment. **2,418 of Noto's 3,710 icons are People & Body**, mostly skin-tone
+and gender variants of the same figure, so a blind stride mostly drew those. And
+the boundary rule quantised colour to 16 levels per channel, so every shading
+step inside one flat-looking area read as a line.
+
+Retested on the object categories — Animals & Nature, Food & Drink, Objects,
+Travel & Places, Activities, **861 icons in total** — with colour merged four
+times more coarsely:
+
+| run                                     | built | reads?                  |
+| --------------------------------------- | ----- | ----------------------- |
+| Noto, blind stride, fine quantisation   | 33/47 | almost none             |
+| Noto, object categories, fine           | 29/47 | some                    |
+| **Noto, object categories, coarse**     | 35/47 | **roughly a third**     |
+| Fluent Emoji high contrast (MIT, 1,595) | 25/47 | some, builds less often |
+
+[`sets/noto-objects-coarse.png`](sets/noto-objects-coarse.png) and
+[`sets/fluent-monochrome.png`](sets/fluent-monochrome.png).
+
+Balloon, crescent moon, baby chick, hiking boot, jeans, money bag, ox, peach,
+pot of food, ring buoy, stop sign, telephone and chicken all read. Ant, gloves,
+seal, sushi and house still come apart.
+
+So the honest position is between the two earlier claims. Emoji are **worth
+having and not the best source**: roughly a third read against a clear majority
+for Phosphor, and the usable pool is 861 rather than 3,710 — of which Animals &
+Nature is 160 and Food & Drink 131.
+
+Two things argue for revisiting them rather than dropping them:
+
+- **The treatment is not optimised.** Coarser merging alone moved the build rate
+  from 29 to 35 of 47 and visibly improved what reads. Using only strong
+  luminance edges, or only the outermost boundary plus the largest internal
+  areas, has not been tried. Phosphor, by contrast, already works with no
+  treatment at all — there is no headroom to find there.
+- **Emoji are what a player would ask for by name.** A library of icon-set
+  objects and a library of emoji are not interchangeable products, even at the
+  same board quality.
 
 ## What this did not settle
 
