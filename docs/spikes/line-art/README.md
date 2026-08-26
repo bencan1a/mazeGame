@@ -269,6 +269,44 @@ So the question is not where to find hundreds of drawings. It is how many a
 person is willing to look at: the automated filter already cuts 199 to 122, and
 the contact sheet reviews ~54 at a glance.
 
+## 12. Four sources, one blind sample each
+
+47 icons per set, taken as a stride across the whole set, no hand-picking, all
+at grid 78. Sheets in [`sets/`](sets/). Each set needs its own route to ink, so
+the treatment differs even though the model does not.
+
+| set               | route to ink                    | built | reads?                  |
+| ----------------- | ------------------------------- | ----- | ----------------------- |
+| Tabler outline    | strokes                         | 22/47 | some, but a weak sample |
+| **Phosphor thin** | the drawn fill _is_ the ink     | 37/47 | **best of the four**    |
+| Noto Emoji        | boundaries between flat colours | 33/47 | almost none             |
+| game-icons.net    | solid, cut into bands           | 46/47 | none                    |
+
+**Phosphor thin wins.** Its art is drawn as a filled outline rather than a
+stroke, so the ink needs no stroke-width handling at all — acorn, cowboy hat,
+dog, ghost, hourglass, jeep, paw print, puzzle piece, rocket, student and tea bag
+all read at 78. The cost is simplicity: most come out as one or two faces, so the
+picture is an outline with a hole or two rather than a banded drawing.
+
+**The emoji route fails, and it was my highest-yield prediction.** Colour
+boundaries do produce faces, but an emoji is drawn _with colour_ — take the
+colour away and the information goes with it. The sheet is mostly disconnected
+fragments. The count is also inflated: a large share of Noto's 3,710 are
+skin-tone and gender variants of the same person.
+
+**Cuts across a solid are worse than the earlier test suggested.** On
+game-icons' detailed silhouettes the bands shatter the shape into 12–30
+confetti regions. Nothing on that sheet is recognisable.
+
+**Every set carries brand marks and letterforms**, which PRD §8 rules out:
+Adobe, NY Times, TypeScript and Creative Commons in the Tabler sample, Angular,
+Behance, Messenger and Twitter in Phosphor's. Curation has to exclude brands,
+letters, numbers and interface glyphs before taste even enters — and that is a
+large fraction of any icon set.
+
+Recommendation: **Phosphor thin as the primary source, Lucide second.** Skip the
+emoji sets and skip game-icons.
+
 ## What this did not settle
 
 - **Recognisability is judgement, not measurement.** Section 3 is my reading of
@@ -278,8 +316,9 @@ the contact sheet reviews ~54 at a glance.
   enclosed face at all means it leaked.
 - **Arrowhead legibility** at these grid sizes is a separate, older constraint
   and is untouched here.
-- **Whether colour-region boundaries work as ink**, which is what unlocks the
-  emoji sets and their thousands of drawings.
+- **Whether a different emoji treatment could work.** Section 12 rules out
+  colour boundaries; it does not rule out, say, tracing only the outermost
+  colour edges.
 - **Whether a long thin band plays well**, which is what the reference cup is
   made of and what generated cuts would produce.
 - **Whether a rotated shape is acceptable to a player.** Section 10 says it
