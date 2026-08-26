@@ -82,6 +82,15 @@ export interface BoardMountProps {
  * Mounts the board behind refs and never re-renders it. React state here holds
  * only what the chrome shows; every canvas write happens in the controller.
  */
+/** A board nobody has played yet: nothing to resume, and nothing worth replacing a save for. */
+export function untouched(state: ResumableState): boolean {
+  return (
+    state.snapshot.removedSegments.length === 0 &&
+    (state.snapshot.bouncedSegments?.length ?? 0) === 0 &&
+    state.snapshot.lives === state.playParams.lives
+  );
+}
+
 export function BoardMount(props: BoardMountProps): ReactElement {
   const { shapeId, drawing, onExit } = props;
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -121,6 +130,10 @@ export function BoardMount(props: BoardMountProps): ReactElement {
       clearSavedGame();
       return;
     }
+    // Opening a shape and leaving it alone must not cost the player the board
+    // they had going on another one. The controller publishes a snapshot the
+    // moment it mounts, so without this a mis-tap on Play overwrites the save.
+    if (untouched(latest)) return;
     saveGame(
       latest.snapshot,
       latest.genParams,

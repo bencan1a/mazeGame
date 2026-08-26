@@ -17,8 +17,15 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
 
-/** Gzipped kB. Raise deliberately, with a note saying what bought the bytes. */
-const BUDGETS = { '.js': 220, '.css': 30 };
+/**
+ * Gzipped kB. Raise deliberately, with a note saying what bought the bytes.
+ *
+ * `.bin` and `.json` are the shape library and its manifest. They are not
+ * script, so they cost nothing to parse, but the service worker precaches
+ * them like everything else — a phone downloads them once before the game is
+ * playable offline, and nothing else in CI would notice them growing.
+ */
+const BUDGETS = { '.js': 220, '.css': 30, '.bin': 120, '.json': 20 };
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -39,7 +46,9 @@ const totals = {};
 const rows = [];
 for (const file of files) {
   const ext = extname(file);
-  if (!(ext in BUDGETS) || file.endsWith('.map')) continue;
+  // The build writes its own manifests next to the assets; only what the app
+  // actually downloads counts against a budget.
+  if (!(ext in BUDGETS) || file.endsWith('.map') || file.endsWith('.webmanifest')) continue;
   const gzipped = gzipSync(readFileSync(file)).length / 1024;
   totals[ext] = (totals[ext] ?? 0) + gzipped;
   rows.push([relative(dist, file), gzipped]);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateBoard } from '../core/generate.js';
 import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
-import { saveGame, type GameStorage } from '../game/persistence.js';
+import { loadSavedGame, saveGame, type GameStorage } from '../game/persistence.js';
 import { createFixtureLibrary } from '../game/shapes.js';
 import {
   drawingFor,
@@ -172,5 +172,29 @@ describe('drawingFor', () => {
 
   it('has no drawing for a shape the library cannot draw', () => {
     expect(drawingFor(library, 'not-in-the-library')).toBeNull();
+  });
+});
+
+describe('readValidSave with a library that failed to load', () => {
+  it('keeps a save it cannot resume, rather than deleting it on a stand-in library', () => {
+    const storage = new FakeStorage();
+    saveForShape(storage, 'acorn');
+    expect(readValidSave(library, storage, false)).toBeNull();
+    // The real library has `acorn`; the fallback does not. Deleting on its
+    // word would lose a board that is still perfectly playable.
+    expect(loadSavedGame(storage)).not.toBeNull();
+  });
+
+  it('deletes a save naming a shape the whole library really lacks', () => {
+    const storage = new FakeStorage();
+    saveForShape(storage, 'acorn');
+    expect(readValidSave(library, storage, true)).toBeNull();
+    expect(loadSavedGame(storage)).toBeNull();
+  });
+
+  it('opens on home rather than a board it cannot rebuild', () => {
+    const storage = new FakeStorage();
+    saveForShape(storage, 'acorn');
+    expect(initialScreen(library, '', storage, false)).toEqual({ kind: 'home' });
   });
 });

@@ -9,6 +9,7 @@ import { loadShapeLibrary } from '../game/shapeLibrary.js';
 import type { ShapeDrawing } from '../game/shapeBoard.js';
 import { createFixtureLibrary, type ShapeLibrary } from '../game/shapes.js';
 import { BoardMount } from './BoardMount.js';
+import { nextIndex, previousIndex } from './homeScreen.js';
 import { HomeScreen } from './HomeScreen.js';
 
 const BROWSED_INDEX_KEY = 'arrow-maze:home-index:v1';
@@ -64,19 +65,21 @@ export function namesABoard(search: string | undefined = defaultSearch()): boole
 }
 
 /**
- * A save naming a shape the library no longer has is discarded rather than
- * half-restored: there is nothing to resume it onto. `null` covers both "no
- * save" and "the save was just discarded" — the caller has nothing different
- * to do about either.
+ * A save naming a shape the library does not have cannot be resumed: there is
+ * nothing to rebuild the board from. Whether it is also deleted turns on
+ * `libraryIsWhole` — a fallback library standing in for one that failed to
+ * load does not know which shapes exist, and a save discarded on its word is
+ * gone for good.
  */
 export function readValidSave(
   library: ShapeLibrary,
   storage: GameStorage | undefined = defaultStorage(),
+  libraryIsWhole = true,
 ): SavedGame | null {
   const saved = loadSavedGame(storage);
   if (saved === null) return null;
   if (saved.shapeId !== null && !library.shapes.some((shape) => shape.id === saved.shapeId)) {
-    clearSavedGame(storage);
+    if (libraryIsWhole) clearSavedGame(storage);
     return null;
   }
   return saved;
@@ -89,13 +92,14 @@ export function initialScreen(
   library: ShapeLibrary,
   search: string | undefined = defaultSearch(),
   storage: GameStorage | undefined = defaultStorage(),
+  libraryIsWhole = true,
 ): Screen {
   const requested = shapeIdFromLocation(search);
   if (requested !== null && library.shapes.some((shape) => shape.id === requested)) {
     return { kind: 'game', shapeId: requested };
   }
   if (namesABoard(search)) return { kind: 'game', shapeId: null };
-  const saved = readValidSave(library, storage);
+  const saved = readValidSave(library, storage, libraryIsWhole);
   if (saved !== null) return { kind: 'game', shapeId: saved.shapeId };
   return { kind: 'home' };
 }
@@ -163,12 +167,15 @@ interface LibraryProps {
  * overwrites the one save slot as soon as that board has anything to persist.
  */
 function Library({ library, notice }: LibraryProps): ReactElement {
-  const [screen, setScreen] = useState<Screen>(() => initialScreen(library));
+  const libraryIsWhole = notice === null;
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialScreen(library, undefined, undefined, libraryIsWhole),
+  );
   const [browsedIndex, setBrowsedIndex] = useState<number>(() =>
     readBrowsedIndex(library.shapes.length),
   );
   const [resumeShapeId, setResumeShapeId] = useState<string | null>(
-    () => readValidSave(library)?.shapeId ?? null,
+    () => readValidSave(library, undefined, libraryIsWhole)?.shapeId ?? null,
   );
 
   useEffect(() => writeBrowsedIndex(browsedIndex), [browsedIndex]);
@@ -178,15 +185,16 @@ function Library({ library, notice }: LibraryProps): ReactElement {
   // one still waiting on a timer.
   useEffect(() => {
     if (screen.kind !== 'home') return;
-    setResumeShapeId(readValidSave(library)?.shapeId ?? null);
-  }, [screen, library]);
+    setResumeShapeId(readValidSave(library, undefined, libraryIsWhole)?.shapeId ?? null);
+  }, [screen, library, libraryIsWhole]);
 
   const shapeCount = library.shapes.length;
-  const step = useCallback(
-    (delta: number) => {
-      if (shapeCount === 0) return;
-      setBrowsedIndex((was) => (was + delta + shapeCount) % shapeCount);
-    },
+  const goPrevious = useCallback(
+    () => setBrowsedIndex((was) => previousIndex(was, shapeCount)),
+    [shapeCount],
+  );
+  const goNext = useCallback(
+    () => setBrowsedIndex((was) => nextIndex(was, shapeCount)),
     [shapeCount],
   );
 
@@ -213,8 +221,8 @@ function Library({ library, notice }: LibraryProps): ReactElement {
     <HomeScreen
       library={library}
       index={browsedIndex}
-      onPrevious={() => step(-1)}
-      onNext={() => step(1)}
+      onPrevious={goPrevious}
+      onNext={goNext}
       onPlay={play}
       resumeShapeId={resumeShapeId}
       notice={notice}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { genParamsForShape } from '../game/shapeBoard.js';
-import { paramsFromLocation } from './BoardMount.js';
+import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
+import { paramsFromLocation, untouched } from './BoardMount.js';
 
 describe('paramsFromLocation', () => {
   const base = genParamsForShape('ring');
@@ -29,5 +30,55 @@ describe('paramsFromLocation', () => {
 
   it('ignores an empty parameter rather than reading it as zero', () => {
     expect(paramsFromLocation(base, '?seed=').seed).toBe(base.seed);
+  });
+});
+
+describe('untouched', () => {
+  const base = {
+    genParams: DEFAULT_GEN_PARAMS,
+    playParams: DEFAULT_PLAY_PARAMS,
+    segmentCount: 10,
+    status: 'playing' as const,
+    shapeId: 'ring',
+  };
+
+  it('is true for a board straight off the generator', () => {
+    expect(
+      untouched({
+        ...base,
+        snapshot: { removedSegments: [], lives: DEFAULT_PLAY_PARAMS.lives },
+      }),
+    ).toBe(true);
+  });
+
+  it('is false once a segment has gone', () => {
+    expect(
+      untouched({
+        ...base,
+        snapshot: { removedSegments: [3], lives: DEFAULT_PLAY_PARAMS.lives },
+      }),
+    ).toBe(false);
+  });
+
+  it('is false once a tap has bounced, even with every segment still on the board', () => {
+    expect(
+      untouched({
+        ...base,
+        snapshot: {
+          removedSegments: [],
+          bouncedSegments: [2],
+          lives: DEFAULT_PLAY_PARAMS.lives,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('is false once a life has gone', () => {
+    expect(
+      untouched({
+        ...base,
+        snapshot: { removedSegments: [], lives: DEFAULT_PLAY_PARAMS.lives - 1 },
+      }),
+    ).toBe(false);
   });
 });
