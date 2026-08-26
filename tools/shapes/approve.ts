@@ -50,60 +50,61 @@ async function main(): Promise<void> {
 
   const verdicts: Verdict[] = [];
   const tiles: Tile[] = [];
-  const bakes = new Map<string, Uint8Array>();
 
-  for (const file of readdirSync(artDir).filter((f) => f.endsWith('.svg'))) {
-    const id = basename(file, '.svg');
-    const baked = await bakeInk(raster, readFileSync(join(artDir, file), 'utf8'));
-    bakes.set(id, baked);
+  // A candidate that throws must not leave a browser running behind it.
+  try {
+    for (const file of readdirSync(artDir).filter((f) => f.endsWith('.svg'))) {
+      const id = basename(file, '.svg');
+      const baked = await bakeInk(raster, readFileSync(join(artDir, file), 'utf8'));
 
-    const base = { id, name: displayName(id) };
-    const imported = importShape({
-      ink: baked,
-      sourceWidth: BAKE_EDGE,
-      sourceHeight: BAKE_EDGE,
-      gridSize: JUDGE_GRID,
-    });
-    if (!imported.ok) {
-      verdicts.push({ ...base, regions: 0, fill: 0, segments: 0, rejected: imported.reason });
-      continue;
-    }
-
-    try {
-      const { board, mask } = generateBoardWithDiagnostics(
-        { ...DEFAULT_GEN_PARAMS, gridSize: JUDGE_GRID, seed: 5 },
-        { silhouette: imported.blob, repair: { holeAreaThreshold: 0 } },
-      );
-      const fill = mask.pathCellCount / (JUDGE_GRID * JUDGE_GRID);
-      const collapsed = imported.faceCount > 1 && mask.regionCount === 1;
-      const rejected = collapsed ? 'faces collapsed' : fill < MIN_FILL ? 'too thin' : null;
-      verdicts.push({
-        ...base,
-        regions: mask.regionCount,
-        fill,
-        segments: board.segmentCount,
-        rejected,
+      const base = { id, name: displayName(id) };
+      const imported = importShape({
+        ink: baked,
+        sourceWidth: BAKE_EDGE,
+        sourceHeight: BAKE_EDGE,
+        gridSize: JUDGE_GRID,
       });
-      if (rejected === null) {
-        const cells: number[] = new Array<number>(JUDGE_GRID * JUDGE_GRID).fill(-1);
-        for (let i = 0; i < cells.length; i++) {
-          const segment = board.occupancy[i] as number;
-          if (segment !== 0) cells[i] = board.segColor[segment - 1] as number;
-        }
-        tiles.push({ label: base.name, width: JUDGE_GRID, height: JUDGE_GRID, cells });
+      if (!imported.ok) {
+        verdicts.push({ ...base, regions: 0, fill: 0, segments: 0, rejected: imported.reason });
+        continue;
       }
-    } catch (err) {
-      verdicts.push({
-        ...base,
-        regions: 0,
-        fill: 0,
-        segments: 0,
-        rejected: `generate: ${(err as Error).message.slice(0, 60)}`,
-      });
-    }
-  }
 
-  await raster.close();
+      try {
+        const { board, mask } = generateBoardWithDiagnostics(
+          { ...DEFAULT_GEN_PARAMS, gridSize: JUDGE_GRID, seed: 5 },
+          { silhouette: imported.blob, repair: { holeAreaThreshold: 0 } },
+        );
+        const fill = mask.pathCellCount / (JUDGE_GRID * JUDGE_GRID);
+        const collapsed = imported.faceCount > 1 && mask.regionCount === 1;
+        const rejected = collapsed ? 'faces collapsed' : fill < MIN_FILL ? 'too thin' : null;
+        verdicts.push({
+          ...base,
+          regions: mask.regionCount,
+          fill,
+          segments: board.segmentCount,
+          rejected,
+        });
+        if (rejected === null) {
+          const cells: number[] = new Array<number>(JUDGE_GRID * JUDGE_GRID).fill(-1);
+          for (let i = 0; i < cells.length; i++) {
+            const segment = board.occupancy[i] as number;
+            if (segment !== 0) cells[i] = board.segColor[segment - 1] as number;
+          }
+          tiles.push({ label: base.name, width: JUDGE_GRID, height: JUDGE_GRID, cells });
+        }
+      } catch (err) {
+        verdicts.push({
+          ...base,
+          regions: 0,
+          fill: 0,
+          segments: 0,
+          rejected: `generate: ${(err as Error).message.slice(0, 60)}`,
+        });
+      }
+    }
+  } finally {
+    await raster.close();
+  }
 
   const approved = verdicts.filter((v) => v.rejected === null);
   writeFileSync(

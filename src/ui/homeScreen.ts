@@ -1,7 +1,6 @@
 /**
- * Pure logic behind the home screen: library index cycling with wrap, and
- * turning an ink bitmap into pixel colour so the drawing can be tested
- * without a canvas.
+ * Pure logic behind the home screen: cycling the library index with wrap, and
+ * picking a shape's colour, both testable without a canvas.
  */
 
 import { PALETTE, PALETTE_SIZE } from '../render/palette.js';
@@ -28,11 +27,3 @@ export function isResumeShape(shapeId: string, resumeShapeId: string | null): bo
 export function inkFillColor(shapeIndex: number): string {
   return PALETTE[wrapIndex(shapeIndex, PALETTE_SIZE)] as string;
 }
-
-/**
- * The ink bitmap as RGBA bytes ready for an `ImageData`. Ink pixels are the
- * strokes, which stay empty on the board, so they go fully transparent
- * rather than a drawn colour — the page background shows through them
- * exactly as it will once the board is playable. The enclosed faces around
- * the ink take the fill colour, since those are what the segments tile.
- */

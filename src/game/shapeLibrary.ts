@@ -209,5 +209,12 @@ function parseManifest(text: string): ShapeManifest {
     if (index !== at) throw new Error(`shape manifest entry ${at} claims index ${String(index)}`);
     return { id, name, index };
   });
+  // Two entries under one id would leave the later one addressable and the
+  // earlier one reachable only as the wrong drawing.
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.id)) throw new Error(`shape manifest names "${entry.id}" twice`);
+    seen.add(entry.id);
+  }
   return { version, edge, source: typeof source === 'string' ? source : '', shapes: entries };
 }

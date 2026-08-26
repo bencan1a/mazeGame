@@ -131,6 +131,20 @@ describe('decodeShapeLibrary', () => {
     expect(() => decodeShapeLibrary(manifest(ids), assetOf(inks), broken)).toThrow(/one/);
   });
 
+  it('rejects a manifest naming one id twice, which would hide a shape behind another', () => {
+    const twice = JSON.stringify({
+      version: SHAPE_ASSET_VERSION,
+      edge: EDGE,
+      source: 'test',
+      shapes: [
+        { id: 'one', name: 'one', index: 0 },
+        { id: 'one', name: 'again', index: 1 },
+        { id: 'three', name: 'three', index: 2 },
+      ],
+    });
+    expect(() => decodeShapeLibrary(twice, assetOf(inks), outlines(ids))).toThrow(/twice/);
+  });
+
   it('rejects a manifest that is not JSON', () => {
     expect(() => decodeShapeLibrary('not json', assetOf(inks), outlines(ids))).toThrow();
   });
