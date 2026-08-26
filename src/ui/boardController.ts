@@ -772,10 +772,13 @@ export function createBoardController(
       animation = null;
       liftedId = null;
       state = restart(state);
+      // The same board laying itself out again, which is what a restart is.
+      const armed = armIntro();
       syncStaticLayer();
       blit();
       publish();
       publishSnapshot();
+      if (armed) startIntro();
     },
     reconfigure(nextGenParams, nextPlayParams) {
       if (disposed) return;
