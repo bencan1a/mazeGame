@@ -12,6 +12,7 @@ import { DEFAULT_GEN_PARAMS, type GenParams, type Mask } from '../../src/core/ty
 import { boardFromMask } from './board.js';
 import { cutSolid, facesFromInk } from './faces.js';
 import { asSolid, openRasteriser, withStrokeWidth, type Rasteriser } from './raster.js';
+import { writeSheet, type Tile } from './sheet.js';
 
 const SIZES = [40, 60, 78, 100];
 const STROKE_CELLS = [2, 3, 4, 6];
@@ -39,12 +40,6 @@ interface Row {
   readonly bendRate: number;
   readonly dagDepth: number;
   readonly failure: string;
-}
-
-interface Tile {
-  readonly label: string;
-  readonly size: number;
-  readonly cells: number[];
 }
 
 function arg(flag: string, fallback: string): string {
@@ -181,7 +176,12 @@ async function main(): Promise<void> {
           const result = measure(ink, size, profile, base);
           rows.push(result.row);
           if (profile === 'authored' && stroke === SHEET_STROKE && result.colours !== null) {
-            tiles.push({ label: `${name} ${size}`, size, cells: result.colours });
+            tiles.push({
+              label: `${name} ${size}`,
+              width: size,
+              height: size,
+              cells: result.colours,
+            });
           }
         }
       }
@@ -210,7 +210,12 @@ async function main(): Promise<void> {
           const result = measure(ink, size, profile, base);
           rows.push(result.row);
           if (profile === 'authored' && stroke === SHEET_STROKE && result.colours !== null) {
-            tiles.push({ label: `cut ${name} ${size}`, size, cells: result.colours });
+            tiles.push({
+              label: `cut ${name} ${size}`,
+              width: size,
+              height: size,
+              cells: result.colours,
+            });
           }
         }
       }
@@ -238,64 +243,6 @@ function toCsv(rows: readonly Row[]): string {
       .join(','),
   );
   return [header, ...body].join('\n');
-}
-
-async function writeSheet(tiles: readonly Tile[], file: string): Promise<void> {
-  if (tiles.length === 0) return;
-  const raster = await openRasteriser();
-  await raster.close();
-  const { chromium } = await import('@playwright/test');
-  let browser;
-  try {
-    browser = await chromium.launch();
-  } catch {
-    browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-  }
-  const page = await browser.newPage({ viewport: { width: 1240, height: 800 } });
-  await page.setContent(sheetHtml(tiles));
-  await page.locator('#sheet').screenshot({ path: file });
-  await browser.close();
-}
-
-const PALETTE = [
-  '#f4b400',
-  '#3ea6ff',
-  '#8bd0ff',
-  '#12b886',
-  '#ff7043',
-  '#b388ff',
-  '#f06292',
-  '#9ccc65',
-];
-
-function sheetHtml(tiles: readonly Tile[]): string {
-  const cells = tiles
-    .map(
-      (tile) =>
-        `<figure><canvas width="${tile.size}" height="${tile.size}" data-cells='${JSON.stringify(tile.cells)}'></canvas><figcaption>${tile.label}</figcaption></figure>`,
-    )
-    .join('');
-  return `<!doctype html><meta charset="utf-8"><style>
-    body{margin:0;background:#12101f;font:11px system-ui,sans-serif;color:#c9c6d8}
-    #sheet{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:12px;width:1216px}
-    figure{margin:0;text-align:center}
-    canvas{width:100%;image-rendering:pixelated;background:#171429;border-radius:4px}
-    figcaption{padding-top:3px}
-  </style><div id="sheet">${cells}</div><script>
-    const palette = ${JSON.stringify(PALETTE)};
-    for (const canvas of document.querySelectorAll('canvas')) {
-      const cells = JSON.parse(canvas.dataset.cells);
-      const ctx = canvas.getContext('2d');
-      const edge = canvas.width;
-      const image = ctx.createImageData(edge, edge);
-      for (let i = 0; i < cells.length; i++) {
-        const colour = cells[i] < 0 ? null : palette[cells[i] % palette.length];
-        const rgb = colour === null ? [23, 20, 41] : [parseInt(colour.slice(1,3),16), parseInt(colour.slice(3,5),16), parseInt(colour.slice(5,7),16)];
-        image.data[i*4] = rgb[0]; image.data[i*4+1] = rgb[1]; image.data[i*4+2] = rgb[2]; image.data[i*4+3] = 255;
-      }
-      ctx.putImageData(image, 0, 0);
-    }
-  </script>`;
 }
 
 await main();

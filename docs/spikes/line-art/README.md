@@ -181,6 +181,47 @@ per-glyph provenance caveat in the MDI licence is exactly the kind of thing that
 needs reading before a set ships, and attribution obligations for a shipped
 build are a question for a person, not for this spike.
 
+## 10. Orientation is a binary, and a portrait frame is worth ~30%
+
+Follow-on run: bake thin at 256×256, rotate, fit to a frame, then dilate the ink
+to the stroke width the player sees. 2150 of 2160 boards built.
+[`orientation.csv`](orientation.csv),
+[`orientation-sheet.png`](orientation-sheet.png).
+
+**Off-axis rotation never wins.** Not once across 18 shapes × 5 frames × 2
+stroke widths did an angle other than 0° or 90° maximise board area — the
+bounding box grows faster than the fit improves. So orientation is a flag on the
+bake, not an angle to search.
+
+**A portrait frame is worth about a third more board at the same on-screen cell
+size.** Comparing 60×100 against 60×60 — both 60 cells wide, so both fit a phone
+identically — playable cells go from 1434 to 1872, and segments from 96 to 126.
+
+**But rotation costs the shape its natural orientation.** Seven of eighteen
+shapes want 90° in a portrait frame, and the gain is concentrated: car +187%,
+turtle +198%, then fish, bird and snail around +27%. On the sheet, though, the
+rotated car stands on its nose and the turtle swims sideways. They fill better
+and read worse. **Rotation should be a per-shape opt-in, not an automatic
+fill-maximiser.**
+
+**Curation is the better lever.** The drawings that fill a portrait frame at 0°
+are also the ones that read best — ghost 0.53, egg 0.49, cat 0.43, house 0.43,
+apple 0.36, as a fraction of the frame. Choosing tall and compact shapes beats
+rotating wide ones.
+
+**Bake-thin-and-dilate beats rasterising at board size.** Setting stroke width
+by dilation after the fit preserves faces equally at ~3 cells and ~5 (2.9
+regions either way), where direct rasterisation needed 4 — and a 3-cell stroke
+leaves about 20% more board to play. It also means one bake serves every stroke
+width, not just every grid size.
+
+**The generator is already dimension-agnostic below the mask.** `repairMask`,
+`buildRegionPaths` and `peelSegments` all take a width and a height; only
+`generateBlob` is square. Boards at 60×100, 72×120 and 52×92 all validated here
+with no change to `src/`. What is square is `GenParams.gridSize`, a single
+number — so a portrait board is a contract change and a renderer question, not a
+generator problem.
+
 ## What this did not settle
 
 - **Recognisability is judgement, not measurement.** Section 3 is my reading of
@@ -193,12 +234,16 @@ build are a question for a person, not for this spike.
 - **Curation at 300 shapes** — this ran 18.
 - **Whether a long thin band plays well**, which is what the reference cup is
   made of and what generated cuts would produce.
+- **Whether a rotated shape is acceptable to a player.** Section 10 says it
+  reads worse to me; that is a judgement on nine sideways drawings, not a test.
 
 ## Recommended next steps
 
 1. A `contract-change` for a seam in `generate.ts` that accepts a supplied
    `Blob` instead of always calling `generateBlob`. Everything else in this
-   spike lives outside `src/core/`.
+   spike lives outside `src/core/`. Worth deciding at the same time whether
+   `gridSize` becomes a width and a height, since the generator already behaves
+   and the gain on a phone is about a third more board.
 2. The bake pipeline, and the decision on where the bytes live.
 3. Cut generation _inside_ oversized faces, which is what makes single-face
    shapes into boards that look like the reference art.
