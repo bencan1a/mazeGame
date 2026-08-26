@@ -100,6 +100,8 @@ export interface ResumableState {
   readonly playParams: PlayParams;
   readonly segmentCount: number;
   readonly status: GameState['status'];
+  /** The shape this board was started for, echoed straight from `BoardControllerOptions`. */
+  readonly shapeId: string | null;
 }
 
 export interface BoardControllerOptions {
@@ -122,6 +124,11 @@ export interface BoardControllerOptions {
    * a persistence layer writes through.
    */
   readonly onSnapshot?: (state: ResumableState) => void;
+  /**
+   * The shape this board plays, carried through to every `ResumableState` so
+   * a save names the shape it belongs to. `null` for a procedural board.
+   */
+  readonly shapeId?: string | null;
 }
 
 export interface BoardCanvases {
@@ -200,6 +207,7 @@ export function createBoardController(
   const { base, overlay, surface } = canvases;
   const scheduler = createDomScheduler();
 
+  const shapeId: string | null = options.shapeId ?? null;
   let genParams: GenParams = initialGenParams;
   let playParams: PlayParams = initialPlayParams;
   let generated: GeneratedBoard = generateTimed(genParams);
@@ -274,6 +282,7 @@ export function createBoardController(
       playParams,
       segmentCount: board.segmentCount,
       status: state.status,
+      shapeId,
     });
   };
 
