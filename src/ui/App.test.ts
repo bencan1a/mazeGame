@@ -133,10 +133,13 @@ describe('initialScreen', () => {
     expect(initialScreen(library, '', new FakeStorage())).toEqual({ kind: 'home' });
   });
 
-  it('opens on home rather than the game screen for a procedural save with no shape', () => {
+  it('resumes a save that names no shape rather than stranding it', () => {
+    // Every save written before the library existed is one of these, and a
+    // save the home screen cannot reach is one the next Play silently
+    // overwrites.
     const storage = new FakeStorage();
     saveForShape(storage, null);
-    expect(initialScreen(library, '', storage)).toEqual({ kind: 'home' });
+    expect(initialScreen(library, '', storage)).toEqual({ kind: 'game', shapeId: null });
   });
 
   it('opens on home for a save naming a shape the library no longer has', () => {

@@ -54,6 +54,13 @@ export function shapeIdFromLocation(search: string | undefined = defaultSearch()
   return new URLSearchParams(search).get('shape');
 }
 
+/** A URL naming a board is a request for that board, shape or no shape. */
+export function namesABoard(search: string | undefined = defaultSearch()): boolean {
+  if (search === undefined) return false;
+  const query = new URLSearchParams(search);
+  return (query.get('seed') ?? '') !== '' || (query.get('grid') ?? '') !== '';
+}
+
 /**
  * A save naming a shape the library no longer has is discarded rather than
  * half-restored: there is nothing to resume it onto. `null` covers both "no
@@ -74,7 +81,7 @@ export function readValidSave(
 }
 
 export type Screen =
-  { readonly kind: 'home' } | { readonly kind: 'game'; readonly shapeId: string };
+  { readonly kind: 'home' } | { readonly kind: 'game'; readonly shapeId: string | null };
 
 export function initialScreen(
   library: ShapeLibrary,
@@ -85,10 +92,9 @@ export function initialScreen(
   if (requested !== null && library.shapes.some((shape) => shape.id === requested)) {
     return { kind: 'game', shapeId: requested };
   }
+  if (namesABoard(search)) return { kind: 'game', shapeId: null };
   const saved = readValidSave(library, storage);
-  if (saved !== null && saved.shapeId !== null) {
-    return { kind: 'game', shapeId: saved.shapeId };
-  }
+  if (saved !== null) return { kind: 'game', shapeId: saved.shapeId };
   return { kind: 'home' };
 }
 

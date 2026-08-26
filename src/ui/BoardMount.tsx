@@ -38,7 +38,8 @@ export function seedForShape(shapeId: string): number {
  * the ordinary procedural generator, seeded from its id. This is the one call
  * site that changes once a silhouette can be supplied.
  */
-export function genParamsForShape(shapeId: string): GenParams {
+export function genParamsForShape(shapeId: string | null): GenParams {
+  if (shapeId === null) return DEFAULT_GEN_PARAMS;
   return { ...DEFAULT_GEN_PARAMS, seed: seedForShape(shapeId) };
 }
 
@@ -86,8 +87,12 @@ const INITIAL_HUD: BoardHud = {
 };
 
 export interface BoardMountProps {
-  /** The shape this board plays. Fixes the derived seed and travels into every save. */
-  readonly shapeId: string;
+  /**
+   * The shape this board plays. Fixes the derived seed and travels into every
+   * save. Null is a board with no shape behind it, which is what a URL naming
+   * a seed or a grid size opens.
+   */
+  readonly shapeId: string | null;
   /** Returns to the home screen. Safe to call at any point, including mid-animation. */
   readonly onExit: () => void;
 }
