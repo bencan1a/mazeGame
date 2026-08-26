@@ -13,7 +13,7 @@ import {
   probeReadback,
   recommendedPixelsPerCell,
   redrawStaticLayer,
-  removedSetsDiffer,
+  segmentSetsDiffer,
   type CanvasLike,
   type StaticLayer,
 } from './layers.js';
@@ -23,6 +23,7 @@ import {
   REFERENCE_CSS_VIEWPORT_WIDTH,
   drawArrowhead,
 } from './draw.js';
+import { BLOCKED_SEGMENT_COLOR, paletteColor } from './palette.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import { createBufferViewport } from './viewport.js';
 import type { Board } from '../core/types.js';
@@ -175,21 +176,21 @@ describe('planDegradation', () => {
   });
 });
 
-describe('removedSetsDiffer', () => {
+describe('segmentSetsDiffer', () => {
   it('is false for two empty sets', () => {
-    expect(removedSetsDiffer(new Set(), new Set())).toBe(false);
+    expect(segmentSetsDiffer(new Set(), new Set())).toBe(false);
   });
 
   it('is false when both sets hold the same ids', () => {
-    expect(removedSetsDiffer(new Set([1, 2]), new Set([2, 1]))).toBe(false);
+    expect(segmentSetsDiffer(new Set([1, 2]), new Set([2, 1]))).toBe(false);
   });
 
   it('is true when sizes differ', () => {
-    expect(removedSetsDiffer(new Set([1]), new Set([1, 2]))).toBe(true);
+    expect(segmentSetsDiffer(new Set([1]), new Set([1, 2]))).toBe(true);
   });
 
   it('is true when sizes match but membership differs', () => {
-    expect(removedSetsDiffer(new Set([1, 2]), new Set([1, 3]))).toBe(true);
+    expect(segmentSetsDiffer(new Set([1, 2]), new Set([1, 3]))).toBe(true);
   });
 });
 
@@ -1159,4 +1160,79 @@ describe('createAnimationLayer / clearAnimationLayer', () => {
       );
     },
   );
+});
+
+describe('redrawStaticLayer bounce marks', () => {
+  /** Records the colour each stroke and fill was painted in. */
+  function recordingLayer(): { layer: StaticLayer; colors: string[] } {
+    const colors: string[] = [];
+    let strokeStyle = '';
+    let fillStyle = '';
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {},
+          get strokeStyle(): string {
+            return strokeStyle;
+          },
+          set strokeStyle(value: string) {
+            strokeStyle = value;
+          },
+          get fillStyle(): string {
+            return fillStyle;
+          },
+          set fillStyle(value: string) {
+            fillStyle = value;
+          },
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {},
+          lineTo(): void {},
+          arcTo(): void {},
+          stroke(): void {
+            colors.push(strokeStyle);
+          },
+          closePath(): void {},
+          fill(): void {
+            colors.push(fillStyle);
+          },
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d') as CanvasRenderingContext2D,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20, 0, 0),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    } satisfies StaticLayer;
+    return { layer, colors };
+  }
+
+  it('paints a bounced segment white and leaves the others their own colour', () => {
+    const board = ACYCLIC_BOARD; // 3 segments
+    const { layer, colors } = recordingLayer();
+
+    redrawStaticLayer(layer, board, new Set(), new Set([2]));
+
+    const own = [1, 2, 3].map((id) => paletteColor(board.segColor[id - 1] as number));
+    expect(colors.filter((c) => c === BLOCKED_SEGMENT_COLOR)).toHaveLength(2);
+    expect(colors).not.toContain(own[1]);
+    expect(colors).toContain(own[0]);
+    expect(colors).toContain(own[2]);
+  });
+
+  it('draws nothing for a segment that is both bounced and hidden', () => {
+    const board = ACYCLIC_BOARD;
+    const { layer, colors } = recordingLayer();
+
+    redrawStaticLayer(layer, board, new Set([2]), new Set([2]));
+
+    expect(colors).not.toContain(BLOCKED_SEGMENT_COLOR);
+  });
 });

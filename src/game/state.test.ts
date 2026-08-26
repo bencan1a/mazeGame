@@ -6,6 +6,7 @@ import { ACYCLIC_BOARD, THREE_CYCLE_BOARD, TWO_CYCLE_BOARD } from '../../test/fi
 import {
   animationComplete,
   createGameState,
+  hasBounced,
   isFree,
   isRemoved,
   restart,
@@ -449,5 +450,72 @@ describe('snapshotGameState / restoreGameState', () => {
         for (const id of ids) expect(isFree(restored, id)).toBe(isFree(state, id));
       }),
     );
+  });
+});
+
+describe('bounce marks', () => {
+  it('marks a segment tapped while blocked, and nothing else', () => {
+    let state = freshGame();
+    expect(hasBounced(state, 1)).toBe(false);
+
+    state = settle(tap(state, 1));
+    expect(hasBounced(state, 1)).toBe(true);
+    expect(hasBounced(state, 2)).toBe(false);
+    expect(hasBounced(state, 3)).toBe(false);
+  });
+
+  it('leaves a segment removed on a clean tap unmarked', () => {
+    const state = settle(tap(freshGame(), 3));
+    expect(isRemoved(state, 3)).toBe(true);
+    expect(hasBounced(state, 3)).toBe(false);
+  });
+
+  it('keeps the mark once the blockers leave, so it records the attempt not the state', () => {
+    let state = freshGame();
+    state = settle(tap(state, 1));
+    state = settle(tap(state, 3));
+    state = settle(tap(state, 2));
+    expect(isFree(state, 1)).toBe(true);
+    expect(hasBounced(state, 1)).toBe(true);
+  });
+
+  it('does not mutate the state it came from', () => {
+    const before = freshGame();
+    const after = settle(tap(before, 1));
+    expect(hasBounced(before, 1)).toBe(false);
+    expect(hasBounced(after, 1)).toBe(true);
+  });
+
+  it('drops every mark on restart', () => {
+    let state = freshGame();
+    state = settle(tap(state, 1));
+    state = restart(state);
+    expect(hasBounced(state, 1)).toBe(false);
+  });
+
+  it('round-trips through a snapshot, and restores none from a snapshot without them', () => {
+    let state = freshGame();
+    state = settle(tap(state, 1));
+    const snapshot = snapshotGameState(state);
+    expect(snapshot.bouncedSegments).toEqual([1]);
+
+    const restored = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, snapshot);
+    expect(hasBounced(restored, 1)).toBe(true);
+
+    const legacy = restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+      removedSegments: snapshot.removedSegments,
+      lives: snapshot.lives,
+    });
+    expect(hasBounced(legacy, 1)).toBe(false);
+  });
+
+  it('refuses a snapshot naming a bounced segment the board does not have', () => {
+    expect(() =>
+      restoreGameState(ACYCLIC_BOARD, PLAY_PARAMS, {
+        removedSegments: [],
+        bouncedSegments: [99],
+        lives: 3,
+      }),
+    ).toThrow(RangeError);
   });
 });

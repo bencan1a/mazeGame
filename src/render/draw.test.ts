@@ -14,7 +14,7 @@ import {
   isLegibleAtScale,
   strokeSegmentPolyline,
 } from './draw.js';
-import { PALETTE } from './palette.js';
+import { BLOCKED_SEGMENT_COLOR, PALETTE } from './palette.js';
 import { createBufferViewport, createViewport } from './viewport.js';
 import { makeBoard } from '../../test/fixtures/board.js';
 import type { FillContext2D, StrokeContext2D } from './draw.js';
@@ -520,6 +520,27 @@ describe('isBoardLegibleUnzoomed', () => {
   it.each([NaN, Infinity, 0, -1])('rejects an availableCssHeight of %p', (bad) => {
     expect(() => isBoardLegibleUnzoomed(40, 40, REFERENCE_CSS_VIEWPORT_WIDTH, bad)).toThrow(
       RangeError,
+    );
+  });
+});
+
+describe('colour override', () => {
+  const viewport = createViewport({ scale: 10 });
+  const board = makeBoard(['aA..', '....', '....', '....'].join('\n'));
+
+  it('paints body and arrowhead in the override rather than the palette colour', () => {
+    const ctx = makeFakeCtx();
+    drawSegment(ctx, board, 1, viewport, BLOCKED_SEGMENT_COLOR);
+    expect(ctx.strokeStyle).toBe(BLOCKED_SEGMENT_COLOR);
+    expect(ctx.fillStyle).toBe(BLOCKED_SEGMENT_COLOR);
+    expect(PALETTE).not.toContain(BLOCKED_SEGMENT_COLOR);
+  });
+
+  it('still reports a malformed segColor rather than letting the override hide it', () => {
+    const broken = makeBoard(['aA..', '....', '....', '....'].join('\n'));
+    broken.segColor[0] = 99;
+    expect(drawSegmentGuarded(makeFakeCtx(), broken, 1, viewport, BLOCKED_SEGMENT_COLOR)).toBe(
+      false,
     );
   });
 });

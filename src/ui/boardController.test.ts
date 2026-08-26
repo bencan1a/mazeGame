@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { boardPanBounds, removedSetChanged } from './boardController.js';
+import { boardPanBounds, drawnSetChanged } from './boardController.js';
 import { clampPan, createViewport } from '../render/index.js';
 import { makeBoard } from '../../test/fixtures/board.js';
 
-describe('removedSetChanged', () => {
+describe('drawnSetChanged', () => {
   it('reports a change before anything has been painted, even for an empty set', () => {
-    expect(removedSetChanged(null, new Set())).toBe(true);
+    expect(drawnSetChanged(null, new Set())).toBe(true);
   });
 
   it('reports no change when the same set is painted again', () => {
-    expect(removedSetChanged(new Set([1, 2]), new Set([2, 1]))).toBe(false);
-    expect(removedSetChanged(new Set(), new Set())).toBe(false);
+    expect(drawnSetChanged(new Set([1, 2]), new Set([2, 1]))).toBe(false);
+    expect(drawnSetChanged(new Set(), new Set())).toBe(false);
   });
 
   it('reports a change when a segment is added or swapped', () => {
-    expect(removedSetChanged(new Set([1]), new Set([1, 2]))).toBe(true);
-    expect(removedSetChanged(new Set([1, 2]), new Set([1, 3]))).toBe(true);
+    expect(drawnSetChanged(new Set([1]), new Set([1, 2]))).toBe(true);
+    expect(drawnSetChanged(new Set([1, 2]), new Set([1, 3]))).toBe(true);
   });
 });
 

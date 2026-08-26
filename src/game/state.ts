@@ -3,7 +3,9 @@
  *
  * `Board` is never mutated. Removal is tracked here as a `removed` bitset
  * (1-based, index 0 unused, same convention as `occupancy`) plus an
- * incremental count so win detection is O(1) rather than a scan.
+ * incremental count so win detection is O(1) rather than a scan. `bounced`
+ * is a second bitset in the same convention, marking every segment the
+ * player has tapped while it was blocked.
  */
 
 import type { Board, PlayParams, SegmentId } from '../core/types.js';
@@ -24,6 +26,13 @@ export interface GameState {
   /** `removed[id] === 1` means segment `id` has left the board. Length segmentCount + 1. */
   readonly removed: Uint8Array;
   readonly removedCount: number;
+  /**
+   * `bounced[id] === 1` means the player has tapped segment `id` while it was
+   * blocked. Set once and never cleared while the game runs — a segment whose
+   * blockers later leave stays marked, so the mark records what the player
+   * tried rather than reporting what is free now.
+   */
+  readonly bounced: Uint8Array;
   readonly lives: number;
   /** Taps not yet resolved, oldest first. */
   readonly queue: readonly TapInput[];
@@ -48,6 +57,7 @@ export function createGameState(board: Board, playParams: PlayParams): GameState
     playParams,
     removed: new Uint8Array(board.segmentCount + 1),
     removedCount: 0,
+    bounced: new Uint8Array(board.segmentCount + 1),
     lives,
     queue: [],
     animating: false,
@@ -87,6 +97,11 @@ export function isRemoved(state: GameState, id: SegmentId): boolean {
   return state.removed[id] === 1;
 }
 
+/** Whether `id` has been tapped while blocked at least once this game. */
+export function hasBounced(state: GameState, id: SegmentId): boolean {
+  return state.bounced[id] === 1;
+}
+
 /**
  * Enqueue a tap and resolve as much of the queue as can resolve immediately.
  * Ignored once the game has left `'playing'` — call `restart` first.
@@ -113,16 +128,23 @@ export function animationComplete(state: GameState): GameState {
  */
 export interface GameSnapshot {
   readonly removedSegments: readonly SegmentId[];
+  /**
+   * Segments tapped while blocked. Optional: a record written before the
+   * bounce mark existed has none, and restores to a game with none marked.
+   */
+  readonly bouncedSegments?: readonly SegmentId[];
   readonly lives: number;
 }
 
 /** Ids in ascending order, so two snapshots of the same game serialise alike. */
 export function snapshotGameState(state: GameState): GameSnapshot {
   const removedSegments: SegmentId[] = [];
+  const bouncedSegments: SegmentId[] = [];
   for (let id = 1; id <= state.board.segmentCount; id++) {
     if (state.removed[id] === 1) removedSegments.push(id);
+    if (state.bounced[id] === 1) bouncedSegments.push(id);
   }
-  return { removedSegments, lives: state.lives };
+  return { removedSegments, bouncedSegments, lives: state.lives };
 }
 
 /**
@@ -165,11 +187,22 @@ export function restoreGameState(
     removedCount++;
   }
 
+  const bounced = new Uint8Array(board.segmentCount + 1);
+  for (const id of snapshot.bouncedSegments ?? []) {
+    if (!isValidSegmentId(board, id)) {
+      throw new RangeError(
+        `restoreGameState: segment ${id} is not on a board of ${board.segmentCount} segments`,
+      );
+    }
+    bounced[id] = 1;
+  }
+
   return {
     board,
     playParams,
     removed,
     removedCount,
+    bounced,
     lives,
     queue: [],
     animating: false,
@@ -226,8 +259,11 @@ function resolveOne(state: GameState, input: TapInput): GameState {
   }
 
   const lives = Math.max(state.lives - 1, 0);
+  const bounced = state.bounced.slice();
+  bounced[id] = 1;
   return {
     ...state,
+    bounced,
     lives,
     animating: true,
     status: lives === 0 ? 'lost' : state.status,

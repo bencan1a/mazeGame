@@ -1,7 +1,7 @@
 /**
- * Persists `(seed, params, removedSegments, lives)` to `localStorage` so a
- * reload or a force-quit resumes mid-game. No `Board` is stored, only what
- * regenerates one.
+ * Persists `(seed, params, removedSegments, bouncedSegments, lives)` to
+ * `localStorage` so a reload or a force-quit resumes mid-game. No `Board` is
+ * stored, only what regenerates one.
  *
  * `localStorage` throws in more places than its type admits: Safari private
  * mode, over quota, site data disabled. Every read and every write here is
@@ -51,6 +51,8 @@ interface StoredRecord {
   readonly genParams: GenParams;
   readonly playParams: PlayParams;
   readonly removedSegments: readonly number[];
+  /** Absent in a record written before the bounce mark existed. */
+  readonly bouncedSegments?: readonly number[];
   readonly lives: number;
   readonly segmentCount: number;
 }
@@ -132,14 +134,19 @@ function isStoredRecord(value: unknown): value is StoredRecord {
   if (!isFiniteNumber(segmentCount) || !Number.isInteger(segmentCount) || segmentCount < 0) {
     return false;
   }
-  if (!Array.isArray(record.removedSegments)) return false;
-  // `segmentCount` is checked first so this bounds the walk below: a record
-  // claiming more removed segments than the board holds is rejected on its
-  // length, before anything iterates a tampered array.
-  if (record.removedSegments.length > segmentCount) return false;
-  return record.removedSegments.every(
-    (id) => Number.isInteger(id) && id >= 1 && id <= segmentCount,
-  );
+  // `segmentCount` is checked first so this bounds both walks below: a record
+  // claiming more ids than the board holds is rejected on its length, before
+  // anything iterates a tampered array.
+  if (!isSegmentIdList(record.removedSegments, segmentCount)) return false;
+  return record.bouncedSegments === undefined
+    ? true
+    : isSegmentIdList(record.bouncedSegments, segmentCount);
+}
+
+function isSegmentIdList(value: unknown, segmentCount: number): value is readonly number[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length > segmentCount) return false;
+  return value.every((id) => Number.isInteger(id) && id >= 1 && id <= segmentCount);
 }
 
 /**
@@ -177,7 +184,11 @@ export function loadSavedGame(
   return {
     genParams: parsed.genParams,
     playParams: parsed.playParams,
-    snapshot: { removedSegments: parsed.removedSegments, lives: parsed.lives },
+    snapshot: {
+      removedSegments: parsed.removedSegments,
+      bouncedSegments: parsed.bouncedSegments ?? [],
+      lives: parsed.lives,
+    },
     segmentCount: parsed.segmentCount,
   };
 }
@@ -202,6 +213,7 @@ export function saveGame(
     genParams,
     playParams,
     removedSegments: [...snapshot.removedSegments],
+    bouncedSegments: [...(snapshot.bouncedSegments ?? [])],
     lives: snapshot.lives,
     segmentCount,
   };

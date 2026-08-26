@@ -22,3 +22,10 @@ export function paletteColor(segColor: number): string {
   }
   return PALETTE[segColor] as string;
 }
+
+/**
+ * Stroke and fill for a segment the player has tapped while it was blocked.
+ * Deliberately outside `PALETTE`, so it can never collide with a segment's
+ * own colour.
+ */
+export const BLOCKED_SEGMENT_COLOR = '#ffffff';

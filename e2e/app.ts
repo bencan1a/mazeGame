@@ -268,6 +268,29 @@ export async function canvasSignature(page: Page): Promise<string> {
   });
 }
 
+/** Consecutive agreeing reads that count as "the board has stopped moving". */
+const SETTLED_READS = 3;
+
+/**
+ * `canvasSignature`, taken once the base layer has stopped changing. An exit
+ * reaches the base layer's final content as it starts — the segment is gone
+ * from the buffer already — but a bounce puts its segment back when it lands,
+ * so a single read can catch a board mid-flight.
+ */
+export async function settledCanvasSignature(page: Page): Promise<string> {
+  let signature = await canvasSignature(page);
+  let agreed = 0;
+  await expect
+    .poll(async () => {
+      const next = await canvasSignature(page);
+      agreed = next === signature ? agreed + 1 : 0;
+      signature = next;
+      return agreed;
+    })
+    .toBeGreaterThanOrEqual(SETTLED_READS);
+  return signature;
+}
+
 /** Taps the middle cell of `id`. */
 export async function tapSegment(page: Page, board: Board, id: number): Promise<void> {
   const cells = segmentCells(board, id);

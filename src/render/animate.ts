@@ -1,4 +1,9 @@
 /**
+ * The two animations a tap can produce, both drawn along the same
+ * precomputed exit path: the snake-out exit, and the bounce a blocked
+ * segment plays instead — the same walk, run only as far as the first thing
+ * standing on the ray and then run back.
+ *
  * The snake-out exit animation: a segment's own polyline concatenated with
  * its exit ray, stroked as one path every frame with a dashed window whose
  * length is the segment's own length. Sliding the dash offset forward walks
@@ -9,10 +14,21 @@
  * touched here.
  */
 
-import { DX, DY, directionBetween, step, stepsToEdge, xOf, yOf } from '../core/grid.js';
-import type { Board, Direction, SegmentId } from '../core/types.js';
+import {
+  DX,
+  DY,
+  NO_CELL,
+  directionBetween,
+  opposite,
+  step,
+  stepsToEdge,
+  xOf,
+  yOf,
+} from '../core/grid.js';
+import type { Board, CellIndex, Direction, SegmentId } from '../core/types.js';
 import {
   ARROWHEAD_LENGTH_CELLS,
+  ARROWHEAD_WIDTH_CELLS,
   CORNER_RADIUS_CELLS,
   LINE_WIDTH_CELLS,
   cornerRadiusAt,
@@ -23,7 +39,7 @@ import {
   type StrokeContext2D,
 } from './draw.js';
 import { clearAnimationLayer, type AnimationLayer } from './layers.js';
-import { paletteColor } from './palette.js';
+import { BLOCKED_SEGMENT_COLOR, paletteColor } from './palette.js';
 import { cellCenterX, cellCenterY, type Viewport } from './viewport.js';
 
 function requireValidSegmentId(board: Board, id: number): asserts id is SegmentId {
@@ -280,10 +296,33 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
     throw new RangeError(`progress must be a finite number, got ${progress}`);
   }
   const t = Math.min(1, Math.max(0, progress));
-  const windowStart = t * path.totalLength;
+  drawExitFrameAt(ctx, path, t * path.totalLength, path.strokeColor);
+}
+
+/**
+ * Draws `path`'s segment with its trailing edge `distance` along the path
+ * and its arrowhead `distance` past the head cell, in `color` — the frame
+ * `drawSnakeOutFrame` renders at a progress, exposed directly for the bounce,
+ * which travels its own distance and changes colour partway rather than
+ * running the exit's full length in one hue.
+ *
+ * `distance` must be finite: a `NaN` dash offset silently draws nothing and
+ * would fail a caller's completion check without ever throwing. It is not
+ * bounded above — a caller past the path's end simply draws nothing.
+ */
+export function drawExitFrameAt(
+  ctx: DashContext2D,
+  path: ExitPath,
+  distance: number,
+  color: string,
+): void {
+  if (!Number.isFinite(distance)) {
+    throw new RangeError(`distance must be a finite number, got ${distance}`);
+  }
+  const windowStart = Math.max(0, distance);
 
   if (path.dashLength > 0) {
-    ctx.strokeStyle = path.strokeColor;
+    ctx.strokeStyle = color;
     ctx.lineWidth = LINE_WIDTH_CELLS * path.scale;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -323,7 +362,7 @@ export function drawSnakeOutFrame(ctx: DashContext2D, path: ExitPath, progress: 
   const leadX = (path.xs[path.headVertex] as number) + rayX * windowStart;
   const leadY = (path.ys[path.headVertex] as number) + rayY * windowStart;
 
-  fillArrowheadAt(ctx, leadX, leadY, rayDir, path.scale, path.strokeColor);
+  fillArrowheadAt(ctx, leadX, leadY, rayDir, path.scale, color);
 }
 
 function requirePositiveFiniteDuration(durationMs: number): void {
@@ -423,7 +462,15 @@ export interface SnakeOutAnimation {
 }
 
 /**
- * Drives one segment's exit animation on `options.layer`, leaving every
+ * How one frame of a path animation is painted, given the path and the
+ * animation's own progress in `[0, 1]`. The exit and the bounce differ only
+ * in this — where along the path the piece sits at a progress, and in what
+ * colour — so they share every other part of `startPathAnimation`.
+ */
+export type ExitFrameDrawer = (ctx: DashContext2D, path: ExitPath, progress: number) => void;
+
+/**
+ * Drives one segment along its exit path on `options.layer`, leaving every
  * other layer untouched. Validates `segmentId` and `durationMs` up front —
  * both are the caller's own choice, so a bad one is rejected rather than
  * absorbed. `board` itself may still carry a segment with no cells or a
@@ -431,7 +478,10 @@ export interface SnakeOutAnimation {
  * before any frame is scheduled, and turns into an immediate, silent
  * completion rather than a throw out of a per-frame loop.
  */
-export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): SnakeOutAnimation {
+function startPathAnimation(
+  options: SnakeOutAnimationOptions,
+  drawFrame: ExitFrameDrawer,
+): SnakeOutAnimation {
   const { board, segmentId, durationMs, scheduler, onComplete } = options;
   const readViewport = (): Viewport<'css'> =>
     typeof options.viewport === 'function' ? options.viewport() : options.viewport;
@@ -554,7 +604,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const drewFirst = guard(() => {
     const layer = readLayer();
     clearAnimationLayer(layer);
-    drawSnakeOutFrame(layer.ctx, path, 0);
+    drawFrame(layer.ctx, path, 0);
   });
   if (!drewFirst) {
     arm(() => complete());
@@ -564,8 +614,9 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   const step = (): void => {
     frameHandle = null;
     if (settled) return;
-    // At progress 1 the dash window has passed the path's end entirely, so the
-    // frame would draw nothing; the clear below is the whole of it.
+    // At progress 1 the exit's dash window has passed the path's end entirely
+    // and the bounce is back at rest under the static layer's own copy, so
+    // either way the frame would add nothing; the clear below is the whole of it.
     const progress = Math.min(1, elapsed() / durationMs);
     if (progress >= 1) {
       complete();
@@ -574,7 +625,7 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
     const drawn = guard(() => {
       const layer = readLayer();
       clearAnimationLayer(layer);
-      drawSnakeOutFrame(layer.ctx, currentPath(), progress);
+      drawFrame(layer.ctx, currentPath(), progress);
     });
     if (!drawn) {
       complete();
@@ -586,4 +637,158 @@ export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): Snake
   arm(step);
 
   return { cancel: finish };
+}
+
+/** Drives `options.segmentId`'s snake-out exit — see `startPathAnimation`. */
+export function startSnakeOutAnimation(options: SnakeOutAnimationOptions): SnakeOutAnimation {
+  return startPathAnimation(options, drawSnakeOutFrame);
+}
+
+/**
+ * How far `blockerId`'s ink reaches back out of `cell` toward a segment
+ * approaching along `rayDir`, in cells measured from the cell's centre.
+ *
+ * The cell one step before this one on the ray is clear of `blockerId` — it
+ * is where the approach is still travelling — so the blocker has no body leg
+ * pointing back down the ray, and only its own arrowhead reaches past half a
+ * line width. A malformed `segDir` draws no arrowhead at all, so it reaches
+ * no further than the body.
+ */
+function blockerReachCells(
+  board: Board,
+  cell: CellIndex,
+  blockerId: SegmentId,
+  rayDir: Direction,
+): number {
+  const end = board.segStart[blockerId] as number;
+  if ((board.segCells[end - 1] as number) !== cell) return LINE_WIDTH_CELLS / 2;
+  const dir = board.segDir[blockerId - 1];
+  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) return LINE_WIDTH_CELLS / 2;
+  const alongRay = dir === rayDir || dir === opposite(rayDir);
+  return alongRay ? ARROWHEAD_LENGTH_CELLS / 2 : ARROWHEAD_WIDTH_CELLS / 2;
+}
+
+/** What a blocked segment runs into, and how far it gets first. */
+export interface BounceTarget {
+  readonly blockerId: SegmentId;
+  /** Cells from the tapped segment's head cell to the blocker's. */
+  readonly steps: number;
+  /**
+   * Cells the segment may advance before its arrowhead tip meets the
+   * blocker's drawn ink. Zero where the two are already touching.
+   */
+  readonly travelCells: number;
+}
+
+/**
+ * The first thing standing on `segmentId`'s exit ray, or `null` when nothing
+ * does — a free segment, or a board whose `segmentId` is out of range,
+ * empty, or carries a malformed `segDir`. A segment's own cells never block
+ * it, and neither does one `isRemovedSegment` accepts: `occupancy` is part of
+ * the immutable `Board` and keeps naming a removed segment at its old cells
+ * forever.
+ */
+export function findBounceTarget(
+  board: Board,
+  segmentId: SegmentId,
+  isRemovedSegment: (id: SegmentId) => boolean,
+): BounceTarget | null {
+  if (!Number.isInteger(segmentId) || segmentId < 1 || segmentId > board.segmentCount) return null;
+  const start = board.segStart[segmentId - 1] as number;
+  const end = board.segStart[segmentId] as number;
+  if (end <= start) return null;
+  const dir = board.segDir[segmentId - 1];
+  if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) return null;
+
+  const headCell = board.segCells[end - 1] as number;
+  const limit = stepsToEdge(headCell, dir, board.width, board.height);
+  let cell = headCell;
+  for (let steps = 1; steps <= limit; steps++) {
+    cell = step(cell, dir, board.width, board.height);
+    if (cell === NO_CELL) return null;
+    const occupant = board.occupancy[cell] as SegmentId;
+    if (occupant === 0 || occupant === segmentId || isRemovedSegment(occupant)) continue;
+    const reach = blockerReachCells(board, cell, occupant, dir);
+    return {
+      blockerId: occupant,
+      steps,
+      travelCells: Math.max(0, steps - ARROWHEAD_LENGTH_CELLS / 2 - reach),
+    };
+  }
+  return null;
+}
+
+/**
+ * Fraction of a bounce spent travelling out. The return leg is the longer
+ * one: the piece leaves the blockage at once and settles back, rather than
+ * retracing its approach.
+ */
+export const BOUNCE_IMPACT_FRACTION = 0.45;
+
+/**
+ * Where the piece sits at `progress`, as a fraction of `travelCells`:
+ * accelerating into the blockage, then away from it and decelerating to rest.
+ * The velocity reverses discontinuously at `BOUNCE_IMPACT_FRACTION`, which is
+ * the impact.
+ */
+export function bounceEase(progress: number): number {
+  const t = Math.min(1, Math.max(0, progress));
+  if (t <= BOUNCE_IMPACT_FRACTION) {
+    const out = t / BOUNCE_IMPACT_FRACTION;
+    return out * out;
+  }
+  const back = 1 - (t - BOUNCE_IMPACT_FRACTION) / (1 - BOUNCE_IMPACT_FRACTION);
+  return back * back;
+}
+
+/** Travel at which a bounce is given the full exit duration. */
+export const BOUNCE_FULL_TRAVEL_CELLS = 6;
+/** Share of the exit duration the shortest bounce still gets, so a nudge does not become a flicker. */
+export const MIN_BOUNCE_DURATION_FRACTION = 0.35;
+
+/**
+ * How long a bounce over `travelCells` runs, given the exit's `durationMs`.
+ * A bounce covers a fraction of an exit's distance, so running it over an
+ * exit's time would read as a drift rather than a rebound.
+ */
+export function bounceDurationMs(durationMs: number, travelCells: number): number {
+  const fraction = Math.min(
+    1,
+    Math.max(MIN_BOUNCE_DURATION_FRACTION, travelCells / BOUNCE_FULL_TRAVEL_CELLS),
+  );
+  return durationMs * fraction;
+}
+
+export interface BounceAnimationOptions extends SnakeOutAnimationOptions {
+  /**
+   * Whether a segment has already left the board. `occupancy` still names
+   * removed segments at their old cells, so without this the ray stops at
+   * one that is no longer there.
+   */
+  readonly isRemovedSegment: (id: SegmentId) => boolean;
+}
+
+/**
+ * Drives `options.segmentId`'s bounce: out along its exit ray until its
+ * arrowhead tip meets whatever is standing on it, then back to rest, turning
+ * `BLOCKED_SEGMENT_COLOR` at the impact. `options.durationMs` is the exit
+ * duration — the bounce takes the shorter time `bounceDurationMs` gives it.
+ *
+ * The caller must have taken the segment off the static layer for the
+ * flight, exactly as for an exit, and must repaint it there once the
+ * animation completes.
+ */
+export function startBounceAnimation(options: BounceAnimationOptions): SnakeOutAnimation {
+  const { board, segmentId, durationMs } = options;
+  requireValidSegmentId(board, segmentId);
+  requirePositiveFiniteDuration(durationMs);
+  const target = findBounceTarget(board, segmentId, options.isRemovedSegment);
+  const travelCells = target?.travelCells ?? 0;
+  return startPathAnimation(
+    { ...options, durationMs: bounceDurationMs(durationMs, travelCells) },
+    (ctx, path, progress) => {
+      const color = progress <= BOUNCE_IMPACT_FRACTION ? path.strokeColor : BLOCKED_SEGMENT_COLOR;
+      drawExitFrameAt(ctx, path, bounceEase(progress) * travelCells * path.scale, color);
+    },
+  );
 }

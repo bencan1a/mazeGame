@@ -1,7 +1,7 @@
 /**
  * The two-layer setup: a capped static offscreen buffer holding every idle
- * segment, redrawn only when the removed set changes, plus a screen-sized
- * animation layer for the segment currently exiting.
+ * segment, redrawn only when the set it draws changes, plus a screen-sized
+ * animation layer for the segment currently in flight.
  *
  * A single canvas is capped at `MAX_CANVAS_DIMENSION` device pixels per side.
  * An over-budget canvas allocates without throwing and comes back blank, so
@@ -16,6 +16,7 @@ import {
   drawSegmentGuarded,
   isBoardLegibleUnzoomed,
 } from './draw.js';
+import { BLOCKED_SEGMENT_COLOR } from './palette.js';
 import { createBufferViewport, type CanvasLike, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
 
@@ -183,12 +184,14 @@ export function planDegradation(
   return { budget: lastAttempt.budget, attempts, ok: lastAttempt.ok };
 }
 
-/** True when the two removed-segment sets differ, the trigger to redraw the static layer. */
-export function removedSetsDiffer(a: ReadonlySet<SegmentId>, b: ReadonlySet<SegmentId>): boolean {
+/** True when two sets of segment ids differ, the trigger to redraw the static layer. */
+export function segmentSetsDiffer(a: ReadonlySet<SegmentId>, b: ReadonlySet<SegmentId>): boolean {
   if (a.size !== b.size) return true;
   for (const id of a) if (!b.has(id)) return true;
   return false;
 }
+
+const EMPTY_SEGMENT_SET: ReadonlySet<SegmentId> = new Set();
 
 export type { CanvasLike } from './viewport.js';
 
@@ -398,18 +401,29 @@ export function isLayerLegibleUnzoomed(
   return isBoardLegibleUnzoomed(board.width, board.height, effectiveWidth, effectiveHeight);
 }
 
-/** Redraws every non-removed segment. The caller decides when that is needed — see `removedSetsDiffer`. */
+/**
+ * Redraws every segment not in `hidden`, painting those in `bounced` in
+ * `BLOCKED_SEGMENT_COLOR` instead of their own. The caller decides when that
+ * is needed — see `segmentSetsDiffer`.
+ *
+ * `hidden` covers both segments that have left the board and the one segment
+ * currently drawn on the animation layer instead: a segment in flight must
+ * come off this buffer for the flight, or a stationary copy of it sits under
+ * the moving one.
+ */
 export function redrawStaticLayer(
   layer: StaticLayer,
   board: Board,
-  removed: ReadonlySet<SegmentId>,
+  hidden: ReadonlySet<SegmentId>,
+  bounced: ReadonlySet<SegmentId> = EMPTY_SEGMENT_SET,
 ): void {
   const { ctx, viewport, budget } = layer;
   ctx.clearRect(0, 0, budget.widthPx, budget.heightPx);
   const dropped: SegmentId[] = [];
   for (let id = 1; id <= board.segmentCount; id++) {
-    if (removed.has(id)) continue;
-    if (!drawSegmentGuarded(ctx, board, id, viewport)) dropped.push(id);
+    if (hidden.has(id)) continue;
+    const color = bounced.has(id) ? BLOCKED_SEGMENT_COLOR : undefined;
+    if (!drawSegmentGuarded(ctx, board, id, viewport, color)) dropped.push(id);
   }
   layer.droppedSegments = dropped;
 }
