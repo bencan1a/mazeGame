@@ -5,6 +5,8 @@ import {
   type GameStorage,
   type SavedGame,
 } from '../game/persistence.js';
+import { loadShapeLibrary } from '../game/shapeLibrary.js';
+import type { ShapeDrawing } from '../game/shapeBoard.js';
 import { createFixtureLibrary, type ShapeLibrary } from '../game/shapes.js';
 import { BoardMount } from './BoardMount.js';
 import { HomeScreen } from './HomeScreen.js';
@@ -98,13 +100,69 @@ export function initialScreen(
   return { kind: 'home' };
 }
 
+/** What the player is told when the baked library could not be read. */
+export const FALLBACK_NOTICE = 'The shape library did not load, so only a few shapes are here.';
+
+/**
+ * The baked asset, or the fixture library if it cannot be read. A missing or
+ * truncated asset is a bad build or a half-written cache, neither of which the
+ * player can do anything about, so they land on a smaller library that still
+ * plays rather than on an empty screen.
+ */
+function useShapeLibrary(): { library: ShapeLibrary | null; notice: string | null } {
+  const [loaded, setLoaded] = useState<{ library: ShapeLibrary; notice: string | null } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let live = true;
+    void loadShapeLibrary().then(
+      (library) => {
+        if (live) setLoaded({ library, notice: null });
+      },
+      (cause: unknown) => {
+        console.warn('shape library unavailable', cause);
+        if (live) setLoaded({ library: createFixtureLibrary(), notice: FALLBACK_NOTICE });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return { library: loaded?.library ?? null, notice: loaded?.notice ?? null };
+}
+
+export function App(): ReactElement {
+  const { library, notice } = useShapeLibrary();
+  if (library === null) {
+    return (
+      <div className="home-screen">
+        <p className="home-title">Loading shapes…</p>
+      </div>
+    );
+  }
+  return <Library library={library} notice={notice} />;
+}
+
+/** A shape with no bitmap behind it plays a procedural board rather than none. */
+export function drawingFor(library: ShapeLibrary, shapeId: string | null): ShapeDrawing | null {
+  if (shapeId === null) return null;
+  const ink = library.ink(shapeId);
+  return ink === null ? null : { ink, edge: library.edge };
+}
+
+interface LibraryProps {
+  readonly library: ShapeLibrary;
+  readonly notice: string | null;
+}
+
 /**
  * Two screens, never both mounted: home browses the library, game owns one
  * board. Leaving the board keeps its save; entering a different shape
  * overwrites the one save slot as soon as that board has anything to persist.
  */
-export function App(): ReactElement {
-  const [library] = useState<ShapeLibrary>(createFixtureLibrary);
+function Library({ library, notice }: LibraryProps): ReactElement {
   const [screen, setScreen] = useState<Screen>(() => initialScreen(library));
   const [browsedIndex, setBrowsedIndex] = useState<number>(() =>
     readBrowsedIndex(library.shapes.length),
@@ -141,7 +199,14 @@ export function App(): ReactElement {
   const goHome = useCallback(() => setScreen({ kind: 'home' }), []);
 
   if (screen.kind === 'game') {
-    return <BoardMount shapeId={screen.shapeId} onExit={goHome} />;
+    const drawing = drawingFor(library, screen.shapeId);
+    return (
+      <BoardMount
+        shapeId={screen.shapeId}
+        onExit={goHome}
+        {...(drawing === null ? {} : { drawing })}
+      />
+    );
   }
 
   return (
@@ -152,6 +217,7 @@ export function App(): ReactElement {
       onNext={() => step(1)}
       onPlay={play}
       resumeShapeId={resumeShapeId}
+      notice={notice}
     />
   );
 }

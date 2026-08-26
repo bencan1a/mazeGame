@@ -11,6 +11,8 @@ export interface HomeScreenProps {
   readonly onPlay: () => void;
   /** The shape holding the one saved board, if there is one. */
   readonly resumeShapeId: string | null;
+  /** Shown under the controls when something the player cannot fix went wrong. */
+  readonly notice?: string | null;
 }
 
 /**
@@ -19,7 +21,7 @@ export interface HomeScreenProps {
  * phone, where a native-resolution draw would not.
  */
 export function HomeScreen(props: HomeScreenProps): ReactElement {
-  const { library, index, onPrevious, onNext, onPlay, resumeShapeId } = props;
+  const { library, index, onPrevious, onNext, onPlay, resumeShapeId, notice } = props;
   const shape = library.shapes[index];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -58,6 +60,7 @@ export function HomeScreen(props: HomeScreenProps): ReactElement {
           ›
         </button>
       </div>
+      {notice === null || notice === undefined ? null : <p role="status">{notice}</p>}
     </div>
   );
 }

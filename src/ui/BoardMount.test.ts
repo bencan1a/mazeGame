@@ -1,44 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GEN_PARAMS } from '../core/types.js';
-import { genParamsForShape, paramsFromLocation, seedForShape } from './BoardMount.js';
-
-describe('seedForShape', () => {
-  it('is deterministic: the same id always derives the same seed', () => {
-    expect(seedForShape('house')).toBe(seedForShape('house'));
-  });
-
-  it('diverges between ids that differ only in one character', () => {
-    expect(seedForShape('house')).not.toBe(seedForShape('mouse'));
-  });
-
-  it('diverges between ids where one is a prefix of the other', () => {
-    expect(seedForShape('cat')).not.toBe(seedForShape('cats'));
-  });
-
-  it('lands inside the unsigned 32-bit range a seed must fit', () => {
-    for (const id of ['', 'a', 'ring', 'a very long shape id indeed']) {
-      const seed = seedForShape(id);
-      expect(Number.isInteger(seed)).toBe(true);
-      expect(seed).toBeGreaterThanOrEqual(0);
-      expect(seed).toBeLessThanOrEqual(0xffffffff);
-    }
-  });
-});
-
-describe('genParamsForShape', () => {
-  it('opens the same shape on the same board every time', () => {
-    expect(genParamsForShape('ring')).toEqual(genParamsForShape('ring'));
-  });
-
-  it('derives the seed from the shape id and keeps every other default', () => {
-    const params = genParamsForShape('ring');
-    expect(params).toEqual({ ...DEFAULT_GEN_PARAMS, seed: seedForShape('ring') });
-  });
-
-  it('gives two different shapes two different seeds', () => {
-    expect(genParamsForShape('ring').seed).not.toBe(genParamsForShape('house').seed);
-  });
-});
+import { genParamsForShape } from '../game/shapeBoard.js';
+import { paramsFromLocation } from './BoardMount.js';
 
 describe('paramsFromLocation', () => {
   const base = genParamsForShape('ring');

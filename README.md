@@ -27,6 +27,7 @@ npm install
 npm run dev       # dev server
 npm run verify    # format + lint + typecheck + tests + coverage
 npm run harness   # headless generator sweep (once the generator lands)
+npm run shapes    # bake the shape library into public/ (needs the network once)
 npm run test:e2e  # playwright browser tests against a real build
 npm run dev -- --host   # serve on your LAN, to open on a phone
 ```

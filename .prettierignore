@@ -5,6 +5,13 @@ package-lock.json
 # Generated
 docs/backlog.md
 
+# Baked by `npm run shapes`. The notice has to stay byte-identical to the
+# licence it was generated from, and the manifest is one line per shape so a
+# library change reads as a small diff.
+THIRD-PARTY-NOTICES.md
+public/THIRD-PARTY-NOTICES.md
+public/shapes-v1.json
+
 # Live checkouts for parallel stream agents; see eslint.config.js
 .claude/worktrees/
 

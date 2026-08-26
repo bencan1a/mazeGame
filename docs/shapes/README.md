@@ -46,3 +46,34 @@ Reproduce either stage:
 npx tsx tools/shapes/curate.ts --meta <phosphor index.mjs>   # 1512 -> 406
 npx tsx tools/shapes/approve.ts --art <svg dir> --out docs/shapes
 ```
+
+## The bake
+
+```sh
+npm run shapes             # rebake public/ and the notice
+npm run shapes -- --check  # rebake in memory and diff against what is committed
+npm run shapes -- --verify # also generate every shape's board at its shipped seed
+```
+
+`npm run shapes` fetches `@phosphor-icons/core` at the version and sha256
+pinned in `tools/shapes/phosphor.ts`, rasterises each approved shape through
+the same step curation judged, and writes four files:
+
+| File                            | What it is                                                    |
+| ------------------------------- | ------------------------------------------------------------- |
+| `public/shapes-v1.bin`          | Every drawing, 96×96, one bit per cell: 348 kB, 58 kB gzipped |
+| `public/shapes-v1.json`         | Id, display name and index per shape                          |
+| `public/THIRD-PARTY-NOTICES.md` | The notice the built site serves                              |
+| `THIRD-PARTY-NOTICES.md`        | The same text, in the repo                                    |
+
+The notice is generated from the licence file inside the fetched tarball, so
+it cannot describe a version other than the one baked. Nothing upstream is
+vendored; what lands in the repo is the derived bitmap and the notice.
+
+The asset, the manifest and the notice are all precached by the service
+worker, so the library browses and plays offline after one visit, and none of
+them counts against the JS bundle budget.
+
+The bake is deterministic given the pinned tarball and the Chromium Playwright
+installs — `--check` is what proves it, and what a rasteriser version bump
+would fail. Rebake and commit the result whenever `approved.json` changes.

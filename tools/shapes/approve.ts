@@ -12,14 +12,10 @@ import { basename, join } from 'node:path';
 import { generateBoardWithDiagnostics } from '../../src/core/generate.js';
 import { importShape } from '../../src/core/shape/index.js';
 import { DEFAULT_GEN_PARAMS } from '../../src/core/types.js';
-import { fitInk } from './fit.js';
-import { openRasteriser, withStrokeWidth, withoutIntrinsicSize } from './raster.js';
+import { BAKE_EDGE, bakeInk } from './bake.js';
+import { openRasteriser } from './raster.js';
 import { writeSheet, type Tile } from './sheet.js';
 
-/** The bake resolution the runtime resamples from. */
-export const BAKE_EDGE = 96;
-const RASTER_EDGE = 256;
-const BAKE_STROKE_UNITS = 0.25;
 /** The size the automated pass judges at: the shipped default. */
 const JUDGE_GRID = 78;
 /** Below this share of the frame the drawing is a doodle in an empty board. */
@@ -58,9 +54,7 @@ async function main(): Promise<void> {
 
   for (const file of readdirSync(artDir).filter((f) => f.endsWith('.svg'))) {
     const id = basename(file, '.svg');
-    const svg = withoutIntrinsicSize(readFileSync(join(artDir, file), 'utf8'));
-    const drawn = await raster.ink(withStrokeWidth(svg, BAKE_STROKE_UNITS, 24), RASTER_EDGE);
-    const baked = fitInk(drawn, RASTER_EDGE, 0, BAKE_EDGE, BAKE_EDGE);
+    const baked = await bakeInk(raster, readFileSync(join(artDir, file), 'utf8'));
     bakes.set(id, baked);
 
     const base = { id, name: displayName(id) };

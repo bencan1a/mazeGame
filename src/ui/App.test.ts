@@ -4,6 +4,7 @@ import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
 import { saveGame, type GameStorage } from '../game/persistence.js';
 import { createFixtureLibrary } from '../game/shapes.js';
 import {
+  drawingFor,
   initialScreen,
   readBrowsedIndex,
   readValidSave,
@@ -155,5 +156,21 @@ describe('initialScreen', () => {
       kind: 'game',
       shapeId: 'house',
     });
+  });
+});
+
+describe('drawingFor', () => {
+  it('hands the board the drawing the library holds, at its bake size', () => {
+    const drawing = drawingFor(library, 'ring');
+    expect(drawing?.edge).toBe(library.edge);
+    expect(drawing?.ink).toEqual(library.ink('ring'));
+  });
+
+  it('has no drawing for a board that names no shape', () => {
+    expect(drawingFor(library, null)).toBeNull();
+  });
+
+  it('has no drawing for a shape the library cannot draw', () => {
+    expect(drawingFor(library, 'not-in-the-library')).toBeNull();
   });
 });

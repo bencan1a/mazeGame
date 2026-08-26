@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { createRng } from '../core/rng.js';
 import {
   DEFAULT_GEN_PARAMS,
   DEFAULT_PLAY_PARAMS,
@@ -8,6 +7,7 @@ import {
   type PlayParams,
 } from '../core/types.js';
 import { clearSavedGame, loadSavedGame, saveGame, type SavedGame } from '../game/persistence.js';
+import { genParamsForShape, type ShapeDrawing } from '../game/shapeBoard.js';
 import {
   createBoardController,
   type BoardController,
@@ -18,30 +18,6 @@ import { DevPanel } from './DevPanel.js';
 
 /** How long a lost board stays readable before it replays the same seed. */
 const LOSS_BEAT_MS = 1600;
-
-/**
- * The seed a shape's board opens on. Chains the shared seeded generator
- * through every character rather than inventing a hash of its own: each
- * character re-seeds it, so two ids diverge at their first differing
- * character and the same id always lands on the same seed.
- */
-export function seedForShape(shapeId: string): number {
-  let seed = 0;
-  for (let i = 0; i < shapeId.length; i++) {
-    seed = createRng((seed + shapeId.charCodeAt(i)) >>> 0).int(0x100000000);
-  }
-  return seed;
-}
-
-/**
- * A board from a shape's own drawing is not built yet, so every shape plays
- * the ordinary procedural generator, seeded from its id. This is the one call
- * site that changes once a silhouette can be supplied.
- */
-export function genParamsForShape(shapeId: string | null): GenParams {
-  if (shapeId === null) return DEFAULT_GEN_PARAMS;
-  return { ...DEFAULT_GEN_PARAMS, seed: seedForShape(shapeId) };
-}
 
 function defaultSearch(): string | undefined {
   return typeof window === 'undefined' ? undefined : window.location.search;
@@ -93,6 +69,11 @@ export interface BoardMountProps {
    * a seed or a grid size opens.
    */
   readonly shapeId: string | null;
+  /**
+   * The shape's drawing, which the board is cut from. Absent, the generator
+   * draws a procedural blob — which is what a URL naming a seed opens on.
+   */
+  readonly drawing?: ShapeDrawing;
   /** Returns to the home screen. Safe to call at any point, including mid-animation. */
   readonly onExit: () => void;
 }
@@ -102,7 +83,7 @@ export interface BoardMountProps {
  * only what the chrome shows; every canvas write happens in the controller.
  */
 export function BoardMount(props: BoardMountProps): ReactElement {
-  const { shapeId, onExit } = props;
+  const { shapeId, drawing, onExit } = props;
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -169,6 +150,7 @@ export function BoardMount(props: BoardMountProps): ReactElement {
     const base = baseRef.current;
     const overlay = overlayRef.current;
     if (surface === null || base === null || overlay === null) return;
+    const cutFrom = drawing === undefined ? {} : { drawing };
 
     const mountController = (saved: SavedGame | null): BoardController =>
       createBoardController(
@@ -176,12 +158,13 @@ export function BoardMount(props: BoardMountProps): ReactElement {
         saved?.genParams ?? genParams,
         saved?.playParams ?? playParams,
         saved === null
-          ? { onSnapshot: persist, shapeId }
+          ? { onSnapshot: persist, shapeId, ...cutFrom }
           : {
               snapshot: saved.snapshot,
               expectedSegmentCount: saved.segmentCount,
               onSnapshot: persist,
               shapeId,
+              ...cutFrom,
             },
       );
 

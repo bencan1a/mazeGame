@@ -18,11 +18,13 @@ import {
   isRemoved,
   restart,
   restoreGameState,
+  shapeGenerateOptions,
   snapshotGameState,
   tap,
   type GameSnapshot,
   type GameState,
   type GestureArbiter,
+  type ShapeDrawing,
 } from '../game/index.js';
 import {
   blitStaticLayer,
@@ -129,6 +131,13 @@ export interface BoardControllerOptions {
    * a save names the shape it belongs to. `null` for a procedural board.
    */
   readonly shapeId?: string | null;
+  /**
+   * The shape's drawing, cut into every board this controller generates. Left
+   * out, the generator draws its own procedural blob. Held rather than turned
+   * into a silhouette up front because the silhouette has to be re-imported at
+   * whatever grid size the board is currently generated at.
+   */
+  readonly drawing?: ShapeDrawing;
 }
 
 export interface BoardCanvases {
@@ -183,9 +192,10 @@ interface GeneratedBoard {
  * reason: coverage counts against the silhouette's inside cells and the bend
  * rate against the walk, neither of which a finished `Board` records.
  */
-function generateTimed(params: GenParams): GeneratedBoard {
+function generateTimed(params: GenParams, drawing: ShapeDrawing | undefined): GeneratedBoard {
   const startedAt = performance.now();
-  const { board, mask, path } = generateBoardWithDiagnostics(params);
+  const options = drawing === undefined ? {} : shapeGenerateOptions(drawing, params.gridSize);
+  const { board, mask, path } = generateBoardWithDiagnostics(params, options);
   return { board, mask, path, generationMs: performance.now() - startedAt };
 }
 
@@ -208,9 +218,10 @@ export function createBoardController(
   const scheduler = createDomScheduler();
 
   const shapeId: string | null = options.shapeId ?? null;
+  const drawing: ShapeDrawing | undefined = options.drawing;
   let genParams: GenParams = initialGenParams;
   let playParams: PlayParams = initialPlayParams;
-  let generated: GeneratedBoard = generateTimed(genParams);
+  let generated: GeneratedBoard = generateTimed(genParams, drawing);
   let board: Board = generated.board;
   let metrics: BoardMetrics | null = null;
 
@@ -623,7 +634,7 @@ export function createBoardController(
       // parameter set that cannot generate — or a buffer that cannot take a
       // 2d context — leaves the board on screen playable under its old
       // parameters. The cost is that both buffers are briefly live.
-      const nextGenerated = generateTimed(nextGenParams);
+      const nextGenerated = generateTimed(nextGenParams, drawing);
       const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
 
       if (settleHandle !== null) {
