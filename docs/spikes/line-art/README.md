@@ -222,6 +222,53 @@ with no change to `src/`. What is square is `GenParams.gridSize`, a single
 number — so a portrait board is a contract change and a renderer question, not a
 generator problem.
 
+## 11. Supply is not the constraint — curation is
+
+A stride sample of 199 icons taken across the whole Lucide set, at grid 78, one
+configuration, no hand-picking. [`yield.csv`](yield.csv),
+[`yield-sheet.png`](yield-sheet.png).
+
+| outcome                           | count |
+| --------------------------------- | ----- |
+| multi-face board                  | 65    |
+| single-face board                 | 57    |
+| too thin (under 15% of the frame) | 33    |
+| failed to build                   | 44    |
+
+**122 of 199 — 61% — build a valid board with no human involved**, at a median
+fill of 0.51 and a median 215 segments. Scaled across the set that is roughly
+1200 mechanically usable drawings from Lucide alone.
+
+The catch the numbers do not show, and the sheet does: a large share of those
+are interface glyphs. `chevron-left-circle` makes a perfectly good board and
+nobody wants to play it. Eyeballing the 54 on the sheet, somewhere around 40% are
+a _thing_ — alarm clock, barrel, beaker, bell, birdhouse, broccoli, camera, car,
+cassette tape, chess knight, citrus, club, dice, droplet, flask. That puts
+Lucide's object-like yield near a quarter of the set, so **~500 shapes from one
+source**.
+
+Set sizes and licences, verified rather than recalled:
+
+| set            | icons  | licence      | fit                                     |
+| -------------- | ------ | ------------ | --------------------------------------- |
+| Lucide         | 2,035  | ISC          | line art — what this spike measured     |
+| Tabler         | 11,314 | MIT          | line art, outline and filled variants   |
+| Phosphor       | 9,072  | MIT          | line art across six weights             |
+| Noto Emoji     | 3,710  | Apache 2.0   | filled colour — needs the variant below |
+| Twemoji        | 3,988  | CC BY 4.0    | filled colour — same                    |
+| OpenMoji       | 4,544  | CC BY-SA 4.0 | share-alike; probably avoid             |
+| game-icons.net | 4,133  | CC BY 3.0    | solid silhouettes — needs the cut route |
+
+**The emoji sets need one importer variant, untested here.** They are flat
+filled colour rather than strokes, so the ink is not a stroke layer — it is the
+**boundary between colour regions**. Each flat area becomes a face, which is
+exactly the model, and emoji carry far more internal structure than line art
+does. If it works it is the highest-yield source on the list by a wide margin.
+
+So the question is not where to find hundreds of drawings. It is how many a
+person is willing to look at: the automated filter already cuts 199 to 122, and
+the contact sheet reviews ~54 at a glance.
+
 ## What this did not settle
 
 - **Recognisability is judgement, not measurement.** Section 3 is my reading of
@@ -231,7 +278,8 @@ generator problem.
   enclosed face at all means it leaked.
 - **Arrowhead legibility** at these grid sizes is a separate, older constraint
   and is untouched here.
-- **Curation at 300 shapes** — this ran 18.
+- **Whether colour-region boundaries work as ink**, which is what unlocks the
+  emoji sets and their thousands of drawings.
 - **Whether a long thin band plays well**, which is what the reference cup is
   made of and what generated cuts would produce.
 - **Whether a rotated shape is acceptable to a player.** Section 10 says it
