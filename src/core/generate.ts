@@ -131,17 +131,25 @@ export function generateBoardWithDiagnostics(
     );
   }
   const silhouette = options.silhouette;
-  if (
-    silhouette !== undefined &&
-    (silhouette.width !== params.gridSize || silhouette.height !== params.gridSize)
-  ) {
+  if (silhouette !== undefined) {
     // Every stage after the mask sizes itself from params.gridSize, so a
     // larger silhouette addresses cells past the end of a typed array, where
     // the write is dropped instead of throwing.
-    throw new RangeError(
-      `generateBoard: supplied silhouette is ${silhouette.width}x${silhouette.height}, but ` +
-        `gridSize is ${params.gridSize}; it must be gridSize square`,
-    );
+    if (silhouette.width !== params.gridSize || silhouette.height !== params.gridSize) {
+      throw new RangeError(
+        `generateBoard: supplied silhouette is ${silhouette.width}x${silhouette.height}, but ` +
+          `gridSize is ${params.gridSize}; it must be gridSize square`,
+      );
+    }
+    // A short `inside` reads undefined past its end, which compares unequal to
+    // 1 and so passes for a cell outside the silhouette: the board would come
+    // out wrong rather than refused.
+    if (silhouette.inside.length !== silhouette.width * silhouette.height) {
+      throw new RangeError(
+        `generateBoard: supplied silhouette is ${silhouette.width}x${silhouette.height} but ` +
+          `holds ${silhouette.inside.length} cells`,
+      );
+    }
   }
   const attemptFailures: string[] = [];
 

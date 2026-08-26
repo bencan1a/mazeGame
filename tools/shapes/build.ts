@@ -148,20 +148,25 @@ async function main(): Promise<void> {
   const inks: Uint8Array[] = [];
   const outlines = new Map<string, string>();
   let viewBox = 0;
-  for (const shape of shapes) {
-    const svg = phosphor.icon(shape.id);
-    if (svg === null) {
-      throw new Error(`${PHOSPHOR_PACKAGE}@${PHOSPHOR_VERSION} has no icon "${shape.id}"`);
+  // A shape the set has changed under us throws mid-loop, and an unclosed
+  // rasteriser leaves a browser running behind the failure.
+  try {
+    for (const shape of shapes) {
+      const svg = phosphor.icon(shape.id);
+      if (svg === null) {
+        throw new Error(`${PHOSPHOR_PACKAGE}@${PHOSPHOR_VERSION} has no icon "${shape.id}"`);
+      }
+      inks.push(await bakeInk(raster, svg));
+      const outline = outlineOf(svg, shape.id);
+      if (viewBox !== 0 && outline.viewBox !== viewBox) {
+        throw new Error(`${shape.id}: viewBox ${outline.viewBox}, the rest are ${viewBox}`);
+      }
+      viewBox = outline.viewBox;
+      outlines.set(shape.id, outline.path);
     }
-    inks.push(await bakeInk(raster, svg));
-    const outline = outlineOf(svg, shape.id);
-    if (viewBox !== 0 && outline.viewBox !== viewBox) {
-      throw new Error(`${shape.id}: viewBox ${outline.viewBox}, the rest are ${viewBox}`);
-    }
-    viewBox = outline.viewBox;
-    outlines.set(shape.id, outline.path);
+  } finally {
+    await raster.close();
   }
-  await raster.close();
 
   const encoder = new TextEncoder();
   const outputs: Output[] = [

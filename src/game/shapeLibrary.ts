@@ -114,8 +114,10 @@ export function decodeShapeLibrary(
 
   const outlines = parseOutlines(outlineText);
   for (const shape of manifest.shapes) {
-    if (outlines.paths[shape.id] === undefined) {
-      throw new Error(`shape outlines have no drawing for "${shape.id}"`);
+    const path = outlines.paths[shape.id];
+    if (path === undefined) throw new Error(`shape outlines have no drawing for "${shape.id}"`);
+    if (typeof path !== 'string' || path === '') {
+      throw new Error(`shape outlines hold no path for "${shape.id}"`);
     }
   }
 
@@ -148,7 +150,7 @@ function parseOutlines(text: string): ShapeOutlines {
     throw new Error('shape outlines have no viewBox');
   }
   if (typeof paths !== 'object' || paths === null) throw new Error('shape outlines have no paths');
-  return { version, viewBox, paths: paths as Record<string, string> };
+  return { version, viewBox, paths: paths as Record<string, unknown> as Record<string, string> };
 }
 
 /** Only ever called with a URL this module built, so it takes no request options. */

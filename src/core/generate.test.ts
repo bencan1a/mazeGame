@@ -614,6 +614,16 @@ describe('generateBoard: a supplied silhouette', () => {
     );
   });
 
+  it('rejects a silhouette holding fewer cells than it claims', () => {
+    // Reading past the end of `inside` answers undefined, which compares
+    // unequal to 1 and so reads as a cell outside the silhouette: the board
+    // would come out wrong rather than refused.
+    const short = { width: gridSize, height: gridSize, inside: new Uint8Array(gridSize) };
+    expect(() => generateBoard(paramsAt({ gridSize, seed: 1 }), { silhouette: short })).toThrow(
+      RangeError,
+    );
+  });
+
   it('surfaces a shape repair rejects as a mask failure that exhausts the budget', () => {
     const empty = rectSilhouette(gridSize, []);
     let thrown: unknown;

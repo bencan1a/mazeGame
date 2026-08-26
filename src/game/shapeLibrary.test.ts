@@ -124,6 +124,13 @@ describe('decodeShapeLibrary', () => {
     );
   });
 
+  it('rejects an outline that is not a path, rather than passing it to a renderer', () => {
+    const broken = outlines(ids, {
+      paths: { one: 42, two: 'M0 0H8V8H0Z', three: 'M0 0H8V8H0Z' },
+    });
+    expect(() => decodeShapeLibrary(manifest(ids), assetOf(inks), broken)).toThrow(/one/);
+  });
+
   it('rejects a manifest that is not JSON', () => {
     expect(() => decodeShapeLibrary('not json', assetOf(inks), outlines(ids))).toThrow();
   });
