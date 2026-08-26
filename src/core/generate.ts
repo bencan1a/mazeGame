@@ -18,12 +18,18 @@
  * deterministically, up to `maxAttempts`. Anything else thrown is a fault
  * rather than a refusal, and propagates rather than being retried into a
  * `GenerationFailedError` indistinguishable from an honest one.
+ *
+ * The silhouette can come from the caller instead of `generateBlob`. A
+ * supplied one is the same on every attempt, so a shape repair rejects
+ * exhausts the retry budget rather than being rescued by a fresh internal
+ * seed.
  */
 
 import { createRng } from './rng.js';
 import type { GenParams, Board, GenerateBoard, HamiltonianPath, Seed } from './types.js';
 import { BoardInvariantError } from './types.js';
 import { generateBlob, repairMask, MaskRepairError } from './mask/index.js';
+import type { Blob, RepairOptions } from './mask/index.js';
 import type { Mask } from './types.js';
 import { buildRegionPaths } from './path/index.js';
 import { peelSegments } from './segment/index.js';
@@ -59,6 +65,15 @@ export interface GenerateBoardOptions {
   readonly validate?: boolean;
   /** Overrides `DEFAULT_MAX_ATTEMPTS`. */
   readonly maxAttempts?: number;
+  /**
+   * Cut the board from this silhouette instead of drawing a procedural blob.
+   * It must be `params.gridSize` square, and it still goes through
+   * `repairMask`, which is what re-establishes every invariant the rest of the
+   * pipeline needs.
+   */
+  readonly silhouette?: Blob;
+  /** Passed to `repairMask`, for either silhouette source. */
+  readonly repair?: RepairOptions;
 }
 
 export interface GenerateBoardDiagnostics {
@@ -99,8 +114,7 @@ type AttemptOutcome =
 /**
  * `generateBoard` plus the retry count and per-attempt failure reasons a
  * tuning harness wants for observability. `generateBoard` below is the thin
- * `GenParams -> Board` view of this that matches the shared `GenerateBoard`
- * type.
+ * board-only view of this.
  */
 export function generateBoardWithDiagnostics(
   params: GenParams,
@@ -116,11 +130,24 @@ export function generateBoardWithDiagnostics(
       `generateBoard: maxAttempts must be a positive integer, got ${maxAttempts}`,
     );
   }
+  const silhouette = options.silhouette;
+  if (
+    silhouette !== undefined &&
+    (silhouette.width !== params.gridSize || silhouette.height !== params.gridSize)
+  ) {
+    // Every stage after the mask sizes itself from params.gridSize, so a
+    // larger silhouette addresses cells past the end of a typed array, where
+    // the write is dropped instead of throwing.
+    throw new RangeError(
+      `generateBoard: supplied silhouette is ${silhouette.width}x${silhouette.height}, but ` +
+        `gridSize is ${params.gridSize}; it must be gridSize square`,
+    );
+  }
   const attemptFailures: string[] = [];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const seed = deriveAttemptSeed(params.seed, attempt);
-    const outcome = attemptGenerate(params, seed, validate);
+    const outcome = attemptGenerate(params, seed, validate, silhouette, options.repair);
     if (outcome.ok) {
       return {
         board: outcome.board,
@@ -148,7 +175,8 @@ export function generateBoardWithDiagnostics(
 }
 
 /** The shared `GenerateBoard` entry point: `(seed, params) -> Board`, retrying and validating internally. */
-export const generateBoard: GenerateBoard = (params) => generateBoardWithDiagnostics(params).board;
+export const generateBoard = ((params: GenParams, options: GenerateBoardOptions = {}): Board =>
+  generateBoardWithDiagnostics(params, options).board) satisfies GenerateBoard;
 
 /**
  * Mixes `attempt` into `seed` through the same rng primitives the rest of the
@@ -166,7 +194,13 @@ export function deriveAttemptSeed(seed: Seed, attempt: number): Seed {
   return createRng(mixed).int(0x100000000);
 }
 
-function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): AttemptOutcome {
+function attemptGenerate(
+  params: GenParams,
+  seed: Seed,
+  validate: boolean,
+  silhouette: Blob | undefined,
+  repair: RepairOptions | undefined,
+): AttemptOutcome {
   const root = createRng(seed);
   const blobSeed = root.int(0x100000000);
   const contourSeed = root.int(0x100000000);
@@ -174,13 +208,15 @@ function attemptGenerate(params: GenParams, seed: Seed, validate: boolean): Atte
 
   let mask: Mask;
   try {
-    const blob = generateBlob({
-      gridSize: params.gridSize,
-      seed: blobSeed,
-      fillFraction: params.fillFraction,
-      lobeCount: params.lobeCount,
-    });
-    mask = repairMask(blob);
+    const blob =
+      silhouette ??
+      generateBlob({
+        gridSize: params.gridSize,
+        seed: blobSeed,
+        fillFraction: params.fillFraction,
+        lobeCount: params.lobeCount,
+      });
+    mask = repairMask(blob, repair);
   } catch (err) {
     if (err instanceof MaskRepairError) return { ok: false, reason: `mask: ${err.message}` };
     throw err;
