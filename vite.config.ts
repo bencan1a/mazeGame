@@ -2,10 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Everything is code — no runtime fonts, images, or audio — so precaching the
-// build output is enough to make the app playable offline after one visit.
-// GitHub Pages serves this from /<repo>/, so the base path comes from the
-// environment at build time. Dev and any root-hosted deploy use '/'.
+// Precaching the build output is what makes the app playable offline after one
+// visit, so the glob has to cover the baked shape asset and its manifest as
+// well as the code. GitHub Pages serves this from /<repo>/, so the base path
+// comes from the environment at build time. Dev and any root-hosted deploy
+// use '/'.
 const base = process.env.VITE_BASE ?? '/';
 
 export default defineConfig({
@@ -16,7 +17,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,bin,json,md}'],
         globIgnores: ['bench.html'],
         navigateFallback: `${base}index.html`,
         // Without this the navigation route answers every path with the app

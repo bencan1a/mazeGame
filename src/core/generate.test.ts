@@ -6,6 +6,8 @@ import * as contourModule from './path/contour.js';
 import * as segmentModule from './segment/index.js';
 import { BoardInvariantError, DEFAULT_GEN_PARAMS } from './types.js';
 import type { GenParams } from './types.js';
+import type { Blob } from './mask/index.js';
+import { toIndex } from './grid.js';
 import { computeMetrics } from './metrics.js';
 import {
   DEFAULT_MAX_ATTEMPTS,
@@ -14,6 +16,7 @@ import {
   generateBoard,
   generateBoardWithDiagnostics,
 } from './generate.js';
+import type { GenerateBoardResult } from './generate.js';
 
 // Every spy below stubs a module this file also calls unstubbed. A spy that
 // outlives a failing assertion turns one red test into several.
@@ -480,4 +483,199 @@ describe('generateBoard: bendProbability steers the path', () => {
     expect(rate).toBeGreaterThan(artBand.low);
     expect(rate).toBeLessThan(artBand.high + 0.02);
   }, 60_000);
+});
+
+/**
+ * FNV-1a over everything a generated board carries: its dimensions, segment
+ * count, the attempt it landed on, and every CSR array end to end.
+ */
+function hashBoard(result: GenerateBoardResult): string {
+  let hash = 0x811c9dc5;
+  const mix = (value: number): void => {
+    hash ^= value >>> 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  };
+  const { board } = result;
+  mix(board.width);
+  mix(board.height);
+  mix(board.segmentCount);
+  mix(result.diagnostics.attempts);
+  const arrays: readonly ArrayLike<number>[] = [
+    board.occupancy,
+    board.segStart,
+    board.segCells,
+    board.segHead,
+    board.segDir,
+    board.edgeStart,
+    board.edgeTarget,
+    board.segColor,
+  ];
+  for (const array of arrays) {
+    mix(array.length);
+    for (let i = 0; i < array.length; i++) mix(array[i] as number);
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/** A silhouette made of axis-aligned filled rectangles, each `[x, y, width, height]`. */
+function rectSilhouette(
+  gridSize: number,
+  rects: readonly (readonly [number, number, number, number])[],
+): Blob {
+  const inside = new Uint8Array(gridSize * gridSize);
+  for (const [x0, y0, w, h] of rects) {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) inside[toIndex(x, y, gridSize)] = 1;
+    }
+  }
+  return { width: gridSize, height: gridSize, inside };
+}
+
+function coveredCells(board: ReturnType<typeof generateBoard>): number[] {
+  const cells: number[] = [];
+  for (let i = 0; i < board.occupancy.length; i++) if (board.occupancy[i] !== 0) cells.push(i);
+  return cells;
+}
+
+describe('generateBoard: no silhouette supplied reproduces the procedural board exactly', () => {
+  // Each hash is what `hashBoard` read off this generator before it took a
+  // silhouette at all, so a board that shifts by one cell fails here rather
+  // than passing as "deterministic with itself".
+  it.each([
+    { seed: 1, gridSize: 20, hash: '7c617b26' },
+    { seed: 7, gridSize: 24, hash: 'bf017a90' },
+    { seed: 12, gridSize: 30, hash: '47de9811' },
+    { seed: 34, gridSize: 20, hash: '76145160' },
+    { seed: 2, gridSize: 40, hash: 'a8b74fb7' },
+  ])(
+    'matches the pre-option board for seed $seed at gridSize $gridSize',
+    ({ seed, gridSize, hash }) => {
+      expect(hashBoard(generateBoardWithDiagnostics(paramsAt({ seed, gridSize })))).toBe(hash);
+    },
+  );
+
+  it('is unaffected by an options object that leaves the silhouette out', () => {
+    const params = paramsAt({ gridSize: 24, seed: 9 });
+    const plain = generateBoard(params);
+    expect(() => assertDeterministic(plain, generateBoard(params, {}))).not.toThrow();
+    expect(() =>
+      assertDeterministic(plain, generateBoard(params, { validate: true, maxAttempts: 8 })),
+    ).not.toThrow();
+  });
+});
+
+describe('generateBoard: a supplied silhouette', () => {
+  const gridSize = 24;
+  const rect = rectSilhouette(gridSize, [[4, 4, 16, 16]]);
+
+  it('cuts the board from the supplied shape rather than a procedural blob', () => {
+    const params = paramsAt({ gridSize, seed: 5 });
+    const supplied = generateBoardWithDiagnostics(params, { silhouette: rect });
+
+    for (const cell of coveredCells(supplied.board)) {
+      expect(rect.inside[cell]).toBe(1);
+    }
+    expect(() => assertDeterministic(supplied.board, generateBoard(params))).toThrow(
+      BoardInvariantError,
+    );
+    assertExternallySound(supplied.board);
+  });
+
+  it('reports the repaired supplied shape as the board mask', () => {
+    const result = generateBoardWithDiagnostics(paramsAt({ gridSize, seed: 5 }), {
+      silhouette: rect,
+    });
+    for (let i = 0; i < result.mask.inside.length; i++) {
+      if (result.mask.inside[i] === 1) expect(rect.inside[i]).toBe(1);
+    }
+  });
+
+  it('is passed through repairMask with the caller RepairOptions', () => {
+    const twoLobes = rectSilhouette(40, [
+      [4, 4, 20, 20],
+      [28, 28, 8, 8],
+    ]);
+    const params = paramsAt({ gridSize: 40, seed: 3 });
+    const smallLobeCell = toIndex(31, 31, 40);
+
+    const kept = generateBoardWithDiagnostics(params, { silhouette: twoLobes });
+    expect(kept.mask.inside[smallLobeCell]).toBe(1);
+
+    const dropped = generateBoardWithDiagnostics(params, {
+      silhouette: twoLobes,
+      repair: { minRegionCells: 60 },
+    });
+    expect(dropped.mask.inside[smallLobeCell]).toBe(0);
+  });
+
+  it('rejects a silhouette that is not gridSize square, without spending an attempt', () => {
+    expect(() => generateBoard(paramsAt({ gridSize: 20, seed: 1 }), { silhouette: rect })).toThrow(
+      RangeError,
+    );
+  });
+
+  it('rejects a silhouette holding fewer cells than it claims', () => {
+    // Reading past the end of `inside` answers undefined, which compares
+    // unequal to 1 and so reads as a cell outside the silhouette: the board
+    // would come out wrong rather than refused.
+    const short = { width: gridSize, height: gridSize, inside: new Uint8Array(gridSize) };
+    expect(() => generateBoard(paramsAt({ gridSize, seed: 1 }), { silhouette: short })).toThrow(
+      RangeError,
+    );
+  });
+
+  it('surfaces a shape repair rejects as a mask failure that exhausts the budget', () => {
+    const empty = rectSilhouette(gridSize, []);
+    let thrown: unknown;
+    try {
+      generateBoard(paramsAt({ gridSize, seed: 5 }), { silhouette: empty, maxAttempts: 3 });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(GenerationFailedError);
+    const detail = (thrown as GenerationFailedError).detail as {
+      attemptFailures: readonly string[];
+    };
+    expect(detail.attemptFailures).toHaveLength(3);
+    for (const reason of detail.attemptFailures) expect(reason).toMatch(/^mask: /);
+  });
+
+  describe('property tests', () => {
+    const even = (low: number, high: number): fc.Arbitrary<number> =>
+      fc.integer({ min: low / 2, max: high / 2 }).map((half) => half * 2);
+
+    it('gives an identical board for the same (silhouette, seed, params)', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 1, max: 10_000 }),
+          even(0, 6),
+          even(12, 18),
+          (seed, origin, side) => {
+            const params = paramsAt({ gridSize: 24, seed });
+            const silhouette = rectSilhouette(24, [[origin, origin, side, side]]);
+            const a = generateBoard(params, { silhouette });
+            const b = generateBoard(params, { silhouette });
+            expect(() => assertDeterministic(a, b)).not.toThrow();
+          },
+        ),
+        { numRuns: 12 },
+      );
+    });
+
+    it('gives a different board for a different silhouette at the same seed', () => {
+      fc.assert(
+        fc.property(fc.integer({ min: 1, max: 10_000 }), (seed) => {
+          const params = paramsAt({ gridSize: 24, seed });
+          const wide = generateBoard(params, {
+            silhouette: rectSilhouette(24, [[2, 6, 20, 12]]),
+          });
+          const tall = generateBoard(params, {
+            silhouette: rectSilhouette(24, [[6, 2, 12, 20]]),
+          });
+          expect(() => assertDeterministic(wide, tall)).toThrow(BoardInvariantError);
+        }),
+        { numRuns: 8 },
+      );
+    });
+  });
 });

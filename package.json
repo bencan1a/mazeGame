@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build",
     "budget": "node scripts/check-budget.mjs",
     "icons": "node scripts/make-icons.mjs",
+    "shapes": "tsx tools/shapes/build.ts",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "lint": "eslint .",

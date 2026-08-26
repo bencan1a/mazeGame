@@ -7,6 +7,7 @@ import {
   type PlayParams,
 } from '../core/types.js';
 import { clearSavedGame, loadSavedGame, saveGame, type SavedGame } from '../game/persistence.js';
+import { genParamsForShape, type ShapeDrawing } from '../game/shapeBoard.js';
 import {
   createBoardController,
   type BoardController,
@@ -18,14 +19,21 @@ import { DevPanel } from './DevPanel.js';
 /** How long a lost board stays readable before it replays the same seed. */
 const LOSS_BEAT_MS = 1600;
 
+function defaultSearch(): string | undefined {
+  return typeof window === 'undefined' ? undefined : window.location.search;
+}
+
 /**
- * `?grid=` and `?seed=` override the defaults for the very first board. Once
- * the dev panel is open it takes over live editing of every generation
- * parameter.
+ * `?grid=` and `?seed=` override the derived defaults for the very first
+ * board. Once the dev panel is open it takes over live editing of every
+ * generation parameter.
  */
-function paramsFromLocation(): GenParams {
-  if (typeof window === 'undefined') return DEFAULT_GEN_PARAMS;
-  const query = new URLSearchParams(window.location.search);
+export function paramsFromLocation(
+  base: GenParams,
+  search: string | undefined = defaultSearch(),
+): GenParams {
+  if (search === undefined) return base;
+  const query = new URLSearchParams(search);
   const asInt = (key: string, min: number, max: number): number | null => {
     const raw = query.get(key)?.trim();
     // `Number('')` is 0, so an empty parameter would silently pick a board
@@ -35,11 +43,11 @@ function paramsFromLocation(): GenParams {
     return Number.isInteger(value) && value >= min && value <= max ? value : null;
   };
   return {
-    ...DEFAULT_GEN_PARAMS,
-    gridSize: asInt('grid', 8, 100) ?? DEFAULT_GEN_PARAMS.gridSize,
+    ...base,
+    gridSize: asInt('grid', 8, 100) ?? base.gridSize,
     // A seed is unsigned 32-bit: the rng truncates anything wider, so a larger
     // value would silently play a different board than the one it names.
-    seed: asInt('seed', 0, 0xffffffff) ?? DEFAULT_GEN_PARAMS.seed,
+    seed: asInt('seed', 0, 0xffffffff) ?? base.seed,
   };
 }
 
@@ -54,18 +62,46 @@ const INITIAL_HUD: BoardHud = {
   droppedSegments: 0,
 };
 
+export interface BoardMountProps {
+  /**
+   * The shape this board plays. Fixes the derived seed and travels into every
+   * save. Null is a board with no shape behind it, which is what a URL naming
+   * a seed or a grid size opens.
+   */
+  readonly shapeId: string | null;
+  /**
+   * The shape's drawing, which the board is cut from. Absent, the generator
+   * draws a procedural blob — which is what a URL naming a seed opens on.
+   */
+  readonly drawing?: ShapeDrawing;
+  /** Returns to the home screen. Safe to call at any point, including mid-animation. */
+  readonly onExit: () => void;
+}
+
 /**
  * Mounts the board behind refs and never re-renders it. React state here holds
  * only what the chrome shows; every canvas write happens in the controller.
  */
-export function BoardMount(): ReactElement {
+/** A board nobody has played yet: nothing to resume, and nothing worth replacing a save for. */
+export function untouched(state: ResumableState): boolean {
+  return (
+    state.snapshot.removedSegments.length === 0 &&
+    (state.snapshot.bouncedSegments?.length ?? 0) === 0 &&
+    state.snapshot.lives === state.playParams.lives
+  );
+}
+
+export function BoardMount(props: BoardMountProps): ReactElement {
+  const { shapeId, drawing, onExit } = props;
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<BoardController | null>(null);
   const [hud, setHud] = useState<BoardHud>(INITIAL_HUD);
   const [error, setError] = useState<string | null>(null);
-  const [genParams, setGenParams] = useState<GenParams>(paramsFromLocation);
+  const [genParams, setGenParams] = useState<GenParams>(() =>
+    paramsFromLocation(genParamsForShape(shapeId)),
+  );
   const [playParams, setPlayParams] = useState<PlayParams>(DEFAULT_PLAY_PARAMS);
   const [panelOpen, setPanelOpen] = useState(false);
   const [metrics, setMetrics] = useState<BoardMetrics | null>(null);
@@ -75,34 +111,59 @@ export function BoardMount(): ReactElement {
   const saveTimerRef = useRef<number | null>(null);
 
   /**
+   * Writes whatever is pending straight away, cancelling any debounce still
+   * waiting on it. Called both from that debounce and from teardown, so
+   * leaving the board — including mid-animation — never drops the write a
+   * timer at zero milliseconds had not yet run.
+   */
+  const flushPending = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const latest = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    if (latest === null) return;
+    // A finished board is not worth resuming: it would come back already
+    // over, with nothing to play and no way to tell why.
+    if (latest.status !== 'playing') {
+      clearSavedGame();
+      return;
+    }
+    // Opening a shape and leaving it alone must not cost the player the board
+    // they had going on another one. The controller publishes a snapshot the
+    // moment it mounts, so without this a mis-tap on Play overwrites the save.
+    if (untouched(latest)) return;
+    saveGame(
+      latest.snapshot,
+      latest.genParams,
+      latest.playParams,
+      latest.segmentCount,
+      latest.shapeId,
+    );
+  }, []);
+
+  /**
    * Writing straight from the callback would put a synchronous `localStorage`
    * write on the frame that finishes an exit animation, where a dropped frame
    * is most visible. Only the newest state is ever written; the ones a fast
    * sequence of taps produces in between are superseded before the timer runs.
    */
-  const persist = useCallback((state: ResumableState) => {
-    pendingSaveRef.current = state;
-    if (saveTimerRef.current !== null) return;
-    saveTimerRef.current = window.setTimeout(() => {
-      saveTimerRef.current = null;
-      const latest = pendingSaveRef.current;
-      pendingSaveRef.current = null;
-      if (latest === null) return;
-      // A finished board is not worth resuming: it would come back already
-      // over, with nothing to play and no way to tell why.
-      if (latest.status !== 'playing') {
-        clearSavedGame();
-        return;
-      }
-      saveGame(latest.snapshot, latest.genParams, latest.playParams, latest.segmentCount);
-    }, 0);
-  }, []);
+  const persist = useCallback(
+    (state: ResumableState) => {
+      pendingSaveRef.current = state;
+      if (saveTimerRef.current !== null) return;
+      saveTimerRef.current = window.setTimeout(flushPending, 0);
+    },
+    [flushPending],
+  );
 
   useEffect(() => {
     const surface = surfaceRef.current;
     const base = baseRef.current;
     const overlay = overlayRef.current;
     if (surface === null || base === null || overlay === null) return;
+    const cutFrom = drawing === undefined ? {} : { drawing };
 
     const mountController = (saved: SavedGame | null): BoardController =>
       createBoardController(
@@ -110,19 +171,21 @@ export function BoardMount(): ReactElement {
         saved?.genParams ?? genParams,
         saved?.playParams ?? playParams,
         saved === null
-          ? { onSnapshot: persist }
+          ? { onSnapshot: persist, shapeId, ...cutFrom }
           : {
               snapshot: saved.snapshot,
               expectedSegmentCount: saved.segmentCount,
               onSnapshot: persist,
+              shapeId,
+              ...cutFrom,
             },
       );
 
-    // A save is only worth resuming onto the board its own seed generates, and
-    // whether it does is not knowable until that board exists. So the resume
-    // is attempted and the saved game dropped if the controller refuses it,
-    // rather than validated up front by generating the board twice.
-    const saved = loadSavedGame();
+    // The one save slot only ever resumes onto the shape it was written for;
+    // a save for a different shape is left alone rather than reused, and the
+    // fresh board below overwrites it as soon as it has anything to persist.
+    const loaded = loadSavedGame();
+    const saved = loaded !== null && loaded.shapeId === shapeId ? loaded : null;
     let controller: BoardController;
     try {
       controller = mountController(saved);
@@ -150,13 +213,12 @@ export function BoardMount(): ReactElement {
       unsubscribe();
       controller.destroy();
       controllerRef.current = null;
-      if (saveTimerRef.current !== null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
+      flushPending();
     };
-    // Runs once: the dev panel drives every later parameter change through
-    // `reconfigure` on the same controller, not through a remount.
+    // Runs once per mount: the dev panel drives every later parameter change
+    // through `reconfigure` on the same controller, not through a remount,
+    // and a shape change remounts this component from scratch under a fresh
+    // `shapeId` rather than reusing this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -214,6 +276,9 @@ export function BoardMount(): ReactElement {
   return (
     <div className="board-shell">
       <header className="hud">
+        <button type="button" onClick={onExit}>
+          Home
+        </button>
         <span className="hud-title">Arrow Maze</span>
         <span className="hud-stat" aria-label={`${hud.lives} lives remaining`}>
           {'♥'.repeat(Math.max(0, hud.lives)) || '—'}

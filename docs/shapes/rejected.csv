@@ -1,0 +1,98 @@
+id,reason,regions,fill,segments
+air-traffic-control,"too thin",3,0.179,86
+airplane-in-flight,"too thin",1,0.170,71
+airplane-landing,"too thin",1,0.171,73
+airplane-takeoff,"too thin",1,0.152,63
+airplane-taxiing,"too thin",1,0.164,59
+article-medium,"leaked",0,0.000,0
+article-ny-times,"leaked",0,0.000,0
+asclepius,"too thin",1,0.016,8
+axe,"too thin",3,0.167,77
+barbell,"too thin",4,0.165,59
+belt,"too thin",2,0.118,56
+bicycle,"too thin",2,0.078,28
+biohazard,"too thin",3,0.101,43
+bridge,"too thin",3,0.070,30
+campfire,"too thin",2,0.130,56
+chalkboard-simple,"too thin",1,0.013,5
+champagne,"too thin",2,0.128,53
+cheers,"too thin",4,0.156,64
+cigarette-slash,"too thin",2,0.068,27
+cigarette,"too thin",2,0.142,56
+coat-hanger,"too thin",1,0.145,56
+compass-rose,"too thin",8,0.174,72
+cube-focus,"too thin",3,0.149,58
+desk,"too thin",2,0.134,57
+dna,"leaked",0,0.000,0
+eyeglasses,"too thin",2,0.131,56
+farm,"too thin",2,0.116,62
+fire-extinguisher,"too thin",3,0.177,68
+fire-truck,"too thin",6,0.096,42
+fork-knife,"too thin",1,0.082,37
+globe-x,"too thin",5,0.164,68
+headphones,"too thin",2,0.095,40
+headset,"too thin",2,0.080,30
+hockey,"too thin",3,0.053,21
+island,"too thin",1,0.008,2
+map-pin-area,"too thin",1,0.172,75
+map-pin-simple-area,"too thin",1,0.038,13
+map-pin-simple-line,"too thin",1,0.140,64
+map-pin-simple,"too thin",1,0.108,45
+martini,"too thin",2,0.130,55
+meteor,"too thin",1,0.044,18
+moped,"too thin",3,0.092,36
+motorcycle,"too thin",2,0.037,9
+mountains,"too thin",4,0.178,72
+needle,"faces collapsed",1,0.101,37
+office-chair,"too thin",1,0.149,70
+park,"too thin",4,0.085,37
+person-simple-bike,"too thin",3,0.089,34
+person-simple-hike,"too thin",2,0.029,10
+person-simple-run,"too thin",1,0.018,6
+person-simple-ski,"too thin",1,0.009,2
+person-simple-snowboard,"too thin",3,0.112,51
+person-simple-swim,"too thin",2,0.068,22
+person-simple-tai-chi,"too thin",1,0.021,16
+person-simple-throw,"too thin",1,0.018,6
+person-simple-walk,"too thin",1,0.017,10
+person-simple,"too thin",1,0.018,6
+person,"too thin",2,0.179,62
+picnic-table,"too thin",1,0.075,34
+pipe-wrench,"too thin",3,0.137,52
+plant,"too thin",2,0.141,68
+prescription,"too thin",1,0.170,75
+pulse,"leaked",0,0.000,0
+push-pin-simple-slash,"too thin",1,0.082,30
+push-pin-slash,"too thin",1,0.108,51
+racquet,"too thin",8,0.129,49
+radioactive,"leaked",0,0.000,0
+rainbow-cloud,"too thin",1,0.084,34
+rainbow,"leaked",0,0.000,0
+road-horizon,"leaked",0,0.000,0
+scales,"too thin",2,0.087,36
+scooter,"too thin",2,0.047,21
+screwdriver,"too thin",1,0.151,64
+seat,"too thin",1,0.173,93
+seatbelt,"too thin",1,0.064,21
+shooting-star,"faces collapsed",1,0.099,43
+shower,"too thin",1,0.116,55
+snowflake,"leaked",0,0.000,0
+solar-panel,"too thin",6,0.100,40
+steps,"leaked",0,0.000,0
+stethoscope,"too thin",1,0.038,10
+strategy,"too thin",1,0.039,16
+subway,"too thin",4,0.155,66
+sun-horizon,"too thin",1,0.108,32
+sunglasses,"too thin",4,0.082,33
+swimming-pool,"too thin",2,0.063,27
+syringe,"too thin",1,0.159,64
+target,"leaked",0,0.000,0
+thermometer-hot,"too thin",2,0.164,59
+thermometer-simple,"too thin",2,0.172,73
+tornado,"leaked",0,0.000,0
+tree-palm,"too thin",4,0.124,59
+trolley,"leaked",0,0.000,0
+waves,"leaked",0,0.000,0
+wheelchair-motion,"too thin",1,0.018,6
+wheelchair,"too thin",1,0.018,4
+wind,"leaked",0,0.000,0

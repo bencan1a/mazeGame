@@ -306,11 +306,12 @@ export interface SavedRecord {
 
 /**
  * The app's saved game, found by scanning storage rather than by naming the
- * key: the key is the app's own and there is only ever one.
+ * version in the key. The app keeps other keys of its own — which shape the
+ * home screen was last showing, for one — so this matches the save alone.
  */
 export async function readSavedGame(page: Page): Promise<SavedRecord | null> {
   return page.evaluate(() => {
-    const keys = Object.keys(localStorage).filter((key) => key.startsWith('arrow-maze'));
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('arrow-maze:save'));
     if (keys.length === 0) return null;
     if (keys.length > 1) throw new Error(`expected one saved game, found ${keys.join(', ')}`);
     const key = keys[0] as string;

@@ -1,7 +1,8 @@
 /**
- * Persists `(seed, params, removedSegments, bouncedSegments, lives)` to
- * `localStorage` so a reload or a force-quit resumes mid-game. No `Board` is
- * stored, only what regenerates one.
+ * Persists `(seed, params, removedSegments, bouncedSegments, lives, shapeId)`
+ * to `localStorage` so a reload or a force-quit resumes mid-game. No `Board`
+ * is stored, only what regenerates one. There is one slot: a later
+ * `saveGame` call, for any shape, overwrites whatever was there.
  *
  * `localStorage` throws in more places than its type admits: Safari private
  * mode, over quota, site data disabled. Every read and every write here is
@@ -44,6 +45,8 @@ export interface SavedGame {
   readonly playParams: PlayParams;
   readonly snapshot: GameSnapshot;
   readonly segmentCount: number;
+  /** The shape the save was written for, or `null` for a procedural board. */
+  readonly shapeId: string | null;
 }
 
 interface StoredRecord {
@@ -55,6 +58,8 @@ interface StoredRecord {
   readonly bouncedSegments?: readonly number[];
   readonly lives: number;
   readonly segmentCount: number;
+  /** Absent in a record written before shapes existed, which reads as `null`. */
+  readonly shapeId?: string | null;
 }
 
 function defaultStorage(): GameStorage | undefined {
@@ -138,9 +143,15 @@ function isStoredRecord(value: unknown): value is StoredRecord {
   // claiming more ids than the board holds is rejected on its length, before
   // anything iterates a tampered array.
   if (!isSegmentIdList(record.removedSegments, segmentCount)) return false;
-  return record.bouncedSegments === undefined
-    ? true
-    : isSegmentIdList(record.bouncedSegments, segmentCount);
+  if (
+    record.bouncedSegments !== undefined &&
+    !isSegmentIdList(record.bouncedSegments, segmentCount)
+  ) {
+    return false;
+  }
+  return (
+    record.shapeId === undefined || record.shapeId === null || typeof record.shapeId === 'string'
+  );
 }
 
 function isSegmentIdList(value: unknown, segmentCount: number): value is readonly number[] {
@@ -190,6 +201,7 @@ export function loadSavedGame(
       lives: parsed.lives,
     },
     segmentCount: parsed.segmentCount,
+    shapeId: parsed.shapeId ?? null,
   };
 }
 
@@ -205,6 +217,7 @@ export function saveGame(
   genParams: GenParams,
   playParams: PlayParams,
   segmentCount: number,
+  shapeId: string | null = null,
   storage: GameStorage | undefined = defaultStorage(),
 ): void {
   if (storage === undefined) return;
@@ -216,6 +229,7 @@ export function saveGame(
     bouncedSegments: [...(snapshot.bouncedSegments ?? [])],
     lives: snapshot.lives,
     segmentCount,
+    shapeId,
   };
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(record));

@@ -5,6 +5,15 @@ package-lock.json
 # Generated
 docs/backlog.md
 
+# Baked by `npm run shapes`. Reformatting any of these breaks the bake's
+# byte-for-byte reproducibility: the notice has to stay identical to the
+# licence it was generated from, and the manifest and outlines are one line
+# per shape so a library change reads as a small diff.
+THIRD-PARTY-NOTICES.md
+public/THIRD-PARTY-NOTICES.md
+public/shapes-v1.json
+public/shapes-v1-outlines.json
+
 # Live checkouts for parallel stream agents; see eslint.config.js
 .claude/worktrees/
 

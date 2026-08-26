@@ -50,14 +50,11 @@ test.describe('persistence', () => {
     await expect.poll(() => canvasSignature(page)).toBe(midGame);
   });
 
-  test('a fresh browser with no save starts the default board', async ({ page }) => {
+  test('a fresh browser with no save opens the home screen, not a board', async ({ page }) => {
     await page.goto(BASE_PATH);
-    await expect(page.locator('.board-canvas').first()).toBeVisible();
-    await expect.poll(async () => (await readCounter(page)).total).toBeGreaterThan(0);
-
-    const board = fixtureBoard(FIXTURE_BOARD);
-    // The fixture is not the default, so its board is proof the query string
-    // was the only reason the other tests got it.
-    expect((await readCounter(page)).total).not.toBe(board.segmentCount);
+    await expect(page.locator('.home-screen')).toBeVisible();
+    // No board at all is what proves the query string was the only reason the
+    // other tests got the fixture one.
+    await expect(page.locator('.board-canvas')).toHaveCount(0);
   });
 });
