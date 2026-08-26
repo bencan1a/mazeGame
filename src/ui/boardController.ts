@@ -503,11 +503,13 @@ export function createBoardController(
     introActive = false;
     intro = null;
     surface.removeAttribute('data-intro');
-    // The reveal painted every segment outside these two sets, so this is what
-    // the buffer now holds; syncStaticLayer repaints only if the game moved
-    // while it was running.
-    drawnHidden = introHidden;
-    drawnBounced = introBounced;
+    // A reveal that reached the last segment painted every segment outside
+    // these two sets, so this is what the buffer holds and syncStaticLayer
+    // repaints only if the game moved while it was running. One cut short by
+    // a failed frame left the buffer part drawn, which no drawn set describes.
+    const revealedAll = introRevealed >= board.segmentCount;
+    drawnHidden = revealedAll ? introHidden : null;
+    drawnBounced = revealedAll ? introBounced : null;
     syncStaticLayer();
     viewport = restingViewport();
     blit();

@@ -28,12 +28,7 @@ import {
 /** How long the whole reveal takes. */
 export const INTRO_DURATION_MS = 1400;
 
-/**
- * Where the camera starts, as a multiple of the resting fit scale. A caller
- * passes the result through `clampZoomScale`: the static buffer only holds so
- * much detail, and magnifying past that trades a zoomed-in look for a blurry
- * one.
- */
+/** Where the camera starts, as a multiple of the resting fit scale. */
 export const INTRO_START_ZOOM = 2.5;
 
 function clamp01(value: number): number {
@@ -87,7 +82,7 @@ export function introFocusCell(board: Board): Cell {
 export interface IntroCameraOptions {
   /** The viewport the reveal lands on — fitted to the canvas and pan-clamped. */
   readonly resting: Viewport<'css'>;
-  /** CSS px per cell the reveal opens at. Clamp it before passing it in. */
+  /** CSS px per cell the reveal opens at. A value the camera cannot use falls back to `resting`. */
   readonly startScale: number;
   /** Board cell the opening view is centred on. See `introFocusCell`. */
   readonly focus: Cell;
@@ -139,7 +134,11 @@ export interface IntroAnimationOptions {
    * caller may draw only what the previous call did not.
    */
   readonly onFrame: (frame: IntroFrame) => void;
-  /** Called exactly once, after the final full-reveal frame. Never after `cancel()`. */
+  /**
+   * Called exactly once, when the reveal ends — after the final full-reveal
+   * frame, or in its place if painting that frame failed. Never after
+   * `cancel()`.
+   */
   readonly onComplete: () => void;
 }
 
