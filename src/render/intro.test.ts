@@ -3,13 +3,12 @@ import {
   INTRO_START_ZOOM,
   introCamera,
   introEase,
-  introFocusCell,
   revealedSegmentCount,
   startIntroAnimation,
   type IntroFrame,
 } from './intro.js';
 import type { SnakeOutScheduler } from './animate.js';
-import { clampPan, createViewport, cell, type PanBounds } from './viewport.js';
+import { clampPan, createViewport, type PanBounds } from './viewport.js';
 import { ACYCLIC_BOARD, makeBoard } from '../../test/fixtures/board.js';
 import type { Board } from '../core/types.js';
 
@@ -126,23 +125,6 @@ describe('revealedSegmentCount', () => {
   });
 });
 
-describe('introFocusCell', () => {
-  it('opens on the tail of the first segment, where the path starts', () => {
-    expect(introFocusCell(ACYCLIC_BOARD)).toEqual(cell(0, 0));
-  });
-
-  it('opens on the middle of a board with no segments to start from', () => {
-    const empty = {
-      width: 5,
-      height: 3,
-      segmentCount: 0,
-      segStart: Uint32Array.from([0]),
-      segCells: new Uint32Array(0),
-    } as unknown as Board;
-    expect(introFocusCell(empty)).toEqual(cell(2, 1));
-  });
-});
-
 describe('introCamera', () => {
   // A 4x4 board on a 400x400 canvas fits at 100 CSS px per cell.
   const board = ACYCLIC_BOARD;
@@ -155,38 +137,36 @@ describe('introCamera', () => {
   const resting = clampPan(createViewport({ scale: 100, dpr: 2 }), bounds);
   const startScale = 100 * INTRO_START_ZOOM;
 
-  it('opens zoomed in with the focus cell under the middle of the canvas', () => {
-    const opened = introCamera({ resting, startScale, focus: cell(2, 2), progress: 0, bounds });
+  it('opens zoomed in on the middle of the board', () => {
+    const opened = introCamera({ resting, startScale, progress: 0, bounds });
     expect(opened.scale).toBe(startScale);
-    // (2 + 0.5) cells at 250 px is 625 px from the origin; the canvas centre is 200.
-    expect(opened.originX).toBeCloseTo(-425, 10);
-    expect(opened.originY).toBeCloseTo(-425, 10);
+    // 4 cells at 250 px is 1000 px of board against a 400 px canvas.
+    expect(opened.originX).toBeCloseTo(-300, 10);
+    expect(opened.originY).toBeCloseTo(-300, 10);
   });
 
   it('lands exactly on the resting viewport, so nothing jumps as it ends', () => {
-    expect(introCamera({ resting, startScale, focus: cell(2, 2), progress: 1, bounds })).toEqual(
-      resting,
-    );
+    expect(introCamera({ resting, startScale, progress: 1, bounds })).toEqual(resting);
   });
 
-  it('keeps the board covering the canvas even when it opens on a corner', () => {
-    const opened = introCamera({ resting, startScale, focus: cell(0, 0), progress: 0, bounds });
-    // Centring cell (0, 0) would put the origin at 75, leaving the board's own
-    // left edge inside the canvas; the pan clamp pulls it back to 0.
-    expect(opened.originX).toBe(0);
-    expect(opened.originY).toBe(0);
+  it('holds the board centre under the canvas centre the whole way, so nothing pans', () => {
+    for (let i = 0; i <= 20; i++) {
+      const frame = introCamera({ resting, startScale, progress: i / 20, bounds });
+      expect(frame.originX + (board.width * frame.scale) / 2).toBeCloseTo(
+        bounds.canvasCssWidth / 2,
+        10,
+      );
+      expect(frame.originY + (board.height * frame.scale) / 2).toBeCloseTo(
+        bounds.canvasCssHeight / 2,
+        10,
+      );
+    }
   });
 
   it('pulls back monotonically', () => {
     let previous = Infinity;
     for (let i = 0; i <= 50; i++) {
-      const { scale } = introCamera({
-        resting,
-        startScale,
-        focus: cell(2, 2),
-        progress: i / 50,
-        bounds,
-      });
+      const { scale } = introCamera({ resting, startScale, progress: i / 50, bounds });
       expect(scale).toBeLessThanOrEqual(previous);
       previous = scale;
     }
@@ -194,15 +174,13 @@ describe('introCamera', () => {
   });
 
   it('carries the resting dpr, since the camera only moves the sampled rectangle', () => {
-    const mid = introCamera({ resting, startScale, focus: cell(2, 2), progress: 0.5, bounds });
+    const mid = introCamera({ resting, startScale, progress: 0.5, bounds });
     expect(mid.dpr).toBe(resting.dpr);
     expect(mid.space).toBe('css');
   });
 
   it('falls back to the resting viewport rather than a viewport it cannot build', () => {
-    expect(
-      introCamera({ resting, startScale: NaN, focus: cell(2, 2), progress: 0.5, bounds }),
-    ).toEqual(resting);
+    expect(introCamera({ resting, startScale: NaN, progress: 0.5, bounds })).toEqual(resting);
   });
 });
 

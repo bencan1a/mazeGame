@@ -1,7 +1,7 @@
 /**
  * The opening reveal: the board draws itself one segment at a time along the
- * path while the camera pulls back from a close view of where the drawing
- * starts to the whole silhouette.
+ * path while the camera pulls straight back from the middle of the board to
+ * the whole silhouette.
  *
  * Segment ids run along the path, so revealing them in id order draws the
  * board as one continuous line filling the shape rather than as pieces
@@ -16,14 +16,7 @@
 
 import type { Board } from '../core/types.js';
 import type { SnakeOutScheduler } from './animate.js';
-import {
-  cell,
-  clampPan,
-  createViewport,
-  type Cell,
-  type PanBounds,
-  type Viewport,
-} from './viewport.js';
+import { clampPan, createViewport, type PanBounds, type Viewport } from './viewport.js';
 
 /** How long the whole reveal takes. */
 export const INTRO_DURATION_MS = 1400;
@@ -66,53 +59,36 @@ export function revealedSegmentCount(board: Board, progress: number): number {
   return lo;
 }
 
-/**
- * The cell the camera opens on: the tail of the first segment, which is where
- * the path — and so the reveal — begins. A board with no segments has nowhere
- * to look, so the centre stands in.
- */
-export function introFocusCell(board: Board): Cell {
-  if (board.segmentCount === 0 || board.segCells.length === 0) {
-    return cell((board.width - 1) / 2, (board.height - 1) / 2);
-  }
-  const index = board.segCells[0] as number;
-  return cell(index % board.width, Math.floor(index / board.width));
-}
-
 export interface IntroCameraOptions {
   /** The viewport the reveal lands on — fitted to the canvas and pan-clamped. */
   readonly resting: Viewport<'css'>;
   /** CSS px per cell the reveal opens at. A value the camera cannot use falls back to `resting`. */
   readonly startScale: number;
-  /** Board cell the opening view is centred on. See `introFocusCell`. */
-  readonly focus: Cell;
   readonly progress: number;
   readonly bounds: PanBounds;
 }
 
 /**
- * The camera for one frame of the reveal: `startScale` centred on `focus` at
- * progress 0, `resting` at progress 1, eased between. Both the scale and the
- * origin move on the same ease, so the pull-back reads as one motion rather
- * than a zoom racing a pan.
+ * The camera for one frame of the reveal: the board's own centre held under
+ * the middle of the canvas throughout, at a scale eased from `startScale` to
+ * `resting`. Only the scale moves, so the board grows out from where it
+ * already is rather than travelling across the canvas as it grows.
  *
- * The result is pan-clamped, which is what keeps an opening focus near a
- * corner from showing empty space beside the board.
+ * At the resting scale the board fits the canvas, where `clampPan` centres
+ * it — the same origin this computes — so progress 1 lands exactly on
+ * `resting`.
  */
 export function introCamera(options: IntroCameraOptions): Viewport<'css'> {
-  const { resting, startScale, focus, bounds } = options;
-  const eased = introEase(options.progress);
-  const scale = startScale + (resting.scale - startScale) * eased;
+  const { resting, startScale, bounds } = options;
+  const scale = startScale + (resting.scale - startScale) * introEase(options.progress);
   if (!Number.isFinite(scale) || scale <= 0) return resting;
 
-  const focusOriginX = bounds.canvasCssWidth / 2 - (focus.x + 0.5) * scale;
-  const focusOriginY = bounds.canvasCssHeight / 2 - (focus.y + 0.5) * scale;
   return clampPan(
     createViewport({
       scale,
       dpr: resting.dpr,
-      originX: focusOriginX + (resting.originX - focusOriginX) * eased,
-      originY: focusOriginY + (resting.originY - focusOriginY) * eased,
+      originX: (bounds.canvasCssWidth - bounds.boardWidth * scale) / 2,
+      originY: (bounds.canvasCssHeight - bounds.boardHeight * scale) / 2,
     }),
     bounds,
   );
