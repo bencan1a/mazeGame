@@ -3,9 +3,9 @@ import type { ShapeLibrary } from '../game/shapes.js';
 import { inkFillColor, isResumeShape } from './homeScreen.js';
 
 /**
- * Drawn at device resolution rather than at the board's, since the artwork is
- * vector: the board quantises it to cells, and showing a player that would
- * show them the rasteriser's staircase instead of the drawing.
+ * Canvas edge the preview is drawn at, well above both the board's cell grid
+ * and the size the frame gives it: the artwork is vector, so drawing it at the
+ * board's resolution would show a player the staircase rather than the drawing.
  */
 const PREVIEW_EDGE = 512;
 
