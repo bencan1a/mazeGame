@@ -80,12 +80,12 @@ export interface PlayParams {
 }
 
 export const DEFAULT_GEN_PARAMS: GenParams = {
-  gridSize: 40,
+  gridSize: 78,
   seed: 1,
-  meanPieceLength: 6,
-  pieceLengthVariance: 8,
+  meanPieceLength: 11,
+  pieceLengthVariance: 20,
   minPieceLength: 2,
-  bendProbability: 0.6,
+  bendProbability: 0.75,
   minStraightRun: 2,
   fillFraction: 0.45,
   lobeCount: 1,
@@ -93,7 +93,7 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
 
 export const DEFAULT_PLAY_PARAMS: PlayParams = {
   lives: 3,
-  animationDurationMs: 420,
+  animationDurationMs: 570,
 };
 
 /**
