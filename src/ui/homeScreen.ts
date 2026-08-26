@@ -47,10 +47,10 @@ export function inkFillColor(shapeIndex: number): string {
  * exactly as it will once the board is playable. The enclosed faces around
  * the ink take the fill colour, since those are what the segments tile.
  */
-export function inkToRgba(ink: Uint8Array, fill: Rgb): Uint8ClampedArray<ArrayBuffer> {
-  const rgba = new Uint8ClampedArray(ink.length * 4);
-  for (let i = 0; i < ink.length; i++) {
-    if (ink[i] === 1) continue;
+export function facesToRgba(inside: Uint8Array, fill: Rgb): Uint8ClampedArray<ArrayBuffer> {
+  const rgba = new Uint8ClampedArray(inside.length * 4);
+  for (let i = 0; i < inside.length; i++) {
+    if (inside[i] !== 1) continue;
     const offset = i * 4;
     rgba[offset] = fill.r;
     rgba[offset + 1] = fill.g;

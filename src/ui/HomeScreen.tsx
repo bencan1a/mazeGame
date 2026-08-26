@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactElement } from 'react';
 import type { ShapeLibrary } from '../game/shapes.js';
-import { hexToRgb, inkFillColor, inkToRgba, isResumeShape } from './homeScreen.js';
+import { importShape } from '../core/shape/index.js';
+import { facesToRgba, hexToRgb, inkFillColor, isResumeShape } from './homeScreen.js';
 
 export interface HomeScreenProps {
   readonly library: ShapeLibrary;
@@ -35,8 +36,20 @@ export function HomeScreen(props: HomeScreenProps): ReactElement {
     canvas.height = edge;
     const ctx = canvas.getContext('2d');
     if (ctx === null) return;
+    // The preview has to show what the board will fill, which is the enclosed
+    // faces — not everything the ink is not. The strokes and the space outside
+    // the drawing both stay empty.
+    const faces = importShape({
+      ink,
+      sourceWidth: edge,
+      sourceHeight: edge,
+      gridSize: edge,
+      strokeWidth: 1,
+    });
+    ctx.clearRect(0, 0, edge, edge);
+    if (!faces.ok) return;
     const fill = hexToRgb(inkFillColor(index));
-    const rgba = inkToRgba(ink, fill);
+    const rgba = facesToRgba(faces.blob.inside, fill);
     ctx.putImageData(new ImageData(rgba, edge, edge), 0, 0);
   }, [library, shape, index]);
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hexToRgb,
   inkFillColor,
-  inkToRgba,
+  facesToRgba,
   isResumeShape,
   nextIndex,
   previousIndex,
@@ -92,21 +92,21 @@ describe('inkFillColor', () => {
   });
 });
 
-describe('inkToRgba', () => {
+describe('facesToRgba', () => {
   const fill = { r: 10, g: 20, b: 30 };
 
-  it('fills an ink-free pixel with the fill colour, opaque', () => {
-    const rgba = inkToRgba(new Uint8Array([0]), fill);
+  it('fills a face cell with the fill colour, opaque', () => {
+    const rgba = facesToRgba(new Uint8Array([1]), fill);
     expect(Array.from(rgba)).toEqual([10, 20, 30, 255]);
   });
 
-  it('leaves an ink pixel fully transparent', () => {
-    const rgba = inkToRgba(new Uint8Array([1]), fill);
+  it('leaves everything that is not a face fully transparent', () => {
+    const rgba = facesToRgba(new Uint8Array([0]), fill);
     expect(Array.from(rgba)).toEqual([0, 0, 0, 0]);
   });
 
   it('maps each cell to its own four bytes, in order', () => {
-    const rgba = inkToRgba(new Uint8Array([0, 1, 0]), fill);
+    const rgba = facesToRgba(new Uint8Array([1, 0, 1]), fill);
     expect(rgba.length).toBe(12);
     expect(Array.from(rgba.subarray(0, 4))).toEqual([10, 20, 30, 255]);
     expect(Array.from(rgba.subarray(4, 8))).toEqual([0, 0, 0, 0]);
