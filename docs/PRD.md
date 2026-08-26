@@ -1,6 +1,7 @@
-# Arrow Maze — PoC PRD & Technical Design
+# Arrow Maze — PRD & Technical Design
 
-**Status:** Draft for build kickoff
+**Status:** §1–§8 specify the proof of concept, which is built and shipped — see
+[VERDICT.md](./VERDICT.md). §9 specifies the first increment beyond it.
 **Target:** Offline-capable web app, phone-first
 
 ---
@@ -312,11 +313,76 @@ harness and live play once both exist.
 
 ## 8. Deferred
 
-- Silhouette library (pre-built, human-QA'd masks, RLE-packed). **Use original or
-  public-domain / open-licensed shapes only — recognizable third-party character
-  silhouettes are protected IP.**
 - Image-import pipeline for arbitrary source art
-- Levels, progression, persistence
+- Levels, progression, and anything that scores or ranks a board
 - Ray-trace hint affordance, should playtesting show pan-and-judge is frustrating rather
   than tense
 - Scoring, timers, sound
+
+The silhouette library moved out of this list and into §9. Persistence shipped in the
+PoC.
+
+---
+
+## 9. Shape Library & Home Screen
+
+The PoC plays one procedurally generated blob. This increment makes the board a
+**picture of something the player chose**, which is the first thing that makes this a
+product rather than a demo.
+
+The mechanism is settled and measured: a line drawing's strokes are empty space, and the
+enclosed faces between them become the lobes the player fills. Evidence, including what
+does not work, is in [`spikes/line-art/`](./spikes/line-art/README.md).
+
+### 9.1 The library
+
+| Req         | Detail                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Source      | Phosphor Icons, `thin` weight, MIT. Its art is a drawn fill rather than a stroke, so it needs no stroke handling.                     |
+| Curation    | Filtered by the set's own categories to exclude brand marks, letterforms, interface glyphs and chart furniture, then approved by eye. |
+| Size        | 100 or more shapes at launch, drawn from the ~400 that survive the category filter.                                                   |
+| Baking      | Rasterised at build time to a 96×96 packed bitmap per shape. No rasteriser ships, and generation stays a pure function of its inputs. |
+| Delivery    | One precached asset plus a manifest, not part of the JS bundle. Offline still means offline: the asset is cached on first load.       |
+| Attribution | Phosphor's MIT notice appears in the app, on the home screen.                                                                         |
+
+**No shape is a brand, a letter, a number or a symbol.** PRD §8's constraint on
+third-party IP holds: original or open-licensed drawings only.
+
+### 9.2 Board from a shape
+
+| Req          | Detail                                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Determinism  | A board is a pure function of `(shape, seed, params)`. The same three always give the same board.                                  |
+| Default seed | Derived from the shape's id, so a given shape opens on the same board every time and a lost board stays a puzzle you can learn.    |
+| Grid size    | The shipped default of 78 stands. Shape boards run roughly 40% shorter than procedural ones at the same size, which is acceptable. |
+| Failure      | A shape that cannot generate is not shown. Curation catches this at build time, not at play time.                                  |
+| Procedural   | Still reachable: with no shape chosen, the generator draws a blob exactly as it does today.                                        |
+
+### 9.3 Home screen
+
+The app opens here.
+
+| Req         | Detail                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| Preview     | Shows **the drawing**, not the board — the line art as it will be tiled, plus the shape's name. |
+| Cycling     | Previous and next controls step through the library and wrap at both ends.                      |
+| Play        | One primary control starts the board for the shape on screen.                                   |
+| Resume      | If a board is in progress, its shape is marked, and Play reads as Resume on that shape.         |
+| Persistence | The shape on screen survives a reload, so the app reopens where the player left it.             |
+| Offline     | Everything above works with no network, on first load after install.                            |
+
+### 9.4 Navigation and the board in progress
+
+| Req            | Detail                                                                                                                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Back to home   | A control in the game chrome returns to the home screen at any time.                                                       |
+| Save slot      | **One.** Leaving a board keeps it; starting a different shape replaces it.                                                 |
+| Warning        | The home screen marks the shape holding the save, so a player can see what starting a different one costs before doing it. |
+| Deep link      | `?shape=<id>` opens the game directly on that shape, for testing and for sharing a board.                                  |
+| Existing panel | The tuning panel stays exactly as it is, on the game screen.                                                               |
+
+### 9.5 Out of scope for this increment
+
+Levels, progression, scoring, favourites, search, category browsing, per-shape saves,
+non-square boards, and generated cuts inside oversized faces. Each is a real idea with
+evidence behind it; none of them is needed to let a player pick a cat and play it.
