@@ -348,6 +348,34 @@ Two things argue for revisiting them rather than dropping them:
   objects and a library of emoji are not interchangeable products, even at the
   same board quality.
 
+## 14. The Phosphor keep-list: 406 shapes
+
+Phosphor ships per-icon categories and tags in its metadata, so the brand marks
+and interface glyphs can be filtered by rule rather than by eye.
+`spikes/line-art/curate.ts` holds the rule and reproduces the list.
+
+- **Blocked outright**: brands, arrows, system, editor, design, technology &
+  development, communications.
+- **Kept**: an icon needs at least one of nature, objects, games, maps & travel,
+  health & wellness, weather.
+- **Blocked by name**, because a category does not catch them: letterforms and
+  numbers, currency and trademark marks, gender symbols, chart furniture.
+
+**406 of Phosphor's 1,512 icons survive**, and 41 of a 47-icon stride sample
+build a board that reads at grid 78 —
+[`sets/phosphor-curated.png`](sets/phosphor-curated.png). Acorn, alien, axe,
+bathtub, boules, bulldozer, car, castle, club, dog, fire extinguisher, flame,
+grains, ice cream, moped, office chair, pepper, pill, plant, push pin, shopping
+cart, sneaker, speaker, sword, tent, tire.
+
+The blocked-name list is the part that needs revisiting as it grows; two passes
+were needed here, because the first kept `trademark-registered`, `currency-rub`
+and `gender-intersex` on the strength of their categories alone.
+
+What the rule cannot judge is whether a drawing reads — barbell, binoculars,
+desk, ladder and map still come out as loose bars. That is the contact sheet's
+job, and at 406 candidates it is two or three sittings.
+
 ## What this did not settle
 
 - **Recognisability is judgement, not measurement.** Section 3 is my reading of
