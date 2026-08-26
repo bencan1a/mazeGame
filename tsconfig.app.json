@@ -19,5 +19,5 @@
     "noEmit": true,
     "composite": true
   },
-  "include": ["src", "test", "e2e", "spikes", "playwright.config.ts"]
+  "include": ["src", "test", "e2e", "spikes", "tools", "playwright.config.ts"]
 }

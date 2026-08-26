@@ -1,0 +1,1238 @@
+[
+  {
+    "id": "acorn",
+    "name": "Acorn"
+  },
+  {
+    "id": "airplane-tilt",
+    "name": "Airplane tilt"
+  },
+  {
+    "id": "airplane",
+    "name": "Airplane"
+  },
+  {
+    "id": "alien",
+    "name": "Alien"
+  },
+  {
+    "id": "ambulance",
+    "name": "Ambulance"
+  },
+  {
+    "id": "armchair",
+    "name": "Armchair"
+  },
+  {
+    "id": "article",
+    "name": "Article"
+  },
+  {
+    "id": "avocado",
+    "name": "Avocado"
+  },
+  {
+    "id": "baby",
+    "name": "Baby"
+  },
+  {
+    "id": "backpack",
+    "name": "Backpack"
+  },
+  {
+    "id": "bag-simple",
+    "name": "Bag simple"
+  },
+  {
+    "id": "bag",
+    "name": "Bag"
+  },
+  {
+    "id": "balloon",
+    "name": "Balloon"
+  },
+  {
+    "id": "bandaids",
+    "name": "Bandaids"
+  },
+  {
+    "id": "bank",
+    "name": "Bank"
+  },
+  {
+    "id": "barn",
+    "name": "Barn"
+  },
+  {
+    "id": "barricade",
+    "name": "Barricade"
+  },
+  {
+    "id": "baseball-cap",
+    "name": "Baseball cap"
+  },
+  {
+    "id": "baseball-helmet",
+    "name": "Baseball helmet"
+  },
+  {
+    "id": "baseball",
+    "name": "Baseball"
+  },
+  {
+    "id": "basket",
+    "name": "Basket"
+  },
+  {
+    "id": "basketball",
+    "name": "Basketball"
+  },
+  {
+    "id": "bathtub",
+    "name": "Bathtub"
+  },
+  {
+    "id": "beach-ball",
+    "name": "Beach ball"
+  },
+  {
+    "id": "beanie",
+    "name": "Beanie"
+  },
+  {
+    "id": "bed",
+    "name": "Bed"
+  },
+  {
+    "id": "beer-bottle",
+    "name": "Beer bottle"
+  },
+  {
+    "id": "beer-stein",
+    "name": "Beer stein"
+  },
+  {
+    "id": "binoculars",
+    "name": "Binoculars"
+  },
+  {
+    "id": "bird",
+    "name": "Bird"
+  },
+  {
+    "id": "boat",
+    "name": "Boat"
+  },
+  {
+    "id": "bomb",
+    "name": "Bomb"
+  },
+  {
+    "id": "bone",
+    "name": "Bone"
+  },
+  {
+    "id": "book-bookmark",
+    "name": "Book bookmark"
+  },
+  {
+    "id": "book-open-user",
+    "name": "Book open user"
+  },
+  {
+    "id": "book-open",
+    "name": "Book open"
+  },
+  {
+    "id": "book",
+    "name": "Book"
+  },
+  {
+    "id": "bookmark-simple",
+    "name": "Bookmark simple"
+  },
+  {
+    "id": "bookmark",
+    "name": "Bookmark"
+  },
+  {
+    "id": "bookmarks-simple",
+    "name": "Bookmarks simple"
+  },
+  {
+    "id": "bookmarks",
+    "name": "Bookmarks"
+  },
+  {
+    "id": "books",
+    "name": "Books"
+  },
+  {
+    "id": "boot",
+    "name": "Boot"
+  },
+  {
+    "id": "boules",
+    "name": "Boules"
+  },
+  {
+    "id": "bowl-food",
+    "name": "Bowl food"
+  },
+  {
+    "id": "bowl-steam",
+    "name": "Bowl steam"
+  },
+  {
+    "id": "bowling-ball",
+    "name": "Bowling ball"
+  },
+  {
+    "id": "boxing-glove",
+    "name": "Boxing glove"
+  },
+  {
+    "id": "brain",
+    "name": "Brain"
+  },
+  {
+    "id": "brandy",
+    "name": "Brandy"
+  },
+  {
+    "id": "bread",
+    "name": "Bread"
+  },
+  {
+    "id": "briefcase-metal",
+    "name": "Briefcase metal"
+  },
+  {
+    "id": "briefcase",
+    "name": "Briefcase"
+  },
+  {
+    "id": "broom",
+    "name": "Broom"
+  },
+  {
+    "id": "building-apartment",
+    "name": "Building apartment"
+  },
+  {
+    "id": "building-office",
+    "name": "Building office"
+  },
+  {
+    "id": "building",
+    "name": "Building"
+  },
+  {
+    "id": "buildings",
+    "name": "Buildings"
+  },
+  {
+    "id": "bulldozer",
+    "name": "Bulldozer"
+  },
+  {
+    "id": "bus",
+    "name": "Bus"
+  },
+  {
+    "id": "butterfly",
+    "name": "Butterfly"
+  },
+  {
+    "id": "cable-car",
+    "name": "Cable car"
+  },
+  {
+    "id": "cactus",
+    "name": "Cactus"
+  },
+  {
+    "id": "cake",
+    "name": "Cake"
+  },
+  {
+    "id": "call-bell",
+    "name": "Call bell"
+  },
+  {
+    "id": "car-battery",
+    "name": "Car battery"
+  },
+  {
+    "id": "car-profile",
+    "name": "Car profile"
+  },
+  {
+    "id": "car-simple",
+    "name": "Car simple"
+  },
+  {
+    "id": "car",
+    "name": "Car"
+  },
+  {
+    "id": "cardholder",
+    "name": "Cardholder"
+  },
+  {
+    "id": "carrot",
+    "name": "Carrot"
+  },
+  {
+    "id": "cash-register",
+    "name": "Cash register"
+  },
+  {
+    "id": "cassette-tape",
+    "name": "Cassette tape"
+  },
+  {
+    "id": "castle-turret",
+    "name": "Castle turret"
+  },
+  {
+    "id": "cat",
+    "name": "Cat"
+  },
+  {
+    "id": "certificate",
+    "name": "Certificate"
+  },
+  {
+    "id": "chair",
+    "name": "Chair"
+  },
+  {
+    "id": "chalkboard-teacher",
+    "name": "Chalkboard teacher"
+  },
+  {
+    "id": "chalkboard",
+    "name": "Chalkboard"
+  },
+  {
+    "id": "charging-station",
+    "name": "Charging station"
+  },
+  {
+    "id": "checkerboard",
+    "name": "Checkerboard"
+  },
+  {
+    "id": "chef-hat",
+    "name": "Chef hat"
+  },
+  {
+    "id": "cherries",
+    "name": "Cherries"
+  },
+  {
+    "id": "church",
+    "name": "Church"
+  },
+  {
+    "id": "city",
+    "name": "City"
+  },
+  {
+    "id": "cloud-fog",
+    "name": "Cloud fog"
+  },
+  {
+    "id": "cloud-lightning",
+    "name": "Cloud lightning"
+  },
+  {
+    "id": "cloud-moon",
+    "name": "Cloud moon"
+  },
+  {
+    "id": "cloud-rain",
+    "name": "Cloud rain"
+  },
+  {
+    "id": "cloud-snow",
+    "name": "Cloud snow"
+  },
+  {
+    "id": "cloud-sun",
+    "name": "Cloud sun"
+  },
+  {
+    "id": "clover",
+    "name": "Clover"
+  },
+  {
+    "id": "club",
+    "name": "Club"
+  },
+  {
+    "id": "coffee-bean",
+    "name": "Coffee bean"
+  },
+  {
+    "id": "coffee",
+    "name": "Coffee"
+  },
+  {
+    "id": "compass",
+    "name": "Compass"
+  },
+  {
+    "id": "cooking-pot",
+    "name": "Cooking pot"
+  },
+  {
+    "id": "couch",
+    "name": "Couch"
+  },
+  {
+    "id": "court-basketball",
+    "name": "Court basketball"
+  },
+  {
+    "id": "cow",
+    "name": "Cow"
+  },
+  {
+    "id": "cowboy-hat",
+    "name": "Cowboy hat"
+  },
+  {
+    "id": "cricket",
+    "name": "Cricket"
+  },
+  {
+    "id": "crown-cross",
+    "name": "Crown cross"
+  },
+  {
+    "id": "crown-simple",
+    "name": "Crown simple"
+  },
+  {
+    "id": "crown",
+    "name": "Crown"
+  },
+  {
+    "id": "device-mobile-camera",
+    "name": "Device mobile camera"
+  },
+  {
+    "id": "device-mobile-speaker",
+    "name": "Device mobile speaker"
+  },
+  {
+    "id": "device-mobile",
+    "name": "Device mobile"
+  },
+  {
+    "id": "device-tablet-camera",
+    "name": "Device tablet camera"
+  },
+  {
+    "id": "device-tablet-speaker",
+    "name": "Device tablet speaker"
+  },
+  {
+    "id": "device-tablet",
+    "name": "Device tablet"
+  },
+  {
+    "id": "devices",
+    "name": "Devices"
+  },
+  {
+    "id": "dice-five",
+    "name": "Dice five"
+  },
+  {
+    "id": "dice-four",
+    "name": "Dice four"
+  },
+  {
+    "id": "dice-one",
+    "name": "Dice one"
+  },
+  {
+    "id": "dice-six",
+    "name": "Dice six"
+  },
+  {
+    "id": "dice-three",
+    "name": "Dice three"
+  },
+  {
+    "id": "dice-two",
+    "name": "Dice two"
+  },
+  {
+    "id": "disco-ball",
+    "name": "Disco ball"
+  },
+  {
+    "id": "dog",
+    "name": "Dog"
+  },
+  {
+    "id": "door-open",
+    "name": "Door open"
+  },
+  {
+    "id": "door",
+    "name": "Door"
+  },
+  {
+    "id": "dress",
+    "name": "Dress"
+  },
+  {
+    "id": "dresser",
+    "name": "Dresser"
+  },
+  {
+    "id": "drop",
+    "name": "Drop"
+  },
+  {
+    "id": "egg-crack",
+    "name": "Egg crack"
+  },
+  {
+    "id": "egg",
+    "name": "Egg"
+  },
+  {
+    "id": "elevator",
+    "name": "Elevator"
+  },
+  {
+    "id": "engine",
+    "name": "Engine"
+  },
+  {
+    "id": "escalator-down",
+    "name": "Escalator down"
+  },
+  {
+    "id": "escalator-up",
+    "name": "Escalator up"
+  },
+  {
+    "id": "exam",
+    "name": "Exam"
+  },
+  {
+    "id": "face-mask",
+    "name": "Face mask"
+  },
+  {
+    "id": "factory",
+    "name": "Factory"
+  },
+  {
+    "id": "fallout-shelter",
+    "name": "Fallout shelter"
+  },
+  {
+    "id": "fan",
+    "name": "Fan"
+  },
+  {
+    "id": "feather",
+    "name": "Feather"
+  },
+  {
+    "id": "film-reel",
+    "name": "Film reel"
+  },
+  {
+    "id": "film-slate",
+    "name": "Film slate"
+  },
+  {
+    "id": "finn-the-human",
+    "name": "Finn the human"
+  },
+  {
+    "id": "fire-simple",
+    "name": "Fire simple"
+  },
+  {
+    "id": "fire",
+    "name": "Fire"
+  },
+  {
+    "id": "first-aid-kit",
+    "name": "First aid kit"
+  },
+  {
+    "id": "first-aid",
+    "name": "First aid"
+  },
+  {
+    "id": "fish-simple",
+    "name": "Fish simple"
+  },
+  {
+    "id": "fish",
+    "name": "Fish"
+  },
+  {
+    "id": "flag-checkered",
+    "name": "Flag checkered"
+  },
+  {
+    "id": "flame",
+    "name": "Flame"
+  },
+  {
+    "id": "flower-lotus",
+    "name": "Flower lotus"
+  },
+  {
+    "id": "flower-tulip",
+    "name": "Flower tulip"
+  },
+  {
+    "id": "flower",
+    "name": "Flower"
+  },
+  {
+    "id": "flying-saucer",
+    "name": "Flying saucer"
+  },
+  {
+    "id": "football-helmet",
+    "name": "Football helmet"
+  },
+  {
+    "id": "football",
+    "name": "Football"
+  },
+  {
+    "id": "footprints",
+    "name": "Footprints"
+  },
+  {
+    "id": "game-controller",
+    "name": "Game controller"
+  },
+  {
+    "id": "garage",
+    "name": "Garage"
+  },
+  {
+    "id": "gas-can",
+    "name": "Gas can"
+  },
+  {
+    "id": "gas-pump",
+    "name": "Gas pump"
+  },
+  {
+    "id": "gavel",
+    "name": "Gavel"
+  },
+  {
+    "id": "ghost",
+    "name": "Ghost"
+  },
+  {
+    "id": "gift",
+    "name": "Gift"
+  },
+  {
+    "id": "globe-simple-x",
+    "name": "Globe simple x"
+  },
+  {
+    "id": "globe-simple",
+    "name": "Globe simple"
+  },
+  {
+    "id": "globe-stand",
+    "name": "Globe stand"
+  },
+  {
+    "id": "globe",
+    "name": "Globe"
+  },
+  {
+    "id": "goggles",
+    "name": "Goggles"
+  },
+  {
+    "id": "golf",
+    "name": "Golf"
+  },
+  {
+    "id": "graduation-cap",
+    "name": "Graduation cap"
+  },
+  {
+    "id": "grains",
+    "name": "Grains"
+  },
+  {
+    "id": "guitar",
+    "name": "Guitar"
+  },
+  {
+    "id": "hair-dryer",
+    "name": "Hair dryer"
+  },
+  {
+    "id": "hamburger",
+    "name": "Hamburger"
+  },
+  {
+    "id": "hand-soap",
+    "name": "Hand soap"
+  },
+  {
+    "id": "handbag-simple",
+    "name": "Handbag simple"
+  },
+  {
+    "id": "handbag",
+    "name": "Handbag"
+  },
+  {
+    "id": "headlights",
+    "name": "Headlights"
+  },
+  {
+    "id": "high-heel",
+    "name": "High heel"
+  },
+  {
+    "id": "hoodie",
+    "name": "Hoodie"
+  },
+  {
+    "id": "horse",
+    "name": "Horse"
+  },
+  {
+    "id": "hospital",
+    "name": "Hospital"
+  },
+  {
+    "id": "hurricane",
+    "name": "Hurricane"
+  },
+  {
+    "id": "ice-cream",
+    "name": "Ice cream"
+  },
+  {
+    "id": "jar-label",
+    "name": "Jar label"
+  },
+  {
+    "id": "jar",
+    "name": "Jar"
+  },
+  {
+    "id": "jeep",
+    "name": "Jeep"
+  },
+  {
+    "id": "joystick",
+    "name": "Joystick"
+  },
+  {
+    "id": "knife",
+    "name": "Knife"
+  },
+  {
+    "id": "ladder-simple",
+    "name": "Ladder simple"
+  },
+  {
+    "id": "ladder",
+    "name": "Ladder"
+  },
+  {
+    "id": "lamp-pendant",
+    "name": "Lamp pendant"
+  },
+  {
+    "id": "lamp",
+    "name": "Lamp"
+  },
+  {
+    "id": "leaf",
+    "name": "Leaf"
+  },
+  {
+    "id": "lectern",
+    "name": "Lectern"
+  },
+  {
+    "id": "lego",
+    "name": "Lego"
+  },
+  {
+    "id": "lighthouse",
+    "name": "Lighthouse"
+  },
+  {
+    "id": "lockers",
+    "name": "Lockers"
+  },
+  {
+    "id": "log",
+    "name": "Log"
+  },
+  {
+    "id": "map-pin-line",
+    "name": "Map pin line"
+  },
+  {
+    "id": "map-pin-plus",
+    "name": "Map pin plus"
+  },
+  {
+    "id": "map-pin",
+    "name": "Map pin"
+  },
+  {
+    "id": "map-trifold",
+    "name": "Map trifold"
+  },
+  {
+    "id": "medal-military",
+    "name": "Medal military"
+  },
+  {
+    "id": "medal",
+    "name": "Medal"
+  },
+  {
+    "id": "metronome",
+    "name": "Metronome"
+  },
+  {
+    "id": "moon-stars",
+    "name": "Moon stars"
+  },
+  {
+    "id": "moped-front",
+    "name": "Moped front"
+  },
+  {
+    "id": "mosque",
+    "name": "Mosque"
+  },
+  {
+    "id": "newspaper-clipping",
+    "name": "Newspaper clipping"
+  },
+  {
+    "id": "newspaper",
+    "name": "Newspaper"
+  },
+  {
+    "id": "nuclear-plant",
+    "name": "Nuclear plant"
+  },
+  {
+    "id": "onigiri",
+    "name": "Onigiri"
+  },
+  {
+    "id": "orange-slice",
+    "name": "Orange slice"
+  },
+  {
+    "id": "orange",
+    "name": "Orange"
+  },
+  {
+    "id": "oven",
+    "name": "Oven"
+  },
+  {
+    "id": "pants",
+    "name": "Pants"
+  },
+  {
+    "id": "paw-print",
+    "name": "Paw print"
+  },
+  {
+    "id": "pepper",
+    "name": "Pepper"
+  },
+  {
+    "id": "person-arms-spread",
+    "name": "Person arms spread"
+  },
+  {
+    "id": "piano-keys",
+    "name": "Piano keys"
+  },
+  {
+    "id": "piggy-bank",
+    "name": "Piggy bank"
+  },
+  {
+    "id": "pill",
+    "name": "Pill"
+  },
+  {
+    "id": "ping-pong",
+    "name": "Ping pong"
+  },
+  {
+    "id": "pint-glass",
+    "name": "Pint glass"
+  },
+  {
+    "id": "pinwheel",
+    "name": "Pinwheel"
+  },
+  {
+    "id": "pipe",
+    "name": "Pipe"
+  },
+  {
+    "id": "pizza",
+    "name": "Pizza"
+  },
+  {
+    "id": "planet",
+    "name": "Planet"
+  },
+  {
+    "id": "poker-chip",
+    "name": "Poker chip"
+  },
+  {
+    "id": "police-car",
+    "name": "Police car"
+  },
+  {
+    "id": "popcorn",
+    "name": "Popcorn"
+  },
+  {
+    "id": "popsicle",
+    "name": "Popsicle"
+  },
+  {
+    "id": "potted-plant",
+    "name": "Potted plant"
+  },
+  {
+    "id": "push-pin-simple",
+    "name": "Push pin simple"
+  },
+  {
+    "id": "push-pin",
+    "name": "Push pin"
+  },
+  {
+    "id": "rabbit",
+    "name": "Rabbit"
+  },
+  {
+    "id": "ranking",
+    "name": "Ranking"
+  },
+  {
+    "id": "rug",
+    "name": "Rug"
+  },
+  {
+    "id": "sailboat",
+    "name": "Sailboat"
+  },
+  {
+    "id": "scroll",
+    "name": "Scroll"
+  },
+  {
+    "id": "shipping-container",
+    "name": "Shipping container"
+  },
+  {
+    "id": "shirt-folded",
+    "name": "Shirt folded"
+  },
+  {
+    "id": "shopping-bag-open",
+    "name": "Shopping bag open"
+  },
+  {
+    "id": "shopping-bag",
+    "name": "Shopping bag"
+  },
+  {
+    "id": "shopping-cart-simple",
+    "name": "Shopping cart simple"
+  },
+  {
+    "id": "shopping-cart",
+    "name": "Shopping cart"
+  },
+  {
+    "id": "shovel",
+    "name": "Shovel"
+  },
+  {
+    "id": "shrimp",
+    "name": "Shrimp"
+  },
+  {
+    "id": "signpost",
+    "name": "Signpost"
+  },
+  {
+    "id": "siren",
+    "name": "Siren"
+  },
+  {
+    "id": "skull",
+    "name": "Skull"
+  },
+  {
+    "id": "sneaker-move",
+    "name": "Sneaker move"
+  },
+  {
+    "id": "sneaker",
+    "name": "Sneaker"
+  },
+  {
+    "id": "soccer-ball",
+    "name": "Soccer ball"
+  },
+  {
+    "id": "sock",
+    "name": "Sock"
+  },
+  {
+    "id": "solar-roof",
+    "name": "Solar roof"
+  },
+  {
+    "id": "spade",
+    "name": "Spade"
+  },
+  {
+    "id": "speaker-hifi",
+    "name": "Speaker hifi"
+  },
+  {
+    "id": "spray-bottle",
+    "name": "Spray bottle"
+  },
+  {
+    "id": "stairs",
+    "name": "Stairs"
+  },
+  {
+    "id": "steering-wheel",
+    "name": "Steering wheel"
+  },
+  {
+    "id": "stool",
+    "name": "Stool"
+  },
+  {
+    "id": "storefront",
+    "name": "Storefront"
+  },
+  {
+    "id": "suitcase-rolling",
+    "name": "Suitcase rolling"
+  },
+  {
+    "id": "suitcase-simple",
+    "name": "Suitcase simple"
+  },
+  {
+    "id": "suitcase",
+    "name": "Suitcase"
+  },
+  {
+    "id": "sword",
+    "name": "Sword"
+  },
+  {
+    "id": "synagogue",
+    "name": "Synagogue"
+  },
+  {
+    "id": "t-shirt",
+    "name": "T shirt"
+  },
+  {
+    "id": "taxi",
+    "name": "Taxi"
+  },
+  {
+    "id": "tea-bag",
+    "name": "Tea bag"
+  },
+  {
+    "id": "tennis-ball",
+    "name": "Tennis ball"
+  },
+  {
+    "id": "tent",
+    "name": "Tent"
+  },
+  {
+    "id": "thermometer-cold",
+    "name": "Thermometer cold"
+  },
+  {
+    "id": "thermometer",
+    "name": "Thermometer"
+  },
+  {
+    "id": "ticket",
+    "name": "Ticket"
+  },
+  {
+    "id": "tip-jar",
+    "name": "Tip jar"
+  },
+  {
+    "id": "tipi",
+    "name": "Tipi"
+  },
+  {
+    "id": "tire",
+    "name": "Tire"
+  },
+  {
+    "id": "toilet-paper",
+    "name": "Toilet paper"
+  },
+  {
+    "id": "toilet",
+    "name": "Toilet"
+  },
+  {
+    "id": "tooth",
+    "name": "Tooth"
+  },
+  {
+    "id": "tote-simple",
+    "name": "Tote simple"
+  },
+  {
+    "id": "tote",
+    "name": "Tote"
+  },
+  {
+    "id": "towel",
+    "name": "Towel"
+  },
+  {
+    "id": "tractor",
+    "name": "Tractor"
+  },
+  {
+    "id": "traffic-cone",
+    "name": "Traffic cone"
+  },
+  {
+    "id": "train-regional",
+    "name": "Train regional"
+  },
+  {
+    "id": "train-simple",
+    "name": "Train simple"
+  },
+  {
+    "id": "train",
+    "name": "Train"
+  },
+  {
+    "id": "tram",
+    "name": "Tram"
+  },
+  {
+    "id": "treasure-chest",
+    "name": "Treasure chest"
+  },
+  {
+    "id": "tree-evergreen",
+    "name": "Tree evergreen"
+  },
+  {
+    "id": "tree",
+    "name": "Tree"
+  },
+  {
+    "id": "trolley-suitcase",
+    "name": "Trolley suitcase"
+  },
+  {
+    "id": "trophy",
+    "name": "Trophy"
+  },
+  {
+    "id": "truck-trailer",
+    "name": "Truck trailer"
+  },
+  {
+    "id": "truck",
+    "name": "Truck"
+  },
+  {
+    "id": "umbrella-simple",
+    "name": "Umbrella simple"
+  },
+  {
+    "id": "umbrella",
+    "name": "Umbrella"
+  },
+  {
+    "id": "van",
+    "name": "Van"
+  },
+  {
+    "id": "virtual-reality",
+    "name": "Virtual reality"
+  },
+  {
+    "id": "virus",
+    "name": "Virus"
+  },
+  {
+    "id": "volleyball",
+    "name": "Volleyball"
+  },
+  {
+    "id": "wallet",
+    "name": "Wallet"
+  },
+  {
+    "id": "warehouse",
+    "name": "Warehouse"
+  },
+  {
+    "id": "washing-machine",
+    "name": "Washing machine"
+  },
+  {
+    "id": "wine",
+    "name": "Wine"
+  },
+  {
+    "id": "yarn",
+    "name": "Yarn"
+  }
+]
