@@ -85,13 +85,23 @@ export async function isCanvasPainted(page: Page): Promise<boolean> {
   });
 }
 
-/** Loads a board and waits until it is generated, laid out, and painted. */
+/**
+ * Resolves once the opening reveal has finished. Until it has, the board is
+ * only part drawn and the viewport is the reveal's camera rather than the
+ * resting fit every cell-to-screen helper here assumes.
+ */
+export async function waitForIntro(page: Page): Promise<void> {
+  await expect(page.locator('.board-surface[data-intro]')).toHaveCount(0);
+}
+
+/** Loads a board and waits until it is generated, laid out, revealed and painted. */
 export async function openBoard(page: Page, query: BoardQuery = FIXTURE_BOARD): Promise<void> {
   await page.goto(boardUrl(query));
   await expect(baseCanvas(page)).toBeVisible();
   await expect
     .poll(async () => (await readCounter(page)).total, { message: 'board never generated' })
     .toBeGreaterThan(0);
+  await waitForIntro(page);
   await expect.poll(() => isCanvasPainted(page), { message: 'board never painted' }).toBe(true);
 }
 

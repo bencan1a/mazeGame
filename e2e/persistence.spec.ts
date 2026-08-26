@@ -13,6 +13,7 @@ import {
   readLives,
   readSavedGame,
   tapSegment,
+  waitForIntro,
 } from './app.js';
 
 test.describe('persistence', () => {
@@ -41,6 +42,7 @@ test.describe('persistence', () => {
     // out of storage, so a save that lost the seed cannot pass.
     await page.goto(BASE_PATH);
     await expect(page.locator('.board-canvas').first()).toBeVisible();
+    await waitForIntro(page);
     await expect.poll(() => isCanvasPainted(page)).toBe(true);
 
     const counter = await readCounter(page);
