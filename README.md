@@ -12,8 +12,9 @@ Proof of concept. Full spec: [`docs/PRD.md`](docs/PRD.md).
 
 ## Status
 
-Scaffolding. The generator, renderer, and game loop are tracked as
-[open issues](https://github.com/bencan1a/mazeGame/issues) (#1–#32).
+Proof of concept complete. The generator, renderer, game loop, offline build and
+tuning panel are all in — read [`docs/VERDICT.md`](docs/VERDICT.md) for what the
+PoC settled, what it did not, and the defaults it shipped.
 
 **Live build:** <https://bencan1a.github.io/mazeGame/> — deploys on every push
 to `main`. To put a branch on a phone, run the _Deploy to GitHub Pages_ workflow
@@ -51,6 +52,7 @@ generator is tuned by measurement, not intuition — see
 
 |                                        |                                                                                            |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [Verdict](docs/VERDICT.md)             | What the PoC settled, the shipped defaults, and what a v1 needs                            |
 | [PRD](docs/PRD.md)                     | The specification                                                                          |
 | [Plan](docs/PLAN.md)                   | Phases, milestones, parallel work streams                                                  |
 | [Architecture](docs/ARCHITECTURE.md)   | Module map and the rules the build enforces                                                |

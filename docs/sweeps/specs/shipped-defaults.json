@@ -1,0 +1,11 @@
+{
+  "seeds": 40,
+  "seedBase": 1,
+  "params": {
+    "gridSize": [20, 30, 40, 60, 78, 90, 100],
+    "meanPieceLength": [11],
+    "pieceLengthVariance": [20],
+    "bendProbability": [0.75],
+    "minStraightRun": [2]
+  }
+}

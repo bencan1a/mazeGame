@@ -16,7 +16,7 @@ export interface BoardQuery {
 }
 
 /** A small board: every segment is reachable in a few taps, and it fits the runner's viewport. */
-export const FIXTURE_BOARD: BoardQuery = { seed: 12345, grid: 12 };
+export const FIXTURE_BOARD: BoardQuery = { seed: 12345, grid: 16 };
 
 export function boardUrl(query: BoardQuery): string {
   return `${BASE_PATH}?seed=${query.seed}&grid=${query.grid}`;
