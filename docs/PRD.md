@@ -336,14 +336,14 @@ does not work, is in [`spikes/line-art/`](./spikes/line-art/README.md).
 
 ### 9.1 The library
 
-| Req         | Detail                                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Source      | Phosphor Icons, `thin` weight, MIT. Its art is a drawn fill rather than a stroke, so it needs no stroke handling.                     |
-| Curation    | Filtered by the set's own categories to exclude brand marks, letterforms, interface glyphs and chart furniture, then approved by eye. |
-| Size        | 100 or more shapes at launch, drawn from the ~400 that survive the category filter.                                                   |
-| Baking      | Rasterised at build time to a 96×96 packed bitmap per shape. No rasteriser ships, and generation stays a pure function of its inputs. |
-| Delivery    | One precached asset plus a manifest, not part of the JS bundle. Offline still means offline: the asset is cached on first load.       |
-| Attribution | Phosphor's MIT notice ships with the build as a third-party notices file, not as UI. See below.                                       |
+| Req         | Detail                                                                                                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source      | Phosphor Icons, `thin` weight, MIT. Its art is a drawn fill rather than a stroke, so it needs no stroke handling.                                                                      |
+| Curation    | Filtered by the set's own categories to exclude brand marks, letterforms, interface glyphs and chart furniture, then approved by eye.                                                  |
+| Size        | 100 or more shapes at launch, drawn from the ~400 that survive the category filter.                                                                                                    |
+| Baking      | Rasterised at build time to a 96×96 packed bitmap per shape, shipped beside each drawing's own path geometry. No rasteriser ships, and generation stays a pure function of its inputs. |
+| Delivery    | One precached asset plus a manifest, not part of the JS bundle. Offline still means offline: the asset is cached on first load.                                                        |
+| Attribution | Phosphor's MIT notice ships with the build as a third-party notices file, not as UI. See below.                                                                                        |
 
 **No shape is a brand, a letter, a number or a symbol.** PRD §8's constraint on
 third-party IP holds: original or open-licensed drawings only.

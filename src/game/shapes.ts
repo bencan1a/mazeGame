@@ -10,6 +10,14 @@ export interface ShapeSummary {
   readonly name: string;
 }
 
+/** The drawing as it was drawn: vector, so it stays smooth at any size. */
+export interface ShapeOutline {
+  /** SVG path data, filled with the nonzero rule so its holes stay holes. */
+  readonly path: string;
+  /** Edge of the square the path's coordinates are in. */
+  readonly viewBox: number;
+}
+
 export interface ShapeLibrary {
   readonly shapes: readonly ShapeSummary[];
   /** Edge length of every bitmap `ink` returns. */
@@ -20,9 +28,21 @@ export interface ShapeLibrary {
    * become the lobes.
    */
   ink(id: string): Uint8Array | null;
+  /**
+   * The artwork the bitmap was rasterised from. The board is cut from the
+   * bitmap, but showing a player the bitmap would show them the rasteriser's
+   * staircase rather than the drawing.
+   */
+  outline(id: string): ShapeOutline | null;
 }
 
 const FIXTURE_EDGE = 96;
+
+const FIXTURE_OUTLINES: Readonly<Record<string, string>> = {
+  ring: 'M48 8A40 40 0 1 0 48 88A40 40 0 1 0 48 8ZM48 28A20 20 0 1 1 48 68A20 20 0 1 1 48 28Z',
+  house: 'M0 0H96V96H0ZM8 40H88V45H8ZM40 45H45V88H40Z',
+  window: 'M10 10H86V86H10ZM10 45H86V51H10ZM45 10H51V86H45Z',
+};
 
 export function createFixtureLibrary(): ShapeLibrary {
   const drawings: readonly (readonly [ShapeSummary, Uint8Array])[] = [
@@ -35,6 +55,10 @@ export function createFixtureLibrary(): ShapeLibrary {
     shapes: drawings.map(([summary]) => summary),
     edge: FIXTURE_EDGE,
     ink: (id) => byId.get(id) ?? null,
+    outline(id) {
+      const path = FIXTURE_OUTLINES[id];
+      return path === undefined ? null : { path, viewBox: FIXTURE_EDGE };
+    },
   };
 }
 

@@ -6,6 +6,7 @@ import { genParamsForShape, shapeGenerateOptions } from '../src/game/shapeBoard.
 import {
   SHAPE_ASSET_FILE,
   SHAPE_MANIFEST_FILE,
+  SHAPE_OUTLINE_FILE,
   decodeShapeLibrary,
   packedBytesPerShape,
 } from '../src/game/shapeLibrary.js';
@@ -17,6 +18,7 @@ function bakedLibrary(): ReturnType<typeof decodeShapeLibrary> {
   return decodeShapeLibrary(
     readFileSync(`public/${SHAPE_MANIFEST_FILE}`, 'utf8'),
     asset.buffer.slice(asset.byteOffset, asset.byteOffset + asset.byteLength),
+    readFileSync(`public/${SHAPE_OUTLINE_FILE}`, 'utf8'),
   );
 }
 

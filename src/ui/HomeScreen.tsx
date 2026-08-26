@@ -1,13 +1,11 @@
 import { useEffect, useRef, type ReactElement } from 'react';
-import { genParamsForShape, shapeFaceMask } from '../game/shapeBoard.js';
 import type { ShapeLibrary } from '../game/shapes.js';
 import { inkFillColor, isResumeShape } from './homeScreen.js';
-import { maskLoops, smoothOutline } from './maskOutline.js';
 
 /**
- * Display resolution of the preview. The face mask is a handful of cells
- * across, so it is drawn small and blown up here; the ratio between the two is
- * what the smoothing pass below is tuned against.
+ * Drawn at device resolution rather than at the board's, since the artwork is
+ * vector: the board quantises it to cells, and showing a player that would
+ * show them the rasteriser's staircase instead of the drawing.
  */
 const PREVIEW_EDGE = 512;
 
@@ -24,11 +22,7 @@ export interface HomeScreenProps {
   readonly notice?: string | null;
 }
 
-/**
- * Draws the cells a board cut from this shape would fill — the same mask the
- * generator works from, so the preview and the board cannot disagree — as a
- * smoothed outline rather than as pixels.
- */
+/** Shows a shape as it was drawn. What playing it fills is the space between the strokes. */
 export function HomeScreen(props: HomeScreenProps): ReactElement {
   const { library, index, onPrevious, onNext, onPlay, resumeShapeId, notice } = props;
   const shape = library.shapes[index];
@@ -37,33 +31,21 @@ export function HomeScreen(props: HomeScreenProps): ReactElement {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null || shape === undefined) return;
-    const ink = library.ink(shape.id);
-    if (ink === null) return;
+    const outline = library.outline(shape.id);
+    if (outline === null) return;
     const ctx = canvas.getContext('2d');
     if (ctx === null) return;
 
     canvas.width = PREVIEW_EDGE;
     canvas.height = PREVIEW_EDGE;
     ctx.clearRect(0, 0, PREVIEW_EDGE, PREVIEW_EDGE);
-
-    const gridSize = genParamsForShape(shape.id).gridSize;
-    const mask = shapeFaceMask({ ink, edge: library.edge }, gridSize);
-    if (mask === null) return;
-
-    const scale = PREVIEW_EDGE / mask.width;
+    ctx.save();
+    ctx.scale(PREVIEW_EDGE / outline.viewBox, PREVIEW_EDGE / outline.viewBox);
     ctx.fillStyle = inkFillColor(index);
-    const path = new Path2D();
-    for (const loop of maskLoops(mask.inside, mask.width, mask.height)) {
-      const smoothed = smoothOutline(loop);
-      const first = smoothed[0];
-      if (first === undefined) continue;
-      path.moveTo(first.x * scale, first.y * scale);
-      for (const point of smoothed.slice(1)) path.lineTo(point.x * scale, point.y * scale);
-      path.closePath();
-    }
-    // Holes are wound against the outline that contains them, so this cuts
-    // them out rather than filling them in.
-    ctx.fill(path, 'evenodd');
+    // Nonzero, because a drawing's holes are wound against the outline around
+    // them and are meant to stay holes.
+    ctx.fill(new Path2D(outline.path));
+    ctx.restore();
   }, [library, shape, index]);
 
   if (shape === undefined) return <div className="home-screen" />;

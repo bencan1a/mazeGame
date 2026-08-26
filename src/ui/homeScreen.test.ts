@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  hexToRgb,
-  inkFillColor,
-  facesToRgba,
-  isResumeShape,
-  nextIndex,
-  previousIndex,
-  wrapIndex,
-} from './homeScreen.js';
+import { inkFillColor, isResumeShape, nextIndex, previousIndex, wrapIndex } from './homeScreen.js';
 import { PALETTE, PALETTE_SIZE } from '../render/palette.js';
 
 describe('wrapIndex', () => {
@@ -63,24 +55,6 @@ describe('isResumeShape', () => {
   });
 });
 
-describe('hexToRgb', () => {
-  it('splits a hex colour into its channels', () => {
-    expect(hexToRgb('#e69f00')).toEqual({ r: 0xe6, g: 0x9f, b: 0x00 });
-  });
-
-  it('round-trips every palette colour', () => {
-    for (const hex of PALETTE) {
-      const { r, g, b } = hexToRgb(hex);
-      expect(r).toBeGreaterThanOrEqual(0);
-      expect(r).toBeLessThanOrEqual(255);
-      expect(g).toBeGreaterThanOrEqual(0);
-      expect(g).toBeLessThanOrEqual(255);
-      expect(b).toBeGreaterThanOrEqual(0);
-      expect(b).toBeLessThanOrEqual(255);
-    }
-  });
-});
-
 describe('inkFillColor', () => {
   it('picks the palette colour at the shape index', () => {
     expect(inkFillColor(0)).toBe(PALETTE[0]);
@@ -89,27 +63,5 @@ describe('inkFillColor', () => {
 
   it('wraps around the palette for an index past its end', () => {
     expect(inkFillColor(PALETTE_SIZE)).toBe(PALETTE[0]);
-  });
-});
-
-describe('facesToRgba', () => {
-  const fill = { r: 10, g: 20, b: 30 };
-
-  it('fills a face cell with the fill colour, opaque', () => {
-    const rgba = facesToRgba(new Uint8Array([1]), fill);
-    expect(Array.from(rgba)).toEqual([10, 20, 30, 255]);
-  });
-
-  it('leaves everything that is not a face fully transparent', () => {
-    const rgba = facesToRgba(new Uint8Array([0]), fill);
-    expect(Array.from(rgba)).toEqual([0, 0, 0, 0]);
-  });
-
-  it('maps each cell to its own four bytes, in order', () => {
-    const rgba = facesToRgba(new Uint8Array([1, 0, 1]), fill);
-    expect(rgba.length).toBe(12);
-    expect(Array.from(rgba.subarray(0, 4))).toEqual([10, 20, 30, 255]);
-    expect(Array.from(rgba.subarray(4, 8))).toEqual([0, 0, 0, 0]);
-    expect(Array.from(rgba.subarray(8, 12))).toEqual([10, 20, 30, 255]);
   });
 });

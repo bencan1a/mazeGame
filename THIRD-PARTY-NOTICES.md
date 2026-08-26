@@ -5,8 +5,8 @@ cannot drift from the version actually shipped. Edit the bake, not this file.
 
 ## Phosphor Icons — @phosphor-icons/core 2.1.1
 
-The shape library is rasterised from this set at build time. No upstream art
-is redistributed; each shape ships as a bitmap derived from it.
+The shape library is built from this set. Each shape ships as a bitmap
+rasterised from it, and as that drawing's own path geometry.
 
 ```
 MIT License

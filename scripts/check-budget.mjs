@@ -20,12 +20,17 @@ const dist = join(root, 'dist');
 /**
  * Gzipped kB. Raise deliberately, with a note saying what bought the bytes.
  *
- * `.bin` and `.json` are the shape library and its manifest. They are not
- * script, so they cost nothing to parse, but the service worker precaches
- * them like everything else — a phone downloads them once before the game is
- * playable offline, and nothing else in CI would notice them growing.
+ * `.bin` and `.json` are the shape library: the bitmaps a board is cut from,
+ * the drawings' own outlines for showing a shape to a player, and the manifest
+ * naming them. They are not script, so they cost nothing to parse, but the
+ * service worker precaches them like everything else — a phone downloads them
+ * once before the game is playable offline, and nothing else in CI would
+ * notice them growing.
+ *
+ * The `.json` budget covers ~54 kB of outline geometry for 309 shapes. It grows
+ * with the library, at roughly 175 bytes a shape.
  */
-const BUDGETS = { '.js': 220, '.css': 30, '.bin': 120, '.json': 20 };
+const BUDGETS = { '.js': 220, '.css': 30, '.bin': 120, '.json': 90 };
 
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {

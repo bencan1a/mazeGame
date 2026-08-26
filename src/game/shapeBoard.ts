@@ -5,10 +5,9 @@
  */
 
 import type { GenerateBoardOptions } from '../core/generate.js';
-import { repairMask } from '../core/mask/index.js';
 import { createRng } from '../core/rng.js';
 import { importShape } from '../core/shape/index.js';
-import { DEFAULT_GEN_PARAMS, type GenParams, type Mask } from '../core/types.js';
+import { DEFAULT_GEN_PARAMS, type GenParams } from '../core/types.js';
 
 /** A shape's baked bitmap: 1 = ink, `edge` square, row-major. */
 export interface ShapeDrawing {
@@ -53,25 +52,4 @@ export function shapeGenerateOptions(
     throw new Error(`this drawing has no enclosed face to fill at ${gridSize}x${gridSize}`);
   }
   return { silhouette: imported.blob, repair: SHAPE_REPAIR };
-}
-
-/**
- * The cells a board cut from this drawing would fill, for anything that wants
- * to show the shape without generating it. Runs the same import and the same
- * repair the generator will, at the same grid size, so what it shows and what
- * plays cannot disagree.
- */
-export function shapeFaceMask(drawing: ShapeDrawing, gridSize: number): Mask | null {
-  const imported = importShape({
-    ink: drawing.ink,
-    sourceWidth: drawing.edge,
-    sourceHeight: drawing.edge,
-    gridSize,
-  });
-  if (!imported.ok) return null;
-  try {
-    return repairMask(imported.blob, SHAPE_REPAIR);
-  } catch {
-    return null;
-  }
 }

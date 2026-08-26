@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { SHAPE_ASSET_FILE, SHAPE_MANIFEST_FILE, decodeShapeLibrary } from './shapeLibrary.js';
+import {
+  SHAPE_ASSET_FILE,
+  SHAPE_MANIFEST_FILE,
+  SHAPE_OUTLINE_FILE,
+  decodeShapeLibrary,
+} from './shapeLibrary.js';
 import { shapeGenerateOptions } from './shapeBoard.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -20,6 +25,7 @@ const asset = read(SHAPE_ASSET_FILE);
 const library = decodeShapeLibrary(
   read(SHAPE_MANIFEST_FILE).toString('utf8'),
   asset.buffer.slice(asset.byteOffset, asset.byteOffset + asset.byteLength) as ArrayBuffer,
+  read(SHAPE_OUTLINE_FILE).toString('utf8'),
 );
 
 describe('the baked shape asset', () => {

@@ -7,10 +7,11 @@
  * drawing is part of the JS bundle.
  */
 
-import type { ShapeLibrary, ShapeSummary } from './shapes.js';
+import type { ShapeLibrary, ShapeOutline, ShapeSummary } from './shapes.js';
 
 export const SHAPE_ASSET_FILE = 'shapes-v1.bin';
 export const SHAPE_MANIFEST_FILE = 'shapes-v1.json';
+export const SHAPE_OUTLINE_FILE = 'shapes-v1-outlines.json';
 
 const MAGIC = 'AMSH';
 export const SHAPE_ASSET_VERSION = 1;
@@ -22,6 +23,13 @@ export interface ShapeManifest {
   /** Where the drawings came from, for the notice the build ships beside them. */
   readonly source: string;
   readonly shapes: readonly ShapeManifestEntry[];
+}
+
+/** The artwork every bitmap was rasterised from, keyed by shape id. */
+export interface ShapeOutlines {
+  readonly version: number;
+  readonly viewBox: number;
+  readonly paths: Readonly<Record<string, string>>;
 }
 
 export interface ShapeManifestEntry extends ShapeSummary {
@@ -72,7 +80,11 @@ export function encodeShapeAsset(edge: number, inks: readonly Uint8Array[]): Uin
  * two disagreed. Every field is checked because both files arrive over the
  * network from a cache that can hold a truncated or stale copy of either.
  */
-export function decodeShapeLibrary(manifestText: string, asset: ArrayBuffer): ShapeLibrary {
+export function decodeShapeLibrary(
+  manifestText: string,
+  asset: ArrayBuffer,
+  outlineText: string,
+): ShapeLibrary {
   const manifest = parseManifest(manifestText);
   const bytes = new Uint8Array(asset);
   if (bytes.length < HEADER_BYTES) {
@@ -100,6 +112,13 @@ export function decodeShapeLibrary(manifestText: string, asset: ArrayBuffer): Sh
     throw new Error(`shape asset is ${bytes.length} bytes, expected ${expected}`);
   }
 
+  const outlines = parseOutlines(outlineText);
+  for (const shape of manifest.shapes) {
+    if (outlines.paths[shape.id] === undefined) {
+      throw new Error(`shape outlines have no drawing for "${shape.id}"`);
+    }
+  }
+
   const indexById = new Map(manifest.shapes.map((shape) => [shape.id, shape.index]));
   return {
     shapes: manifest.shapes.map(({ id, name }): ShapeSummary => ({ id, name })),
@@ -109,7 +128,27 @@ export function decodeShapeLibrary(manifestText: string, asset: ArrayBuffer): Sh
       if (index === undefined) return null;
       return unpackInk(bytes, HEADER_BYTES + index * stride, edge * edge);
     },
+    outline(id: string): ShapeOutline | null {
+      const path = outlines.paths[id];
+      return path === undefined ? null : { path, viewBox: outlines.viewBox };
+    },
   };
+}
+
+function parseOutlines(text: string): ShapeOutlines {
+  const raw: unknown = JSON.parse(text);
+  if (typeof raw !== 'object' || raw === null) throw new Error('shape outlines are not an object');
+  const { version, viewBox, paths } = raw as Record<string, unknown>;
+  if (version !== SHAPE_ASSET_VERSION) {
+    throw new Error(
+      `shape outlines are version ${String(version)}, expected ${SHAPE_ASSET_VERSION}`,
+    );
+  }
+  if (typeof viewBox !== 'number' || !Number.isFinite(viewBox) || viewBox <= 0) {
+    throw new Error('shape outlines have no viewBox');
+  }
+  if (typeof paths !== 'object' || paths === null) throw new Error('shape outlines have no paths');
+  return { version, viewBox, paths: paths as Record<string, string> };
 }
 
 /** Only ever called with a URL this module built, so it takes no request options. */
@@ -126,11 +165,12 @@ export async function loadShapeLibrary(
 ): Promise<ShapeLibrary> {
   const base = options.base ?? defaultBase();
   const get: FetchUrl = options.fetch ?? ((url) => globalThis.fetch(url));
-  const [manifest, asset] = await Promise.all([
+  const [manifest, asset, outlines] = await Promise.all([
     fetchOk(get, `${base}${SHAPE_MANIFEST_FILE}`).then((r) => r.text()),
     fetchOk(get, `${base}${SHAPE_ASSET_FILE}`).then((r) => r.arrayBuffer()),
+    fetchOk(get, `${base}${SHAPE_OUTLINE_FILE}`).then((r) => r.text()),
   ]);
-  return decodeShapeLibrary(manifest, asset);
+  return decodeShapeLibrary(manifest, asset, outlines);
 }
 
 async function fetchOk(get: FetchUrl, url: string): Promise<Response> {
