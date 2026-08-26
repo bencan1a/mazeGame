@@ -5,7 +5,7 @@
  *
  * Reads the Phosphor metadata module and prints the names that survive.
  *
- * Usage: npx tsx spikes/line-art/curate.ts --meta <path to index.mjs> [--sample 48]
+ * Usage: npx tsx tools/shapes/curate.ts --meta <path to index.mjs> [--sample 48]
  */
 
 import { pathToFileURL } from 'node:url';

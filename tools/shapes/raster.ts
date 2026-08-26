@@ -67,8 +67,8 @@ export async function openRasteriser(): Promise<Rasteriser> {
           context.drawImage(image, 0, 0, edge, edge);
           const pixels = context.getImageData(0, 0, edge, edge).data;
           // Quantised, so a gradient inside one flat-looking area does not read
-          // as a boundary every few pixels. Written without a helper function
-          // because tsx renames inner functions and the rename does not survive
+          // as a boundary every few pixels. Everything here is inline: tsx
+          // renames the functions it compiles, and the rename does not survive
           // being serialised into the page.
           const keys: number[] = new Array<number>(edge * edge);
           for (let i = 0; i < edge * edge; i++) {

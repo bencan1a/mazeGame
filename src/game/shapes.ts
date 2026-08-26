@@ -38,10 +38,16 @@ export interface ShapeLibrary {
 
 const FIXTURE_EDGE = 96;
 
+/**
+ * The same drawings as vector paths. A hole winds against the outline around
+ * it, since these are filled with the nonzero rule the real artwork needs: a
+ * subpath wound the same way as its container unions with it instead, and the
+ * drawing comes out as a solid block.
+ */
 const FIXTURE_OUTLINES: Readonly<Record<string, string>> = {
   ring: 'M48 8A40 40 0 1 0 48 88A40 40 0 1 0 48 8ZM48 28A20 20 0 1 1 48 68A20 20 0 1 1 48 28Z',
-  house: 'M0 0H96V96H0ZM8 40H88V45H8ZM40 45H45V88H40Z',
-  window: 'M10 10H86V86H10ZM10 45H86V51H10ZM45 10H51V86H45Z',
+  house: 'M0 0H96V96H0ZM8 8V88H88V8ZM8 40H88V45H8ZM40 45H45V88H40Z',
+  window: 'M10 10H86V86H10ZM16 16V80H80V16ZM16 45H80V51H16ZM45 16H51V80H45Z',
 };
 
 export function createFixtureLibrary(): ShapeLibrary {

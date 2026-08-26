@@ -5,7 +5,7 @@
  * too.
  */
 
-import { DIRECTIONS, NO_CELL, isBorder, step } from '../grid.js';
+import { DIRECTIONS, NO_CELL, isBorder, step, toIndex } from '../grid.js';
 
 export interface FaceExtraction {
   /** 1 = enclosed face (becomes `Blob.inside`), 0 = ink or background. */
@@ -62,7 +62,7 @@ function clearLeftoverStrip(inside: Uint8Array, width: number, height: number): 
     const yCovered = y < coveredHeight;
     if (yCovered && coveredWidth === width) continue;
     for (let x = yCovered ? coveredWidth : 0; x < width; x++) {
-      inside[y * width + x] = 0;
+      inside[toIndex(x, y, width)] = 0;
     }
   }
 }

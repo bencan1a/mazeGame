@@ -7,6 +7,8 @@
  * Chebyshev (8-neighbour) dilation, one cell of growth per pass: after
  * `radius` passes a stroke gains `radius` cells on every side.
  */
+import { toIndex } from '../grid.js';
+
 export function dilateChebyshev(
   ink: Uint8Array,
   width: number,
@@ -18,7 +20,7 @@ export function dilateChebyshev(
     const next = new Uint8Array(current.length);
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        next[y * width + x] = hasInkNeighbour(current, width, height, x, y) ? 1 : 0;
+        next[toIndex(x, y, width)] = hasInkNeighbour(current, width, height, x, y) ? 1 : 0;
       }
     }
     current = next;
@@ -39,7 +41,7 @@ function hasInkNeighbour(
     for (let dx = -1; dx <= 1; dx++) {
       const nx = x + dx;
       if (nx < 0 || nx >= width) continue;
-      if (ink[ny * width + nx] === 1) return true;
+      if (ink[toIndex(nx, ny, width)] === 1) return true;
     }
   }
   return false;

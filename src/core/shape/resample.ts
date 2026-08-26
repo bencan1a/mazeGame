@@ -4,6 +4,8 @@
  * sample, so a stroke thinner than one target cell cannot vanish between
  * samples.
  */
+import { toIndex } from '../grid.js';
+
 export function resampleAnyCovered(
   source: Uint8Array,
   sourceWidth: number,
@@ -25,13 +27,13 @@ export function resampleAnyCovered(
       let hit = 0;
       for (let sy = y0; sy < y1 && hit === 0; sy++) {
         for (let sx = x0; sx < x1; sx++) {
-          if (source[sy * sourceWidth + sx] === 1) {
+          if (source[toIndex(sx, sy, sourceWidth)] === 1) {
             hit = 1;
             break;
           }
         }
       }
-      out[y * targetWidth + x] = hit;
+      out[toIndex(x, y, targetWidth)] = hit;
     }
   }
 
