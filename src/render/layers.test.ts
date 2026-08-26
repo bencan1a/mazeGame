@@ -12,6 +12,7 @@ import {
   planDegradation,
   probeReadback,
   recommendedPixelsPerCell,
+  drawStaticLayerSegments,
   redrawStaticLayer,
   segmentSetsDiffer,
   type CanvasLike,
@@ -1234,5 +1235,106 @@ describe('redrawStaticLayer bounce marks', () => {
     redrawStaticLayer(layer, board, new Set([2]), new Set([2]));
 
     expect(colors).not.toContain(BLOCKED_SEGMENT_COLOR);
+  });
+});
+
+describe('drawStaticLayerSegments', () => {
+  /** Counts what reached the buffer: one moveTo for a body, one for its arrowhead. */
+  function countingLayer(): { layer: StaticLayer; counts: { clears: number; moveTos: number } } {
+    const counts = { clears: 0, moveTos: 0 };
+    const canvas: CanvasLike = {
+      width: 80,
+      height: 80,
+      getContext: () =>
+        ({
+          clearRect(): void {
+            counts.clears++;
+          },
+          strokeStyle: '',
+          fillStyle: '',
+          lineWidth: 0,
+          lineJoin: 'miter' as CanvasLineJoin,
+          lineCap: 'butt' as CanvasLineCap,
+          beginPath(): void {},
+          moveTo(): void {
+            counts.moveTos++;
+          },
+          lineTo(): void {},
+          arcTo(): void {},
+          stroke(): void {},
+          closePath(): void {},
+          fill(): void {},
+        }) as unknown as CanvasRenderingContext2D,
+    };
+    const layer = {
+      canvas,
+      ctx: canvas.getContext('2d') as CanvasRenderingContext2D,
+      budget: { pixelsPerCell: 20, widthPx: 80, heightPx: 80, degraded: false },
+      viewport: createBufferViewport(20),
+      allocationOk: true,
+      attempts: [],
+      droppedSegments: [],
+    } satisfies StaticLayer;
+    return { layer, counts };
+  }
+
+  it('draws only the named range, and adds to the buffer rather than clearing it', () => {
+    const { layer, counts } = countingLayer();
+
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, 1, 2);
+
+    expect(counts.clears).toBe(0);
+    expect(counts.moveTos).toBe(2 * 2);
+  });
+
+  it('reveals the whole board across successive ranges, drawing each segment once', () => {
+    const { layer, counts } = countingLayer();
+
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, 1, 1);
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, 2, 3);
+
+    expect(counts.moveTos).toBe(3 * 2);
+  });
+
+  it('skips a hidden segment and paints a bounced one in the blocked colour', () => {
+    const { layer, counts } = countingLayer();
+
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, 1, 3, new Set([2]));
+
+    expect(counts.moveTos).toBe(2 * 2);
+  });
+
+  it('clips a range the caller ran past the end of the board', () => {
+    const { layer, counts } = countingLayer();
+
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, -5, 99);
+
+    expect(counts.moveTos).toBe(3 * 2);
+  });
+
+  it('draws nothing for an empty range', () => {
+    const { layer, counts } = countingLayer();
+
+    drawStaticLayerSegments(layer, ACYCLIC_BOARD, 3, 2);
+
+    expect(counts.moveTos).toBe(0);
+  });
+
+  it('keeps a segment it could not draw reported once the reveal has moved past it', () => {
+    const { layer } = countingLayer();
+    const board = ACYCLIC_BOARD;
+    const originalDir = board.segDir[0];
+    board.segDir[0] = 255;
+    try {
+      drawStaticLayerSegments(layer, board, 1, 1);
+      const afterFirst = layer.droppedSegments;
+      expect(afterFirst).toEqual([1]);
+
+      drawStaticLayerSegments(layer, board, 2, 3);
+      expect(layer.droppedSegments).toEqual([1]);
+      expect(layer.droppedSegments).not.toBe(afterFirst);
+    } finally {
+      board.segDir[0] = originalDir as number;
+    }
   });
 });

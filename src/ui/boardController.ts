@@ -27,6 +27,8 @@ import {
   type ShapeDrawing,
 } from '../game/index.js';
 import {
+  INTRO_DURATION_MS,
+  INTRO_START_ZOOM,
   blitStaticLayer,
   clampPan,
   clampZoomScale,
@@ -35,15 +37,22 @@ import {
   createStaticLayer,
   createDomScheduler,
   createViewport,
+  drawStaticLayerSegments,
+  introCamera,
+  introFocusCell,
   isLayerLegibleUnzoomed,
   maxZoomScale,
   panViewport,
   redrawStaticLayer,
   segmentSetsDiffer,
   startBounceAnimation,
+  startIntroAnimation,
   startSnakeOutAnimation,
   zoomViewportAt,
   type AnimationLayer,
+  type Cell,
+  type IntroAnimation,
+  type IntroFrame,
   type SnakeOutAnimation,
   type SnakeOutAnimationOptions,
   type StaticLayer,
@@ -204,6 +213,16 @@ function readDpr(): number {
   return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
 }
 
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    // Not every environment the controller runs in implements matchMedia; an
+    // unanswerable preference is not a stated one.
+    return false;
+  }
+}
+
 /**
  * Owns the board, both canvases and every pointer listener, entirely outside
  * React. The only thing crossing back is `BoardHud`, which the chrome renders.
@@ -261,6 +280,17 @@ export function createBoardController(
   /** True once the player has pinched; until then every layout re-fits the board. */
   let userZoomed = false;
   let disposed = false;
+  let intro: IntroAnimation | null = null;
+  /**
+   * While true the static layer holds only segments 1..`introRevealed` and the
+   * viewport is the reveal's own camera rather than the resting fit.
+   */
+  let introActive = false;
+  let introRevealed = 0;
+  let introFocus: Cell = introFocusCell(board);
+  /** What the reveal draws against, held for its duration so state cannot move under it. */
+  let introHidden: Set<number> = new Set();
+  let introBounced: Set<number> = new Set();
 
   const listeners = new Set<(hud: BoardHud) => void>();
   const hud = (): BoardHud => ({
@@ -298,12 +328,21 @@ export function createBoardController(
   };
 
   /** Segments the static layer must not draw: gone from the board, or in flight over it. */
-  const hiddenSet = (): Set<number> => {
+  const settledHiddenSet = (): Set<number> => {
     const set = new Set<number>();
     for (let id = 1; id <= board.segmentCount; id++) {
       if (isRemoved(state, id)) set.add(id);
     }
     if (liftedId !== null) set.add(liftedId);
+    return set;
+  };
+
+  /** The above, plus everything the opening reveal has not reached yet. */
+  const hiddenSet = (): Set<number> => {
+    const set = settledHiddenSet();
+    if (introActive) {
+      for (let id = introRevealed + 1; id <= board.segmentCount; id++) set.add(id);
+    }
     return set;
   };
 
@@ -420,6 +459,107 @@ export function createBoardController(
     syncStaticLayer();
     blit();
     publish();
+  };
+
+  /** The viewport the board rests at: fitted to the canvas, then pan-clamped. */
+  const restingViewport = (): Viewport<'css'> => {
+    const { min, max } = zoomBounds();
+    return clampPan(createViewport({ scale: clampZoomScale(min, min, max), dpr }), panBounds());
+  };
+
+  /**
+   * Deliberately not held to `zoomBounds().max`, which is the point past which
+   * the buffer is being magnified rather than sampled. That ceiling protects a
+   * resting view the player reads arrowheads on; the reveal is moving the whole
+   * time and lands exactly on the resting scale, and on a board whose fit
+   * already sits at the ceiling honouring it would mean no zoom at all.
+   */
+  const introStartScale = (): number => restingViewport().scale * INTRO_START_ZOOM;
+
+  const introFrame = (frame: IntroFrame): void => {
+    if (frame.revealedCount > introRevealed) {
+      drawStaticLayerSegments(
+        staticLayer,
+        board,
+        introRevealed + 1,
+        frame.revealedCount,
+        introHidden,
+        introBounced,
+      );
+      introRevealed = frame.revealedCount;
+    }
+    viewport = introCamera({
+      resting: restingViewport(),
+      startScale: introStartScale(),
+      focus: introFocus,
+      progress: frame.progress,
+      bounds: panBounds(),
+    });
+    blit();
+  };
+
+  /** Hands the board back: fully drawn, at rest, and tappable again. */
+  const endIntro = (): void => {
+    introActive = false;
+    intro = null;
+    surface.removeAttribute('data-intro');
+    // The reveal painted every segment outside these two sets, so this is what
+    // the buffer now holds; syncStaticLayer repaints only if the game moved
+    // while it was running.
+    drawnHidden = introHidden;
+    drawnBounced = introBounced;
+    syncStaticLayer();
+    viewport = restingViewport();
+    blit();
+    publish();
+  };
+
+  /** Drops the reveal where it stands, for a board that is about to be replaced. */
+  const cancelIntro = (): void => {
+    if (intro === null && !introActive) return;
+    intro?.cancel();
+    intro = null;
+    introActive = false;
+    surface.removeAttribute('data-intro');
+    // The buffer holds however far the reveal got, which no drawn set describes.
+    drawnHidden = null;
+    drawnBounced = null;
+  };
+
+  /**
+   * Marks the board as awaiting its reveal, so the layout that first paints it
+   * draws an empty buffer rather than painting it in full and clearing it
+   * again. Returns whether there is a reveal to start.
+   */
+  const armIntro = (): boolean => {
+    if (board.segmentCount === 0 || !staticLayer.allocationOk) return false;
+    if (prefersReducedMotion()) return false;
+    introActive = true;
+    introRevealed = 0;
+    introFocus = introFocusCell(board);
+    introHidden = settledHiddenSet();
+    introBounced = bouncedSet();
+    return true;
+  };
+
+  const startIntro = (): void => {
+    if (!introActive || disposed) return;
+    surface.setAttribute('data-intro', 'running');
+    try {
+      intro = startIntroAnimation({
+        board,
+        durationMs: INTRO_DURATION_MS,
+        scheduler,
+        onFrame: introFrame,
+        onComplete: endIntro,
+      });
+    } catch {
+      // A reveal that cannot start must not cost the board: drop back to the
+      // finished one rather than leaving it hidden behind a reveal nothing drives.
+      cancelIntro();
+      syncStaticLayer();
+      blit();
+    }
   };
 
   /** What both flight animations are driven with; the bounce adds to it. */
@@ -559,6 +699,12 @@ export function createBoardController(
   );
 
   const onDown = (event: PointerEvent): void => {
+    if (introActive) {
+      // The touch that ends the reveal does not also play a piece: the board
+      // it would have been aimed at was not finished being drawn.
+      intro?.finish();
+      return;
+    }
     try {
       surface.setPointerCapture(event.pointerId);
     } catch {
@@ -594,6 +740,7 @@ export function createBoardController(
     surface.removeEventListener('pointercancel', onCancel);
   };
 
+  const introArmed = armIntro();
   try {
     resize();
   } catch (cause) {
@@ -605,6 +752,7 @@ export function createBoardController(
   // A board is worth resuming from before it is played: without this, a
   // reload between generating and the first tap comes back on a new seed.
   publishSnapshot();
+  if (introArmed) startIntro();
 
   return {
     getHud: hud,
@@ -613,6 +761,7 @@ export function createBoardController(
       return () => listeners.delete(listener);
     },
     restartBoard() {
+      cancelIntro();
       // A settle frame from before the restart would land on a later removal
       // and clear `animating` while that exit was still drawing.
       if (settleHandle !== null) {
@@ -637,6 +786,7 @@ export function createBoardController(
       const nextGenerated = generateTimed(nextGenParams, drawing);
       const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
 
+      cancelIntro();
       if (settleHandle !== null) {
         scheduler.cancelFrame(settleHandle);
         settleHandle = null;
@@ -659,8 +809,10 @@ export function createBoardController(
       // A new board is a new fit: keeping a pinch from the previous one lands
       // a different grid size at a scale the player never chose for it.
       userZoomed = false;
+      const armed = armIntro();
       resize();
       publishSnapshot();
+      if (armed) startIntro();
     },
     getGenParams: () => genParams,
     getPlayParams: () => playParams,
@@ -677,6 +829,7 @@ export function createBoardController(
     },
     destroy() {
       disposed = true;
+      cancelIntro();
       if (settleHandle !== null) {
         scheduler.cancelFrame(settleHandle);
         settleHandle = null;

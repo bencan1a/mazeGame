@@ -428,6 +428,41 @@ export function redrawStaticLayer(
   layer.droppedSegments = dropped;
 }
 
+/**
+ * Draws segments `fromId..toId` — 1-based and inclusive — onto whatever the
+ * buffer already holds, without clearing it. `hidden` and `bounced` mean what
+ * they mean for `redrawStaticLayer`.
+ *
+ * For a reveal that only ever adds: repainting the whole buffer every frame
+ * costs the segment count per frame, this costs it once across the whole
+ * reveal. Anything that removes ink still has to go through
+ * `redrawStaticLayer`.
+ *
+ * `droppedSegments` accumulates across calls, rather than being replaced the
+ * way `redrawStaticLayer` replaces it, so a partial draw is still reported
+ * once the reveal has moved past it. It is replaced with a new array, so a
+ * caller comparing by identity still sees a change.
+ */
+export function drawStaticLayerSegments(
+  layer: StaticLayer,
+  board: Board,
+  fromId: number,
+  toId: number,
+  hidden: ReadonlySet<SegmentId> = EMPTY_SEGMENT_SET,
+  bounced: ReadonlySet<SegmentId> = EMPTY_SEGMENT_SET,
+): void {
+  const first = Math.max(1, Math.trunc(fromId));
+  const last = Math.min(board.segmentCount, Math.trunc(toId));
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return;
+  const dropped: SegmentId[] = [...layer.droppedSegments];
+  for (let id = first; id <= last; id++) {
+    if (hidden.has(id)) continue;
+    const color = bounced.has(id) ? BLOCKED_SEGMENT_COLOR : undefined;
+    if (!drawSegmentGuarded(layer.ctx, board, id, layer.viewport, color)) dropped.push(id);
+  }
+  layer.droppedSegments = dropped;
+}
+
 export interface AnimationLayer {
   readonly canvas: CanvasLike;
   readonly ctx: CanvasRenderingContext2D;
