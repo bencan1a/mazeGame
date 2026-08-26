@@ -57,6 +57,7 @@ describe('saveGame / loadSavedGame round trip', () => {
       GEN_PARAMS,
       PLAY_PARAMS,
       SEGMENT_COUNT,
+      'house',
       storage,
     );
 
@@ -71,13 +72,70 @@ describe('saveGame / loadSavedGame round trip', () => {
       lives: 2,
     });
     expect(loaded?.segmentCount).toBe(SEGMENT_COUNT);
+    expect(loaded?.shapeId).toBe('house');
   });
 
   it('carries out the segment count the save was written against', () => {
     const storage = new FakeStorage();
-    saveGame({ removedSegments: [], lives: 3 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    saveGame(
+      { removedSegments: [], lives: 3 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      null,
+      storage,
+    );
 
     expect(loadSavedGame(storage)?.segmentCount).toBe(generateBoard(GEN_PARAMS).segmentCount);
+  });
+
+  it('defaults an unspecified shape to null, for a procedural board', () => {
+    const storage = new FakeStorage();
+    saveGame(
+      { removedSegments: [], lives: 3 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      undefined,
+      storage,
+    );
+
+    expect(loadSavedGame(storage)?.shapeId).toBeNull();
+  });
+
+  it('reads a record written before shapes existed as having none', () => {
+    const storage = new FakeStorage();
+    storage.setItem(
+      'arrow-maze:save:v1',
+      JSON.stringify({
+        version: RECORD_VERSION,
+        genParams: GEN_PARAMS,
+        playParams: PLAY_PARAMS,
+        removedSegments: [],
+        lives: 3,
+        segmentCount: SEGMENT_COUNT,
+      }),
+    );
+
+    expect(loadSavedGame(storage)?.shapeId).toBeNull();
+  });
+
+  it('discards a record whose shape id is not a string or null', () => {
+    const storage = new FakeStorage();
+    storage.setItem(
+      'arrow-maze:save:v1',
+      JSON.stringify({
+        version: RECORD_VERSION,
+        genParams: GEN_PARAMS,
+        playParams: PLAY_PARAMS,
+        removedSegments: [],
+        lives: 3,
+        segmentCount: SEGMENT_COUNT,
+        shapeId: 42,
+      }),
+    );
+
+    expect(loadSavedGame(storage)).toBeNull();
   });
 });
 
@@ -183,7 +241,14 @@ describe('saveGame failure handling', () => {
     const storage = new ThrowingStorage('setItem');
 
     expect(() =>
-      saveGame({ removedSegments: [], lives: 3 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage),
+      saveGame(
+        { removedSegments: [], lives: 3 },
+        GEN_PARAMS,
+        PLAY_PARAMS,
+        SEGMENT_COUNT,
+        null,
+        storage,
+      ),
     ).not.toThrow();
   });
 
@@ -194,6 +259,7 @@ describe('saveGame failure handling', () => {
         GEN_PARAMS,
         PLAY_PARAMS,
         SEGMENT_COUNT,
+        null,
         undefined,
       ),
     ).not.toThrow();
@@ -203,7 +269,14 @@ describe('saveGame failure handling', () => {
 describe('clearSavedGame', () => {
   it('removes a previously saved game', () => {
     const storage = new FakeStorage();
-    saveGame({ removedSegments: [1], lives: 2 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    saveGame(
+      { removedSegments: [1], lives: 2 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      null,
+      storage,
+    );
 
     clearSavedGame(storage);
 
@@ -310,6 +383,7 @@ describe('bounce marks in a save', () => {
       GEN_PARAMS,
       PLAY_PARAMS,
       SEGMENT_COUNT,
+      null,
       storage,
     );
 
@@ -318,7 +392,14 @@ describe('bounce marks in a save', () => {
 
   it('reads a record written before bounce marks existed as having none', () => {
     const storage = new FakeStorage();
-    saveGame({ removedSegments: [2], lives: 1 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    saveGame(
+      { removedSegments: [2], lives: 1 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      null,
+      storage,
+    );
     const stored = JSON.parse(storage.getItem('arrow-maze:save:v1') as string) as Record<
       string,
       unknown
@@ -331,7 +412,14 @@ describe('bounce marks in a save', () => {
 
   it('discards a record whose bounced set names a segment off the board', () => {
     const storage = new FakeStorage();
-    saveGame({ removedSegments: [], lives: 1 }, GEN_PARAMS, PLAY_PARAMS, SEGMENT_COUNT, storage);
+    saveGame(
+      { removedSegments: [], lives: 1 },
+      GEN_PARAMS,
+      PLAY_PARAMS,
+      SEGMENT_COUNT,
+      null,
+      storage,
+    );
     const stored = JSON.parse(storage.getItem('arrow-maze:save:v1') as string) as Record<
       string,
       unknown
