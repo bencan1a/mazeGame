@@ -251,16 +251,38 @@ validates and then measures pays for two. See [METRICS.md](./METRICS.md).
 ### generateBoard (S4)
 
 ```ts
-generateBoard(params: GenParams): Board
+generateBoard(params: GenParams, options?: GenerateBoardOptions): Board
 generateBoardWithDiagnostics(params: GenParams, options?: GenerateBoardOptions): GenerateBoardResult
 ```
 
 The single public entry point: mask -> path -> cut-and-orient -> validation ->
-colors, pure in `(seed, params)` per ADR-0004. `generateBoard` is
-the exact `GenerateBoard` shape declared in `types.ts`; `generateBoardWithDiagnostics`
+colors, pure in `(seed, params)` per ADR-0004. `generateBoard` stays assignable
+to the `GenerateBoard` shape declared in `types.ts` — the options argument is
+optional, so a caller that has only `params` is unaffected; `generateBoardWithDiagnostics`
 is the same pipeline with the retry count and per-attempt failure reasons
 attached, for a caller (the tuning harness) that needs to see why a board took
 more than one attempt.
+
+**The silhouette can come from the caller.** `GenerateBoardOptions.silhouette`
+is a `Blob` (`src/core/mask`) used in place of the procedural `generateBlob`
+draw; `GenerateBoardOptions.repair` is the `RepairOptions` for the `repairMask`
+call the blob then goes through, whichever source it came from — authored art
+generally wants `holeAreaThreshold: 0`, so a hole the artist drew survives. The
+silhouette must be `params.gridSize` square; anything else is a caller error
+and throws `RangeError` before the first attempt. With no `silhouette` the
+generator draws a blob exactly as before: the same `(seed, params)` gives the
+byte-identical board it gave without the option.
+
+It is an option on the call rather than a field on `GenParams` deliberately —
+`GenParams` is unchanged, so no existing literal has to be edited, and a board
+stays reproducible from `(seed, params)` **plus** whichever silhouette was
+handed in. A caller that supplies one owns storing it.
+
+**A supplied silhouette does not vary across retries.** The retry loop derives
+a fresh internal seed per attempt, which changes the path and the cut but not
+the shape. So a silhouette `repairMask` rejects reports the same
+`mask: ...` reason on every attempt and ends in `GenerationFailedError` rather
+than being rescued — correct, and the reason curation belongs at build time.
 
 **Validation runs by default.** `GenerateBoardOptions.validate` defaults to
 `true` and there is no environment-based branching — an explicit `false` is
