@@ -39,7 +39,6 @@ import {
   createViewport,
   drawStaticLayerSegments,
   introCamera,
-  introFocusCell,
   isLayerLegibleUnzoomed,
   maxZoomScale,
   panViewport,
@@ -50,7 +49,6 @@ import {
   startSnakeOutAnimation,
   zoomViewportAt,
   type AnimationLayer,
-  type Cell,
   type IntroAnimation,
   type IntroFrame,
   type SnakeOutAnimation,
@@ -287,7 +285,6 @@ export function createBoardController(
    */
   let introActive = false;
   let introRevealed = 0;
-  let introFocus: Cell = introFocusCell(board);
   /** What the reveal draws against, held for its duration so state cannot move under it. */
   let introHidden: Set<number> = new Set();
   let introBounced: Set<number> = new Set();
@@ -491,7 +488,6 @@ export function createBoardController(
     viewport = introCamera({
       resting: restingViewport(),
       startScale: introStartScale(),
-      focus: introFocus,
       progress: frame.progress,
       bounds: panBounds(),
     });
@@ -538,7 +534,6 @@ export function createBoardController(
     if (prefersReducedMotion()) return false;
     introActive = true;
     introRevealed = 0;
-    introFocus = introFocusCell(board);
     introHidden = settledHiddenSet();
     introBounced = bouncedSet();
     return true;
