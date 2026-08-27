@@ -59,11 +59,6 @@ export interface CellAggregate {
   readonly shortStraightRuns: Stat;
 }
 
-export interface SweepResult {
-  readonly rows: readonly BoardRow[];
-  readonly aggregates: readonly CellAggregate[];
-}
-
 /** The JSON grid a `--sweep` file describes. Any field omitted takes the corresponding `DEFAULT_GEN_PARAMS` value. */
 export interface SweepSpec {
   readonly seeds?: number;

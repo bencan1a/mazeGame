@@ -20,6 +20,8 @@
  * `cell()`/`cssPixel()`/`devicePixel()`.
  */
 
+import { requireFinite, requireNonNegativeFinite, requirePositiveFinite } from './numeric.js';
+
 declare const cellBrand: unique symbol;
 export interface Cell {
   readonly x: number;
@@ -86,27 +88,6 @@ export interface ViewportInit {
   readonly dpr?: number;
   readonly originX?: number;
   readonly originY?: number;
-}
-
-function requireFinite(value: number, name: string): void {
-  if (!Number.isFinite(value)) {
-    throw new RangeError(`${name} must be a finite number, got ${value}`);
-  }
-}
-
-function requirePositiveFinite(value: number, name: string): void {
-  requireFinite(value, name);
-  if (value <= 0) {
-    throw new RangeError(`${name} must be positive, got ${value}`);
-  }
-}
-
-/** As `requirePositiveFinite`, but zero is a legitimate size — a canvas mid-layout, not caller error. */
-function requireNonNegativeFinite(value: number, name: string): void {
-  requireFinite(value, name);
-  if (value < 0) {
-    throw new RangeError(`${name} must not be negative, got ${value}`);
-  }
 }
 
 /**

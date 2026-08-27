@@ -631,6 +631,22 @@ export function createBoardController(
     settleWithoutAnimation();
   };
 
+  /**
+   * Every scheduled thing that draws, stopped. A pending settle frame is part
+   * of it: one from before a restart or a reconfigure would land on a later
+   * removal and clear `animating` while that exit was still drawing.
+   */
+  const stopMotion = (): void => {
+    cancelIntro();
+    if (settleHandle !== null) {
+      scheduler.cancelFrame(settleHandle);
+      settleHandle = null;
+    }
+    animation?.cancel();
+    animation = null;
+    liftedId = null;
+  };
+
   /** Advances the queue on the next frame for an outcome with nothing to draw. */
   const settleWithoutAnimation = (): void => {
     // Reached only when there is no overlay to animate on, so the queue
@@ -758,16 +774,7 @@ export function createBoardController(
       return () => listeners.delete(listener);
     },
     restartBoard() {
-      cancelIntro();
-      // A settle frame from before the restart would land on a later removal
-      // and clear `animating` while that exit was still drawing.
-      if (settleHandle !== null) {
-        scheduler.cancelFrame(settleHandle);
-        settleHandle = null;
-      }
-      animation?.cancel();
-      animation = null;
-      liftedId = null;
+      stopMotion();
       state = restart(state);
       // The same board laying itself out again, which is what a restart is.
       const armed = armIntro();
@@ -786,14 +793,7 @@ export function createBoardController(
       const nextGenerated = generateTimed(nextGenParams, drawing);
       const nextStaticLayer = createStaticLayer(nextGenerated.board, { dpr });
 
-      cancelIntro();
-      if (settleHandle !== null) {
-        scheduler.cancelFrame(settleHandle);
-        settleHandle = null;
-      }
-      animation?.cancel();
-      animation = null;
-      liftedId = null;
+      stopMotion();
       staticLayer.canvas.width = 0;
       staticLayer.canvas.height = 0;
 
@@ -829,14 +829,7 @@ export function createBoardController(
     },
     destroy() {
       disposed = true;
-      cancelIntro();
-      if (settleHandle !== null) {
-        scheduler.cancelFrame(settleHandle);
-        settleHandle = null;
-      }
-      animation?.cancel();
-      animation = null;
-      liftedId = null;
+      stopMotion();
       // Zeroing the offscreen buffer frees it now rather than at the next GC,
       // which matters under a mount/unmount/mount cycle where two would
       // otherwise be live at once.
