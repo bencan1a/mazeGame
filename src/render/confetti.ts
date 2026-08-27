@@ -66,8 +66,13 @@ export interface ConfettiField {
   readonly colors: Uint8Array;
   /** CSS px per second squared. */
   readonly gravity: number;
-  readonly cssWidth: number;
-  readonly cssHeight: number;
+  /**
+   * What a flake is culled against. Mutable because the layer under a running
+   * burst can be resized: the flakes keep the speeds and sizes they launched
+   * with, but the edges they are drawn up to are the canvas's current ones.
+   */
+  cssWidth: number;
+  cssHeight: number;
 }
 
 function requirePositiveFinite(value: number, name: string): void {
@@ -143,6 +148,18 @@ export function createConfettiField(options: ConfettiFieldOptions): ConfettiFiel
     field.colors[i] = rng.int(PALETTE.length);
   }
   return field;
+}
+
+/** Moves the edges a running burst is drawn up to onto a resized canvas. */
+export function resizeConfettiField(
+  field: ConfettiField,
+  cssWidth: number,
+  cssHeight: number,
+): void {
+  if (!Number.isFinite(cssWidth) || !Number.isFinite(cssHeight)) return;
+  if (cssWidth <= 0 || cssHeight <= 0) return;
+  field.cssWidth = cssWidth;
+  field.cssHeight = cssHeight;
 }
 
 /**
@@ -341,6 +358,7 @@ export function startConfettiAnimation(options: ConfettiAnimationOptions): Confe
     advanceConfetti(flakes, dt);
     const drawn = guard(() => {
       const layer = readLayer();
+      resizeConfettiField(flakes, layer.cssWidth, layer.cssHeight);
       clearAnimationLayer(layer);
       drawConfettiFrame(layer.ctx, flakes, confettiAlpha(progress));
     });

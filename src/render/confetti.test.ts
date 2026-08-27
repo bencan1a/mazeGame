@@ -6,6 +6,7 @@ import {
   createConfettiField,
   drawConfettiFrame,
   recommendedConfettiCount,
+  resizeConfettiField,
   startConfettiAnimation,
   type ConfettiContext2D,
   type ConfettiField,
@@ -225,6 +226,35 @@ describe('advanceConfetti', () => {
   });
 });
 
+describe('resizeConfettiField', () => {
+  it('moves the edges flakes are culled against', () => {
+    const field = createConfettiField({ ...FIELD_OPTIONS, count: 1 });
+    resizeConfettiField(field, 800, 900);
+    expect(field.cssWidth).toBe(800);
+    expect(field.cssHeight).toBe(900);
+  });
+
+  it('keeps the flakes at the speeds and sizes they launched with', () => {
+    const field = createConfettiField({ ...FIELD_OPTIONS, count: 6 });
+    const speeds = [...field.vx];
+    const gravity = field.gravity;
+    const sizes = [...field.halfWidth];
+    resizeConfettiField(field, 800, 900);
+    expect([...field.vx]).toEqual(speeds);
+    expect([...field.halfWidth]).toEqual(sizes);
+    expect(field.gravity).toBe(gravity);
+  });
+
+  it('ignores a canvas with no area, rather than culling everything away', () => {
+    const field = createConfettiField({ ...FIELD_OPTIONS, count: 1 });
+    resizeConfettiField(field, 0, 900);
+    resizeConfettiField(field, Number.NaN, 900);
+    resizeConfettiField(field, 800, -1);
+    expect(field.cssWidth).toBe(FIELD_OPTIONS.cssWidth);
+    expect(field.cssHeight).toBe(FIELD_OPTIONS.cssHeight);
+  });
+});
+
 describe('confettiAlpha', () => {
   it('holds the burst solid, then fades it out by the end', () => {
     expect(confettiAlpha(0)).toBe(1);
@@ -262,6 +292,15 @@ describe('drawConfettiFrame', () => {
     field.x[1] = -500;
     const ctx = new FakeCtx();
     expect(onScreen(field, ctx)).toHaveLength(1);
+  });
+
+  it('draws a flake a wider canvas has room for once the field is resized', () => {
+    const field = createConfettiField({ ...FIELD_OPTIONS, count: 1 });
+    field.x[0] = field.cssWidth + 200;
+    expect(onScreen(field, new FakeCtx())).toHaveLength(0);
+
+    resizeConfettiField(field, field.cssWidth + 400, field.cssHeight);
+    expect(onScreen(field, new FakeCtx())).toHaveLength(1);
   });
 
   it('carries the fade into every flake and restores the context alpha', () => {
@@ -397,6 +436,38 @@ describe('startConfettiAnimation', () => {
     expect(completions).toHaveLength(1);
     animation.cancel();
     expect(completions).toHaveLength(1);
+  });
+
+  it('draws out to the new edges when the layer is resized mid-burst', () => {
+    /** Flakes painted on one late frame, of a burst opened on a 100x100 layer. */
+    const flakesOnALateFrame = (grow: boolean): number => {
+      const scheduler = fakeScheduler();
+      const small = fakeAnimationLayer(100, 100);
+      const large = fakeAnimationLayer(600, 600);
+      let current = small;
+      startConfettiAnimation({
+        layer: () => current.layer,
+        scheduler,
+        durationMs: CONFETTI_DURATION_MS,
+        seed: 5,
+        count: 60,
+      });
+      if (grow) current = large;
+      // Stepped small enough that the driver integrates every frame whole,
+      // and far enough for flakes to have travelled past the opening canvas.
+      for (let time = 40; time <= 960; time += 40) {
+        scheduler.clock.value = time;
+        runQueuedFrames(scheduler, time);
+      }
+      current.ctx.calls.length = 0;
+      scheduler.clock.value = 1000;
+      runQueuedFrames(scheduler, 1000);
+      return current.ctx.calls.filter((call) => call.op === 'translate').length;
+    };
+
+    // Only a flake that survives the cull is translated, and the two runs are
+    // the same burst on the same clock: the canvas is the only difference.
+    expect(flakesOnALateFrame(true)).toBeGreaterThan(flakesOnALateFrame(false));
   });
 
   it('completes when the layer goes away mid-burst', () => {
