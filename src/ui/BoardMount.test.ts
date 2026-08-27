@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { genParamsForShape } from '../game/shapeBoard.js';
 import { DEFAULT_GEN_PARAMS, DEFAULT_PLAY_PARAMS } from '../core/types.js';
-import { paramsFromLocation, untouched } from './BoardMount.js';
+import { debugEnabled, paramsFromLocation, untouched } from './BoardMount.js';
 
 describe('paramsFromLocation', () => {
   const base = genParamsForShape('ring');
@@ -30,6 +30,21 @@ describe('paramsFromLocation', () => {
 
   it('ignores an empty parameter rather than reading it as zero', () => {
     expect(paramsFromLocation(base, '?seed=').seed).toBe(base.seed);
+  });
+});
+
+describe('debugEnabled', () => {
+  it('is false with no query string available', () => {
+    expect(debugEnabled(undefined)).toBe(false);
+  });
+
+  it('is false without ?debug', () => {
+    expect(debugEnabled('?grid=40&seed=7')).toBe(false);
+  });
+
+  it('is true for a bare ?debug and for ?debug=1', () => {
+    expect(debugEnabled('?debug')).toBe(true);
+    expect(debugEnabled('?debug=1')).toBe(true);
   });
 });
 

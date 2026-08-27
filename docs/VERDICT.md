@@ -147,11 +147,10 @@ sampler's mean, which the length floor pushes up by more as
 
 ## Decisions this closes
 
-**The tuning panel ships.** It was built as a dev panel and it stays in the
-player build, behind the `Tune` button, with every generation and play parameter
-live and the metrics readout with them. It is not gated on a build flag or a
-query parameter. Docs that call it "the dev panel" are describing a shipped
-feature.
+**The tuning panel ships, behind `?debug`.** It stays in the player build with
+every generation and play parameter live and the metrics readout with them, but
+the `Tune` button only appears on a URL carrying `?debug`; the default player
+screen has no tuning affordance.
 
 **Parity absorption stays as insurance** ([#79](https://github.com/bencan1a/mazeGame/issues/79)).
 It is unreachable from the current pipeline — every procedural mask is built
