@@ -51,6 +51,12 @@ export function paramsFromLocation(
   };
 }
 
+/** `?debug` puts the tuning panel on screen; without it the player build has no Tune button. */
+export function debugEnabled(search: string | undefined = defaultSearch()): boolean {
+  if (search === undefined) return false;
+  return new URLSearchParams(search).has('debug');
+}
+
 const INITIAL_HUD: BoardHud = {
   lives: DEFAULT_PLAY_PARAMS.lives,
   status: 'playing',
@@ -104,6 +110,7 @@ export function BoardMount(props: BoardMountProps): ReactElement {
   );
   const [playParams, setPlayParams] = useState<PlayParams>(DEFAULT_PLAY_PARAMS);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [debug] = useState(debugEnabled);
   const [metrics, setMetrics] = useState<BoardMetrics | null>(null);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
@@ -296,16 +303,18 @@ export function BoardMount(props: BoardMountProps): ReactElement {
         <canvas ref={overlayRef} className="board-canvas" />
       </div>
 
-      <DevPanel
-        open={panelOpen}
-        onToggle={togglePanel}
-        genParams={genParams}
-        playParams={playParams}
-        metrics={metrics}
-        metricsError={metricsError}
-        regenerateError={regenerateError}
-        onApply={applyParams}
-      />
+      {debug ? (
+        <DevPanel
+          open={panelOpen}
+          onToggle={togglePanel}
+          genParams={genParams}
+          playParams={playParams}
+          metrics={metrics}
+          metricsError={metricsError}
+          regenerateError={regenerateError}
+          onApply={applyParams}
+        />
+      ) : null}
 
       <footer className="hud-foot">
         {error !== null ? (
@@ -323,10 +332,6 @@ export function BoardMount(props: BoardMountProps): ReactElement {
           <span role="alert">
             {hud.droppedSegments} {hud.droppedSegments === 1 ? 'piece' : 'pieces'} could not be
             drawn.
-          </span>
-        ) : !hud.legibleUnzoomed ? (
-          <span>
-            Zoom in to read the arrowheads at {hud.gridSize}×{hud.gridSize}.
           </span>
         ) : (
           <span>Tap a piece whose path to the edge is clear.</span>
