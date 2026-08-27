@@ -16,6 +16,7 @@ import {
   type PixelSpace,
   type Viewport,
 } from './viewport.js';
+import { requirePositiveFinite } from './numeric.js';
 import { paletteColor } from './palette.js';
 import type { Board, Direction, SegmentId } from '../core/types.js';
 
@@ -118,12 +119,6 @@ export const ARROWHEAD_OVERHANG_CELLS = Math.max(
  * not yet know its actual on-screen width or height.
  */
 export const REFERENCE_CSS_VIEWPORT_WIDTH = 390;
-
-function requirePositiveFinite(value: number, name: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive finite number, got ${value}`);
-  }
-}
 
 /** Reads and validates a segment's `segDir`, for a caller that needs the direction on its own — see `drawSegmentGuarded` for one that needs the throw absorbed. */
 export function requireDirection(board: Board, segmentId: SegmentId): Direction {

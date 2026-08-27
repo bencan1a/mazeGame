@@ -14,6 +14,7 @@ const ROW_COLUMNS = [
   'bendProbability',
   'minStraightRun',
   'fillFraction',
+  'lobeCount',
   'attempts',
   'generationMs',
   'segmentCount',
@@ -30,23 +31,7 @@ const ROW_COLUMNS = [
   'shortStraightRuns',
 ] as const;
 
-type StatMetricKey =
-  | 'generationMs'
-  | 'attempts'
-  | 'segmentCount'
-  | 'coverage'
-  | 'meanSegmentLength'
-  | 'bendRate'
-  | 'dagDepth'
-  | 'meanFreeSetSize'
-  | 'minFreeSetSize'
-  | 'edgeCount'
-  | 'shortOfTarget'
-  | 'belowMinimum'
-  | 'wholeRunEscapes'
-  | 'shortStraightRuns';
-
-const STAT_METRICS: readonly StatMetricKey[] = [
+const STAT_METRICS = [
   'generationMs',
   'attempts',
   'segmentCount',
@@ -61,7 +46,7 @@ const STAT_METRICS: readonly StatMetricKey[] = [
   'belowMinimum',
   'wholeRunEscapes',
   'shortStraightRuns',
-];
+] as const satisfies readonly (keyof CellAggregate)[];
 
 type CsvValue = string | number | boolean;
 
@@ -87,6 +72,7 @@ function rowValues(row: BoardRow): Record<(typeof ROW_COLUMNS)[number], CsvValue
     bendProbability: row.params.bendProbability,
     minStraightRun: row.params.minStraightRun,
     fillFraction: row.params.fillFraction,
+    lobeCount: row.params.lobeCount,
   };
   if (!row.ok) {
     return {
@@ -144,6 +130,7 @@ const AGG_PREFIX_COLUMNS = [
   'bendProbability',
   'minStraightRun',
   'fillFraction',
+  'lobeCount',
   'seedCount',
   'failureCount',
   'failedSeeds',
@@ -166,6 +153,7 @@ export function aggregatesToCsv(aggregates: readonly CellAggregate[]): string {
       agg.params.bendProbability,
       agg.params.minStraightRun,
       agg.params.fillFraction,
+      agg.params.lobeCount,
       agg.seedCount,
       agg.failureCount,
       agg.failedSeeds.join(';'),

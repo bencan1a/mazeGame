@@ -17,15 +17,19 @@ through Chromium at 4 grid sizes × 4 stroke widths × 2 repair profiles, each
 put through the real generator — `repairMask`, `buildRegionPaths`,
 `peelSegments`, blocking digraph, colouring, `validateBoard`, `computeMetrics`.
 
-- Code: [`spikes/line-art/`](../../../spikes/line-art/). `fetch.sh` pulls the
-  corpus, `run.ts` produces both artefacts here, `bake.ts` answers the
-  resolution and bundle questions.
 - Data: [`results.csv`](results.csv), 736 rows.
 - **[`contact-sheet.png`](contact-sheet.png) is the deliverable to actually
   look at** — every shape, every size, rendered as the board the generator
   produced.
 
-No third-party art is vendored; `fetch.sh` pulls it on demand.
+The spike's own scripts have been deleted. What survived the spike is
+[`tools/shapes/`](../../../tools/shapes/), which bakes the shipped library and
+carries the rasteriser, the fitter and the contact-sheet builder unchanged. The
+rest — the corpus fetch, the resolution and bundle bake, the orientation and
+yield sweeps — answered their question here and does not need to keep compiling
+to stay answered.
+
+No third-party art is vendored; the corpus was pulled on demand.
 
 ## 1. The importer is ~40 lines, and the pipeline accepts its output
 
@@ -352,7 +356,8 @@ Two things argue for revisiting them rather than dropping them:
 
 Phosphor ships per-icon categories and tags in its metadata, so the brand marks
 and interface glyphs can be filtered by rule rather than by eye.
-`spikes/line-art/curate.ts` holds the rule and reproduces the list.
+[`tools/shapes/curate.ts`](../../../tools/shapes/curate.ts) holds the rule and
+reproduces the list.
 
 - **Blocked outright**: brands, arrows, system, editor, design, technology &
   development, communications.

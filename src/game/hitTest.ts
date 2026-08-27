@@ -17,6 +17,7 @@
 
 import type { Board, SegmentId } from '../core/types.js';
 import type { CssPixel, Viewport } from '../render/viewport.js';
+import { requireNonNegativeFinite } from '../render/numeric.js';
 import { cssPixelToCell } from '../render/viewport.js';
 
 /** Injected rather than read from game state, so this module stays testable with no game state at all. */
@@ -32,12 +33,6 @@ export interface HitTestOptions {
 
 /** A fingertip-sized tolerance, in CSS pixels, independent of zoom. */
 export const DEFAULT_TAP_RADIUS_CSS_PX = 24;
-
-function requireNonNegativeFinite(value: number, name: string): void {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError(`${name} must be a non-negative finite number, got ${value}`);
-  }
-}
 
 /**
  * Resolves a CSS-pixel tap to a segment id, or `null` for a miss.
