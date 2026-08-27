@@ -332,7 +332,7 @@ product rather than a demo.
 
 The mechanism is settled and measured: a line drawing's strokes are empty space, and the
 enclosed faces between them become the lobes the player fills. Evidence, including what
-does not work, is in [`spikes/line-art/`](./spikes/line-art/README.md).
+does not work, is in [`docs/spikes/line-art/`](./spikes/line-art/README.md).
 
 ### 9.1 The library
 

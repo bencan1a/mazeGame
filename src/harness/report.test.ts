@@ -71,6 +71,16 @@ describe('rowsToCsv', () => {
     const [, dataLine] = csv.trim().split('\n');
     expect(dataLine).toMatch(/^0,2,false,/);
   });
+
+  it('carries every swept parameter, so two cells of a sweep never read alike', () => {
+    const oneLobe = okRow();
+    const threeLobes: BoardRowOk = { ...oneLobe, params: { ...params, lobeCount: 3 } };
+    const [header, first, second] = rowsToCsv([oneLobe, threeLobes]).trim().split('\n');
+    for (const key of Object.keys(params) as (keyof typeof params)[]) {
+      if (key !== 'seed') expect(header).toContain(key);
+    }
+    expect(first).not.toBe(second);
+  });
 });
 
 describe('aggregatesToCsv', () => {
@@ -80,6 +90,14 @@ describe('aggregatesToCsv', () => {
     expect(csv).toContain('dagDepthMean,dagDepthMin,dagDepthMax');
     const lines = csv.trim().split('\n');
     expect(lines).toHaveLength(2);
+  });
+
+  it('carries every swept parameter', () => {
+    const agg = aggregateCell(cell, [okRow()]);
+    const [header] = aggregatesToCsv([agg]).trim().split('\n');
+    for (const key of Object.keys(cell.params) as (keyof CellParams)[]) {
+      expect(header).toContain(key);
+    }
   });
 });
 

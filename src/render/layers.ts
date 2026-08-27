@@ -16,6 +16,7 @@ import {
   drawSegmentGuarded,
   isBoardLegibleUnzoomed,
 } from './draw.js';
+import { requirePositiveFinite } from './numeric.js';
 import { BLOCKED_SEGMENT_COLOR } from './palette.js';
 import { createBufferViewport, type CanvasLike, type Viewport } from './viewport.js';
 import type { Board, SegmentId } from '../core/types.js';
@@ -43,12 +44,6 @@ export interface BufferBudget {
   readonly heightPx: number;
   /** True once the request has been reduced below what was asked for. */
   readonly degraded: boolean;
-}
-
-function requirePositiveFinite(value: number, name: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive finite number, got ${value}`);
-  }
 }
 
 /**

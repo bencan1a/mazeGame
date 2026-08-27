@@ -56,10 +56,6 @@ const DISCLAIMER =
   'This is not a device measurement and says nothing about the 1s generation ' +
   'target at 100x100 — that is only settled by running on a phone.';
 
-export function getDisclaimer(): string {
-  return DISCLAIMER;
-}
-
 /**
  * One verdict per baseline entry, not per aggregate — a size the run never
  * produced a matching aggregate for is `broken`, not skipped.
