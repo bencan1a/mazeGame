@@ -27,6 +27,7 @@ import {
   type ShapeDrawing,
 } from '../game/index.js';
 import {
+  CONFETTI_DURATION_MS,
   INTRO_DURATION_MS,
   INTRO_START_ZOOM,
   blitStaticLayer,
@@ -45,10 +46,12 @@ import {
   redrawStaticLayer,
   segmentSetsDiffer,
   startBounceAnimation,
+  startConfettiAnimation,
   startIntroAnimation,
   startSnakeOutAnimation,
   zoomViewportAt,
   type AnimationLayer,
+  type ConfettiAnimation,
   type IntroAnimation,
   type IntroFrame,
   type SnakeOutAnimation,
@@ -279,6 +282,9 @@ export function createBoardController(
   let userZoomed = false;
   let disposed = false;
   let intro: IntroAnimation | null = null;
+  let celebration: ConfettiAnimation | null = null;
+  /** True once this board's win burst has been fired, so a later frame cannot fire a second. */
+  let celebrated = false;
   /**
    * While true the static layer holds only segments 1..`introRevealed` and the
    * viewport is the reveal's own camera rather than the resting fit.
@@ -576,6 +582,7 @@ export function createBoardController(
       publish();
       publishSnapshot();
       driveOutcome();
+      maybeCelebrate();
     },
   });
 
@@ -608,6 +615,39 @@ export function createBoardController(
     });
   };
 
+  const cancelCelebration = (): void => {
+    celebration?.cancel();
+    celebration = null;
+    celebrated = false;
+  };
+
+  /**
+   * Fires the confetti once the last piece has landed and the board is won.
+   * Nothing else draws on the animation layer from here on: a tap on a
+   * finished board resolves to nothing.
+   */
+  const maybeCelebrate = (): void => {
+    if (celebrated || disposed) return;
+    if (state.status !== 'won' || state.animating) return;
+    if (board.segmentCount === 0) return;
+    celebrated = true;
+    if (animationLayer === null || prefersReducedMotion()) return;
+    try {
+      celebration = startConfettiAnimation({
+        layer: () => animationLayer as AnimationLayer,
+        scheduler,
+        durationMs: CONFETTI_DURATION_MS,
+        seed: genParams.seed,
+        onComplete: () => {
+          celebration = null;
+        },
+      });
+    } catch {
+      // A burst that cannot start costs the celebration, not the board.
+      celebration = null;
+    }
+  };
+
   /** Starts an animation for a tap the state machine has just resolved, if it needs one. */
   const driveOutcome = (): void => {
     if (!state.animating || state.lastOutcome === null) return;
@@ -638,6 +678,7 @@ export function createBoardController(
    */
   const stopMotion = (): void => {
     cancelIntro();
+    cancelCelebration();
     if (settleHandle !== null) {
       scheduler.cancelFrame(settleHandle);
       settleHandle = null;
@@ -663,6 +704,7 @@ export function createBoardController(
       publish();
       publishSnapshot();
       driveOutcome();
+      maybeCelebrate();
     });
   };
 
