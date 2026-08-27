@@ -34,8 +34,8 @@ describe('paramsFromLocation', () => {
 });
 
 describe('debugEnabled', () => {
-  it('is false with no query string available', () => {
-    expect(debugEnabled(undefined)).toBe(false);
+  it('is false when there is no location to read a query string from', () => {
+    expect(debugEnabled()).toBe(false);
   });
 
   it('is false without ?debug', () => {
