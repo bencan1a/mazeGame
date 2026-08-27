@@ -14,10 +14,15 @@ import {
   type BoardHud,
   type ResumableState,
 } from './boardController.js';
+import { pickWinPhrases } from './celebration.js';
 import { DevPanel } from './DevPanel.js';
+import { WinCelebration } from './WinCelebration.js';
 
 /** How long a lost board stays readable before it replays the same seed. */
 const LOSS_BEAT_MS = 1600;
+
+/** How many phrases pop up on a win: a headline and two echoes behind it. */
+const WIN_PHRASE_COUNT = 3;
 
 function defaultSearch(): string | undefined {
   return typeof window === 'undefined' ? undefined : window.location.search;
@@ -116,6 +121,8 @@ export function BoardMount(props: BoardMountProps): ReactElement {
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const pendingSaveRef = useRef<ResumableState | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const [winPhrases, setWinPhrases] = useState<readonly string[]>([]);
+  const lastHeadlineRef = useRef<number | null>(null);
 
   /**
    * Writes whatever is pending straight away, cancelling any debounce still
@@ -230,6 +237,16 @@ export function BoardMount(props: BoardMountProps): ReactElement {
   }, []);
 
   useEffect(() => {
+    if (hud.status !== 'won') {
+      setWinPhrases([]);
+      return;
+    }
+    const choice = pickWinPhrases(WIN_PHRASE_COUNT, lastHeadlineRef.current);
+    lastHeadlineRef.current = choice.headlineIndex;
+    setWinPhrases(choice.phrases);
+  }, [hud.status]);
+
+  useEffect(() => {
     if (hud.status !== 'lost') return;
     // Zero lives replays the same seed rather than ending; the delay is only
     // so the player sees why the board reset.
@@ -301,6 +318,7 @@ export function BoardMount(props: BoardMountProps): ReactElement {
       <div className="board-surface" ref={surfaceRef} style={{ touchAction: 'none' }}>
         <canvas ref={baseRef} className="board-canvas" />
         <canvas ref={overlayRef} className="board-canvas" />
+        <WinCelebration phrases={winPhrases} />
       </div>
 
       {debug ? (

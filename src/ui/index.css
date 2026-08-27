@@ -98,6 +98,67 @@ body,
   display: block;
 }
 
+.win-celebration {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  pointer-events: none;
+  text-align: center;
+  padding: 1rem;
+}
+
+.win-phrase {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+  /* The board is drawn right up against these, so the text carries its own
+     contrast rather than relying on whatever it lands on. */
+  text-shadow:
+    0 2px 12px rgb(21 21 39 / 90%),
+    0 0 3px rgb(21 21 39 / 90%);
+  animation: win-phrase-pop 480ms cubic-bezier(0.2, 1.5, 0.4, 1) backwards;
+}
+
+.win-phrase-headline {
+  font-size: clamp(1.75rem, 9vw, 3.25rem);
+}
+
+.win-phrase-echo {
+  font-size: clamp(1rem, 4.5vw, 1.5rem);
+  color: var(--muted);
+}
+
+.win-phrase-echo-0 {
+  animation-delay: 320ms;
+  transform: rotate(-4deg);
+}
+
+.win-phrase-echo-1 {
+  animation-delay: 620ms;
+  transform: rotate(3deg);
+}
+
+@keyframes win-phrase-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4) rotate(0deg);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .win-phrase {
+    animation: none;
+  }
+}
+
 .dev-panel-toggle {
   position: fixed;
   right: calc(0.75rem + env(safe-area-inset-right));

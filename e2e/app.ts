@@ -60,6 +60,25 @@ export async function readLives(page: Page): Promise<number> {
 }
 
 /**
+ * True while anything at all is drawn on the overlay canvas, which is cleared
+ * to transparent between animations.
+ */
+export async function overlayHasInk(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const canvases = document.querySelectorAll<HTMLCanvasElement>('.board-canvas');
+    const overlay = canvases[1];
+    if (overlay === undefined || overlay.width === 0) return false;
+    const ctx = overlay.getContext('2d', { willReadFrequently: true });
+    if (ctx === null) return false;
+    const { data } = ctx.getImageData(0, 0, overlay.width, overlay.height);
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return true;
+    }
+    return false;
+  });
+}
+
+/**
  * True once the base canvas holds more than one distinct colour. The board is
  * painted a frame or two after the canvas is in the DOM, and an unallocated
  * drawing buffer reads back as a uniform blank rather than throwing.

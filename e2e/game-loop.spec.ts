@@ -7,6 +7,7 @@ import {
   firstFreeSegment,
   fixtureBoard,
   openBoard,
+  overlayHasInk,
   readCounter,
   readLives,
   readSavedGame,
@@ -91,5 +92,26 @@ test.describe('game loop', () => {
     // Every tap in a clearing order is on a free segment, so a life lost here
     // means the tap landed on something other than what it aimed at.
     expect(await readLives(page)).toBe(lives);
+  });
+
+  test('a win pops up a phrase over a confetti burst, and restarting clears both', async ({
+    page,
+  }) => {
+    const board = fixtureBoard(FIXTURE_BOARD);
+
+    await openBoard(page, FIXTURE_BOARD);
+    await expect(page.locator('.win-celebration')).toHaveCount(0);
+
+    for (const [index, id] of clearingOrder(board).entries()) {
+      await tapSegment(page, board, id);
+      await expect.poll(async () => (await readCounter(page)).removed).toBe(index + 1);
+    }
+
+    await expect(page.locator('.win-phrase-headline')).toHaveText(/\S/);
+    await expect.poll(() => overlayHasInk(page), { message: 'no confetti drawn' }).toBe(true);
+
+    await page.getByRole('button', { name: 'Restart' }).click();
+    await expect(page.locator('.win-celebration')).toHaveCount(0);
+    await expect.poll(() => overlayHasInk(page)).toBe(false);
   });
 });
